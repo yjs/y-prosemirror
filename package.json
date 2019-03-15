@@ -1,0 +1,28 @@
+{
+  "name": "y-prosemirror",
+  "version": "0.0.0",
+  "description": "Prosemirror bindings for Yjs",
+  "main": "./src/prosemirror.js",
+  "dependencies": {
+    "prosemirror-model": "^1.7.0",
+    "prosemirror-view": "^1.7.1",
+    "prosemirror-state": "^1.2.2"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/y-js/y-prosemirror.git"
+  },
+  "keywords": [
+    "Yjs"
+  ],
+  "author": "Kevin Jahns <kevin.jahns@protonmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/y-js/y-prosemirror/issues"
+  },
+  "homepage": "https://github.com/y-js/y-prosemirror#readme"
+}
