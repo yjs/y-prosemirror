@@ -3,14 +3,35 @@
   "version": "0.0.0",
   "description": "Prosemirror bindings for Yjs",
   "main": "./src/prosemirror.js",
-  "dependencies": {
-    "prosemirror-model": "^1.7.0",
-    "prosemirror-view": "^1.7.1",
-    "prosemirror-state": "^1.2.2"
-  },
-  "devDependencies": {},
+  "sideEffects": false,
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dist": "rm -rf dist/* && rollup -c",
+    "test": "echo 'should lint here'",
+    "lint": "standard",
+    "watch": "rollup -wc",
+    "debug": "concurrently 'live-server --port=3443 --entry-file=test.html' 'npm run watch'",
+    "preversion": "npm run test",
+    "version": "npm run dist"
+  },
+  "files": [
+    "dist/*",
+    "examples/*",
+    "docs/*",
+    "README.md",
+    "LICENSE"
+  ],
+  "devDependencies": {
+    "concurrently": "^4.1.0",
+    "live-server": "^1.2.1",
+    "prosemirror-example-setup": "^1.0.1",
+    "prosemirror-model": "^1.7.0",
+    "prosemirror-schema-basic": "^1.0.1",
+    "prosemirror-state": "^1.2.2",
+    "prosemirror-view": "^1.7.1",
+    "rollup": "^1.10.1",
+    "rollup-plugin-commonjs": "^9.3.4",
+    "rollup-plugin-node-resolve": "^4.2.3",
+    "yjs": "file:../yjs"
   },
   "repository": {
     "type": "git",
@@ -24,5 +45,8 @@
   "bugs": {
     "url": "https://github.com/y-js/y-prosemirror/issues"
   },
-  "homepage": "https://github.com/y-js/y-prosemirror#readme"
+  "homepage": "https://github.com/y-js/y-prosemirror#readme",
+  "dependencies": {
+    "lib0": "file:../lib0"
+  }
 }
