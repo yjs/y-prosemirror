@@ -74,13 +74,6 @@ export const prosemirrorPlugin = yXmlFragment => {
                 pluginState.binding._prosemirrorChanged(pluginState.binding.prosemirrorView.state.doc)
               }
             }, 0)
-          } else if (pluginState.snapshot == null) {
-            // only apply if no snapshot active
-            // update Yjs state when apply is called. We need to do this here to compute the correct cursor decorations with the cursor plugin
-            if (changedInitialContent || tr.doc.content.size > 2) {
-              changedInitialContent = true
-              pluginState.binding._prosemirrorChanged(tr.doc)
-            }
           }
         }
         return pluginState
@@ -133,8 +126,8 @@ export const cursorPlugin = new Plugin({
         // do not render cursors while snapshot is active
         return
       }
-      awareness.forEach((aw, userID) => {
-        if (userID === y.userID) {
+      awareness.forEach((aw, clientId) => {
+        if (clientId === y.clientID) {
           return
         }
         if (aw.cursor != null) {
@@ -143,10 +136,10 @@ export const cursorPlugin = new Plugin({
             user.color = '#ffa500'
           }
           if (user.name == null) {
-            user.name = `User: ${userID}`
+            user.name = `User: ${clientId}`
           }
-          let anchor = relativePositionToAbsolutePosition(y, ystate.type, aw.cursor.anchor || null, ystate.binding.mapping)
-          let head = relativePositionToAbsolutePosition(y, ystate.type, aw.cursor.head || null, ystate.binding.mapping)
+          let anchor = relativePositionToAbsolutePosition(y, ystate.type, Y.createCursorFromJSON(aw.cursor.anchor), ystate.binding.mapping)
+          let head = relativePositionToAbsolutePosition(y, ystate.type, Y.createCursorFromJSON(aw.cursor.head), ystate.binding.mapping)
           if (anchor !== null && head !== null) {
             let maxsize = math.max(state.doc.content.size - 1, 0)
             anchor = math.min(anchor, maxsize)
@@ -160,7 +153,7 @@ export const cursorPlugin = new Plugin({
               userDiv.insertBefore(document.createTextNode(user.name), null)
               cursor.insertBefore(userDiv, null)
               return cursor
-            }, { key: userID + '' }))
+            }, { key: clientId + '' }))
             const from = math.min(anchor, head)
             const to = math.max(anchor, head)
             decorations.push(Decoration.inline(from, to, { style: `background-color: ${user.color}70` }))
@@ -300,7 +293,11 @@ export const relativePositionToAbsolutePosition = (y, yDoc, relPos, mapping) => 
     let i = 0
     while (i < type._length && i < decodedPos.offset && n !== null) {
       i++
-      pos += mapping.get(n.type).nodeSize
+      if (n.type.constructor === Y.XmlText) {
+        pos += n.type._length
+      } else {
+        pos += mapping.get(n.type).nodeSize
+      }
       n = /** @type {Y.ItemType} */ (n.next)
     }
     pos += 1 // increase because we go out of n
@@ -317,7 +314,11 @@ export const relativePositionToAbsolutePosition = (y, yDoc, relPos, mapping) => 
         if (n.type === type) {
           break
         }
-        pos += mapping.get(n.type).nodeSize
+        if (n.type.constructor === Y.XmlText) {
+          pos += n.type._length
+        } else {
+          pos += mapping.get(n.type).nodeSize
+        }
         n = /** @type {Y.ItemType} */ (n.next)
       }
     }
@@ -499,13 +500,10 @@ export const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapsh
     }
     node = schema.node(el.nodeName.toLowerCase(), attrs, children)
   } catch (e) {
-    // an error occured while creating the node. This is probably a result because of a concurrent action.
-    // ignore the node while rendering
-    /* do not delete anymore
-    el._y.transact(() => {
-      el._delete(el._y, true)
+    // an error occured while creating the node. This is probably a result of a concurrent action.
+    /** @type {Y.Y} */ (el._y).transact(transaction => {
+      /** @type {Y.ItemType} */ (el._item).delete(transaction)
     })
-    */
     return null
   }
   mapping.set(el, node)
@@ -727,7 +725,7 @@ const updateYFragment = (y, yDomFragment, pContent, mapping) => {
           if (delta.length === 1 && delta[0].insert && equalAttrs(pattrs, delta[0].attributes || {})) {
             const diff = simpleDiff(delta[0].insert, leftP.text)
             leftY.delete(diff.index, diff.remove)
-            leftY.insert(diff.index, diff.insert)
+            leftY.insert(diff.index, diff.insert, delta[0].attributes || {})
           } else {
             yDomFragment.delete(left, 1)
             yDomFragment.insert(left, [createTypeFromNode(leftP, mapping)])

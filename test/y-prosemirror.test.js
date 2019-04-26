@@ -2,20 +2,23 @@
 import * as t from 'lib0/testing.js'
 import * as prng from 'lib0/prng.js'
 import * as math from 'lib0/math.js'
-import * as Y from 'yjs'
+import * as Y from 'yjs/src/index.js'
+import { applyRandomTests } from 'yjs/tests/testHelper.js'
 
 import { prosemirrorPlugin } from '../src/y-prosemirror.js'
 import { Slice, Fragment } from 'prosemirror-model'
 import { EditorState, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { schema } from 'prosemirror-schema-basic'
-import { exampleSetup } from 'prosemirror-example-setup'
+import { wrapIn } from 'prosemirror-commands'
+import { findWrapping } from 'prosemirror-transform'
+import { exampleSetup, buildMenuItems } from 'prosemirror-example-setup'
 
 const createNewProsemirrorView = y => {
-  const view = new EditorView(document.createElement('div'), {
+  const view = new EditorView(null, {
     state: EditorState.create({
       schema,
-      plugins: exampleSetup({ schema }).concat([prosemirrorPlugin(y.get('prosemirror', Y.XmlFragment))])
+      plugins: [prosemirrorPlugin(y.get('prosemirror', Y.XmlFragment))]
     })
   })
   return view
@@ -33,10 +36,11 @@ const marksChoices = [
 
 const pmChanges = [
   /**
-   * @param {EditorView} p
+   * @param {Y.Y} y
    * @param {prng.PRNG} gen
+   * @param {EditorView} p
    */
-  (p, gen) => { // insert text
+  (y, gen, p) => { // insert text
     const insertPos = prng.int32(gen, 0, p.state.doc.content.size)
     const marks = prng.oneOf(gen, marksChoices)
     const tr = p.state.tr
@@ -44,23 +48,66 @@ const pmChanges = [
     p.dispatch(tr.insert(insertPos, schema.text(text, marks)))
   },
   /**
-   * @param {EditorView} p
+   * @param {Y.Y} y
    * @param {prng.PRNG} gen
+   * @param {EditorView} p
    */
-  (p, gen) => { // delete text
+  (y, gen, p) => { // delete text
     const insertPos = prng.int32(gen, 0, p.state.doc.content.size)
     const overwrite = math.min(prng.int32(gen, 0, p.state.doc.content.size - insertPos), 2)
     p.dispatch(p.state.tr.insertText('', insertPos, insertPos + overwrite))
   },
   /**
-   * @param {EditorView} p
+   * @param {Y.Y} y
    * @param {prng.PRNG} gen
+   * @param {EditorView} p
    */
-  (p, gen) => { // replace text
+  (y, gen, p) => { // replace text
     const insertPos = prng.int32(gen, 0, p.state.doc.content.size)
     const overwrite = math.min(prng.int32(gen, 0, p.state.doc.content.size - insertPos), 2)
     const text = charCounter++ + prng.word(gen)
     p.dispatch(p.state.tr.insertText(text, insertPos, insertPos + overwrite))
+  },
+  /**
+   * @param {Y.Y} y
+   * @param {prng.PRNG} gen
+   * @param {EditorView} p
+   */
+  (y, gen, p) => { // insert paragraph
+    const insertPos = prng.int32(gen, 0, p.state.doc.content.size)
+    const marks = prng.oneOf(gen, marksChoices)
+    const tr = p.state.tr
+    const text = charCounter++ + prng.word(gen)
+    p.dispatch(tr.insert(insertPos, schema.node('paragraph', undefined, schema.text(text, marks))))
+  },
+  /**
+   * @param {Y.Y} y
+   * @param {prng.PRNG} gen
+   * @param {EditorView} p
+   */
+  (y, gen, p) => { // insert codeblock
+    const insertPos = prng.int32(gen, 0, p.state.doc.content.size)
+    const tr = p.state.tr
+    const text = charCounter++ + prng.word(gen)
+    p.dispatch(tr.insert(insertPos, schema.node('code_block', undefined, schema.text(text))))
+  },
+  /**
+   * @param {Y.Y} y
+   * @param {prng.PRNG} gen
+   * @param {EditorView} p
+   */
+  (y, gen, p) => { // wrap in blockquote
+    const insertPos = prng.int32(gen, 0, p.state.doc.content.size)
+    const overwrite = prng.int32(gen, 0, p.state.doc.content.size - insertPos)
+    const tr = p.state.tr
+    tr.setSelection(TextSelection.create(tr.doc, insertPos, insertPos + overwrite))
+    const $from = tr.selection.$from
+    const $to = tr.selection.$to
+    const range = $from.blockRange($to)
+    const wrapping = range && findWrapping(range, schema.nodes.blockquote)
+    if (wrapping) {
+      p.dispatch(tr.wrap(range, wrapping))
+    }
   }
 ]
 
@@ -72,13 +119,59 @@ export const testRepeatRandomProsemirrorInsertions = tc => {
   const y = new Y.Y()
   const p1 = createNewProsemirrorView(y)
   const p2 = createNewProsemirrorView(y)
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < 30; i++) {
     const p = prng.oneOf(gen, [p1, p2])
-    prng.oneOf(gen, pmChanges)(p, gen)
+    prng.oneOf(gen, pmChanges)(y, gen, p)
   }
   t.compare(
     p1.state.doc.toJSON(),
     p2.state.doc.toJSON(),
     'compare prosemirror models'
   )
+}
+
+/**
+ * @param {any} result
+ */
+const checkResult = result => {
+  for (let i = 1; i < result.testObjects.length; i++) {
+    const p1 = result.testObjects[i - 1].state.doc.toJSON()
+    const p2 = result.testObjects[i].state.doc.toJSON()
+    t.compare(p1, p2)
+  }
+}
+
+/**
+ * @param {t.TestCase} tc
+ */
+export const testRepeatGenerateProsemirrorChanges30 = tc => {
+  checkResult(applyRandomTests(tc, pmChanges, 30, createNewProsemirrorView))
+}
+
+/**
+ * @param {t.TestCase} tc
+ */
+export const testRepeatGenerateProsemirrorChanges40 = tc => {
+  checkResult(applyRandomTests(tc, pmChanges, 40, createNewProsemirrorView))
+}
+
+/**
+ * @param {t.TestCase} tc
+ */
+export const testRepeatGenerateProsemirrorChanges70 = tc => {
+  checkResult(applyRandomTests(tc, pmChanges, 70, createNewProsemirrorView))
+}
+
+/**
+ * @param {t.TestCase} tc
+ */
+export const testRepeatGenerateProsemirrorChanges100 = tc => {
+  checkResult(applyRandomTests(tc, pmChanges, 100, createNewProsemirrorView))
+}
+
+/**
+ * @param {t.TestCase} tc
+ */
+export const testRepeatGenerateProsemirrorChanges300 = tc => {
+  checkResult(applyRandomTests(tc, pmChanges, 300, createNewProsemirrorView))
 }

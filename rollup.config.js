@@ -36,7 +36,7 @@ export default [{
   input: './src/y-prosemirror.js',
   output: [{
     name: 'Y',
-    file: 'dist/y-prosemirror.cjs.js',
+    file: 'dist/y-prosemirror.js',
     format: 'cjs',
     sourcemap: true,
     paths: path => {
