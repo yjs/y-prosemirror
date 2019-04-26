@@ -2,17 +2,14 @@
 import * as t from 'lib0/testing.js'
 import * as prng from 'lib0/prng.js'
 import * as math from 'lib0/math.js'
-import * as Y from 'yjs/src/index.js'
+import * as Y from 'yjs'
 import { applyRandomTests } from 'yjs/tests/testHelper.js'
 
 import { prosemirrorPlugin } from '../src/y-prosemirror.js'
-import { Slice, Fragment } from 'prosemirror-model'
 import { EditorState, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { schema } from 'prosemirror-schema-basic'
-import { wrapIn } from 'prosemirror-commands'
 import { findWrapping } from 'prosemirror-transform'
-import { exampleSetup, buildMenuItems } from 'prosemirror-example-setup'
 
 const createNewProsemirrorView = y => {
   const view = new EditorView(null, {

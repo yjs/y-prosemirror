@@ -19,6 +19,9 @@ const customLibModules = new Set([
 ])
 const debugResolve = {
   resolveId (importee) {
+    if (importee === 'yjs/tests/testHelper.js') {
+      return `${process.cwd()}/../yjs/tests/testHelper.js`
+    }
     if (importee === 'yjs') {
       return `${process.cwd()}/../yjs/src/index.js`
     }
@@ -45,11 +48,6 @@ export default [{
       }
       return path
     }
-  }, {
-    name: 'Y',
-    file: 'dist/yjs.mjs',
-    format: 'es',
-    sourcemap: true
   }],
   external: id => /^lib0\//.test(id)
 }, {

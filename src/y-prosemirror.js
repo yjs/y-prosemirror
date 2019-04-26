@@ -535,11 +535,10 @@ export const createTextNodesFromYText = (text, schema, mapping, snapshot, prevSn
       mapping.set(text, nodes[0]) // only map to first child, all following children are also considered bound to this type
     }
   } catch (e) {
-    /*
-    text._y.transact(() => {
-      text._delete(text._y, true)
+    // an error occured while creating the node. This is probably a result of a concurrent action.
+    /** @type {Y.Y} */ (text._y).transact(transaction => {
+      /** @type {Y.ItemType} */ (text._item).delete(transaction)
     })
-    */
     return null
   }
   // @ts-ignore
