@@ -122,7 +122,7 @@ export const cursorPlugin = new Plugin({
       const y = ystate.y
       const awareness = y.getAwarenessInfo()
       const decorations = []
-      if (ystate.snapshot != null) {
+      if (ystate.snapshot != null || ystate.binding === null) {
         // do not render cursors while snapshot is active
         return
       }

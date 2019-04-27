@@ -33,9 +33,7 @@
   "peerDependencies": {
     "lib0": "*",
     "yjs": "13.0.0-80",
-    "prosemirror-example-setup": "^1.0.1",
     "prosemirror-model": "^1.7.0",
-    "prosemirror-schema-basic": "^1.0.1",
     "prosemirror-state": "^1.2.2",
     "prosemirror-view": "^1.7.1"
   },
@@ -43,9 +41,7 @@
     "yjs": "13.0.0-80",
     "concurrently": "^4.1.0",
     "live-server": "^1.2.1",
-    "prosemirror-example-setup": "^1.0.1",
     "prosemirror-model": "^1.7.0",
-    "prosemirror-schema-basic": "^1.0.1",
     "prosemirror-state": "^1.2.2",
     "prosemirror-view": "^1.7.1",
     "rollup": "^1.10.1",
