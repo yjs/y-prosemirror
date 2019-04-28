@@ -32,13 +32,13 @@
   "homepage": "https://github.com/y-js/y-prosemirror#readme",
   "peerDependencies": {
     "lib0": "*",
-    "yjs": "13.0.0-80",
+    "yjs": "13.0.0-81",
     "prosemirror-model": "^1.7.0",
     "prosemirror-state": "^1.2.2",
     "prosemirror-view": "^1.7.1"
   },
   "devDependencies": {
-    "yjs": "13.0.0-80",
+    "yjs": "13.0.0-81",
     "concurrently": "^4.1.0",
     "live-server": "^1.2.1",
     "prosemirror-model": "^1.7.0",
