@@ -31,8 +31,10 @@
     "url": "https://github.com/y-js/y-prosemirror/issues"
   },
   "homepage": "https://github.com/y-js/y-prosemirror#readme",
+  "dependencies": {
+    "lib0": "0.0.4"
+  },
   "peerDependencies": {
-    "lib0": "0.0.4",
     "yjs": "13.0.0-82",
     "prosemirror-model": "^1.7.0",
     "prosemirror-state": "^1.2.2",
