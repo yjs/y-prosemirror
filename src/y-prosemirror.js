@@ -43,7 +43,7 @@ export const prosemirrorPlugin = yXmlFragment => {
       init: (initargs, state) => {
         return {
           type: yXmlFragment,
-          y: yXmlFragment._y,
+          doc: yXmlFragment.doc,
           binding: null,
           snapshot: null,
           isChangeOrigin: false
@@ -119,7 +119,7 @@ export const cursorPlugin = new Plugin({
   props: {
     decorations: state => {
       const ystate = prosemirrorPluginKey.getState(state)
-      const y = ystate.y
+      const y = ystate.doc
       const awareness = y.getAwarenessInfo()
       const decorations = []
       if (ystate.snapshot != null || ystate.binding === null) {
@@ -138,8 +138,8 @@ export const cursorPlugin = new Plugin({
           if (user.name == null) {
             user.name = `User: ${clientId}`
           }
-          let anchor = relativePositionToAbsolutePosition(y, ystate.type, Y.createCursorFromJSON(aw.cursor.anchor), ystate.binding.mapping)
-          let head = relativePositionToAbsolutePosition(y, ystate.type, Y.createCursorFromJSON(aw.cursor.head), ystate.binding.mapping)
+          let anchor = relativePositionToAbsolutePosition(y, ystate.type, Y.createRelativePositionFromJSON(aw.cursor.anchor), ystate.binding.mapping)
+          let head = relativePositionToAbsolutePosition(y, ystate.type, Y.createRelativePositionFromJSON(aw.cursor.head), ystate.binding.mapping)
           if (anchor !== null && head !== null) {
             let maxsize = math.max(state.doc.content.size - 1, 0)
             anchor = math.min(anchor, maxsize)
@@ -165,7 +165,7 @@ export const cursorPlugin = new Plugin({
   },
   view: view => {
     const ystate = prosemirrorPluginKey.getState(view.state)
-    const y = ystate.y
+    const y = ystate.doc
     const awarenessListener = () => {
       view.updateState(view.state)
     }
@@ -173,16 +173,16 @@ export const cursorPlugin = new Plugin({
       const current = y.getLocalAwarenessInfo()
       if (view.hasFocus() && ystate.binding !== null) {
         /**
-         * @type {Y.Cursor}
+         * @type {Y.RelativePosition}
          */
         const anchor = absolutePositionToRelativePosition(view.state.selection.anchor, ystate.type, ystate.binding.mapping)
         /**
-         * @type {Y.Cursor}
+         * @type {Y.RelativePosition}
          */
         const head = absolutePositionToRelativePosition(view.state.selection.head, ystate.type, ystate.binding.mapping)
-        if (current.cursor == null || !Y.compareCursors(Y.createCursorFromJSON(current.cursor.anchor), anchor) || !Y.compareCursors(Y.createCursorFromJSON(current.cursor.head), head)) {
+        if (current.cursor == null || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(current.cursor.anchor), anchor) || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(current.cursor.head), head)) {
           y.setAwarenessField('cursor', {
-            anchor: anchor.toJSON(), head: head.toJSON()
+            anchor, head
           })
         }
       } else if (current.cursor !== null) {
@@ -195,7 +195,7 @@ export const cursorPlugin = new Plugin({
     return {
       update: updateCursorInfo,
       destroy: () => {
-        const y = prosemirrorPluginKey.getState(view.state).y
+        const y = prosemirrorPluginKey.getState(view.state).doc
         y.setAwarenessField('cursor', null)
         y.off('awareness', awarenessListener)
       }
@@ -213,14 +213,14 @@ export const cursorPlugin = new Plugin({
  */
 export const absolutePositionToRelativePosition = (pos, type, mapping) => {
   if (pos === 0) {
-    return Y.createCursorFromTypeOffset(type, 0)
+    return Y.createRelativePositionFromTypeIndex(type, 0)
   }
   let n = type._first !== null ? /** @type {Y.ItemType} */ (type._first).type : null
   while (n !== null && type !== n) {
     const pNodeSize = (mapping.get(n) || { nodeSize: 0 }).nodeSize
     if (n.constructor === Y.XmlText) {
       if (n._length >= pos) {
-        return Y.createCursorFromTypeOffset(n, pos)
+        return Y.createRelativePositionFromTypeIndex(n, pos)
       } else {
         pos -= n._length
       }
@@ -242,7 +242,7 @@ export const absolutePositionToRelativePosition = (pos, type, mapping) => {
     } else {
       if (pos === 1 && n._length === 0 && pNodeSize > 1) {
         // edge case, should end in this paragraph
-        return new Y.Cursor(n._item === null ? null : n._item.id, n._item === null ? Y.findRootTypeKey(n) : null, null)
+        return new Y.RelativePosition(n._item === null ? null : n._item.id, n._item === null ? Y.findRootTypeKey(n) : null, null)
       }
       pos -= pNodeSize
       if (n._item !== null && n._item.next !== null) {
@@ -251,7 +251,7 @@ export const absolutePositionToRelativePosition = (pos, type, mapping) => {
         if (pos === 0) {
           // set to end of n.parent
           n = n._item === null ? n : n._item.parent
-          return new Y.Cursor(n._item === null ? null : n._item.id, n._item === null ? Y.findRootTypeKey(n) : null, null)
+          return new Y.RelativePosition(n._item === null ? null : n._item.id, n._item === null ? Y.findRootTypeKey(n) : null, null)
         }
         do {
           n = /** @type {Y.ItemType} */ (n._item).parent
@@ -267,31 +267,31 @@ export const absolutePositionToRelativePosition = (pos, type, mapping) => {
       throw error.unexpectedCase()
     }
     if (pos === 0 && n.constructor !== Y.XmlText && n !== type) { // TODO: set to <= 0
-      return new Y.Cursor(n._item === null ? null : n._item.id, n._item === null ? Y.findRootTypeKey(n) : null, null)
+      return new Y.RelativePosition(n._item === null ? null : n._item.id, n._item === null ? Y.findRootTypeKey(n) : null, null)
     }
   }
-  return Y.createCursorFromTypeOffset(type, type._length)
+  return Y.createRelativePositionFromTypeIndex(type, type._length)
 }
 
 /**
- * @param {Y.Y} y
+ * @param {Y.Doc} y
  * @param {Y.XmlFragment} yDoc Top level type that is bound to pView
  * @param {any} relPos Encoded Yjs based relative position
  * @param {ProsemirrorMapping} mapping
  */
 export const relativePositionToAbsolutePosition = (y, yDoc, relPos, mapping) => {
-  const decodedPos = Y.createAbsolutePositionFromCursor(relPos, y)
+  const decodedPos = Y.createAbsolutePositionFromRelativePosition(relPos, y)
   if (decodedPos === null) {
     return null
   }
   let type = decodedPos.type
   let pos = 0
   if (type.constructor === Y.XmlText) {
-    pos = decodedPos.offset
+    pos = decodedPos.index
   } else if (type._item === null || !type._item.deleted) {
     let n = /** @type {Y.ItemType} */ (type._first)
     let i = 0
-    while (i < type._length && i < decodedPos.offset && n !== null) {
+    while (i < type._length && i < decodedPos.index && n !== null) {
       i++
       if (n.type.constructor === Y.XmlText) {
         pos += n.type._length
@@ -347,15 +347,15 @@ export class ProsemirrorBinding {
     this.mapping = new Map()
     this._observeFunction = this._typeChanged.bind(this)
     /**
-     * @type {Y.Y}
+     * @type {Y.Doc}
      */
     // @ts-ignore
-    this.y = yXmlFragment._y
+    this.doc = yXmlFragment.doc
     /**
      * current selection as relative positions in the Yjs model
      */
     this._relSelection = null
-    this.y.on('beforeTransaction', e => {
+    this.doc.on('beforeTransaction', e => {
       this._relSelection = {
         anchor: absolutePositionToRelativePosition(this.prosemirrorView.state.selection.anchor, yXmlFragment, this.mapping),
         head: absolutePositionToRelativePosition(this.prosemirrorView.state.selection.head, yXmlFragment, this.mapping)
@@ -380,7 +380,7 @@ export class ProsemirrorBinding {
     // clear mapping because we are going to rerender
     this.mapping = new Map()
     this.mux(() => {
-      const fragmentContent = Y.typeArrayToArraySnapshot(this.type, new Y.Snapshot(prevSnapshot.ds, snapshot.sm, snapshot.userMap)).map(t => createNodeFromYElement(t, this.prosemirrorView.state.schema, new Map(), snapshot, prevSnapshot)).filter(n => n !== null)
+      const fragmentContent = Y.typeListToArraySnapshot(this.type, new Y.Snapshot(prevSnapshot.ds, snapshot.sm)).map(t => createNodeFromYElement(t, this.prosemirrorView.state.schema, new Map(), snapshot, prevSnapshot)).filter(n => n !== null)
       const tr = this.prosemirrorView.state.tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
       this.prosemirrorView.dispatch(tr)
     })
@@ -396,15 +396,15 @@ export class ProsemirrorBinding {
     }
     this.mux(() => {
       const delStruct = (_, struct) => this.mapping.delete(struct)
-      Y.iterateDeletedStructs(transaction.deleteSet, this.y.store, struct => this.mapping.delete(/** @type {Y.ItemType} */ (struct).type))
+      Y.iterateDeletedStructs(transaction.deleteSet, this.doc.store, struct => this.mapping.delete(/** @type {Y.ItemType} */ (struct).type))
       transaction.changed.forEach(delStruct)
       transaction.changedParentTypes.forEach(delStruct)
       const fragmentContent = this.type.toArray().map(t => createNodeIfNotExists(/** @type {Y.XmlElement | Y.XmlHook} */ (t), this.prosemirrorView.state.schema, this.mapping)).filter(n => n !== null)
       let tr = this.prosemirrorView.state.tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
       const relSel = this._relSelection
       if (relSel !== null && relSel.anchor !== null && relSel.head !== null) {
-        const anchor = relativePositionToAbsolutePosition(this.y, this.type, relSel.anchor, this.mapping)
-        const head = relativePositionToAbsolutePosition(this.y, this.type, relSel.head, this.mapping)
+        const anchor = relativePositionToAbsolutePosition(this.doc, this.type, relSel.anchor, this.mapping)
+        const head = relativePositionToAbsolutePosition(this.doc, this.type, relSel.head, this.mapping)
         if (anchor !== null && head !== null) {
           tr = tr.setSelection(TextSelection.create(tr.doc, anchor, head))
         }
@@ -415,7 +415,7 @@ export class ProsemirrorBinding {
   }
   _prosemirrorChanged (doc) {
     this.mux(() => {
-      updateYFragment(this.y, this.type, doc.content, this.mapping)
+      updateYFragment(this.doc, this.type, doc.content, this.mapping)
     })
   }
   destroy () {
@@ -459,7 +459,7 @@ export const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapsh
   if (snapshot !== undefined && prevSnapshot !== undefined) {
     if (!isVisible(el, snapshot)) {
       // if this element is already rendered as deleted (ychange), then do not render children as deleted
-      _snapshot = new Y.Snapshot(prevSnapshot.ds, snapshot.sm, snapshot.userMap)
+      _snapshot = new Y.Snapshot(prevSnapshot.ds, snapshot.sm)
       _prevSnapshot = _snapshot
     } else if (!isVisible(el, prevSnapshot)) {
       _prevSnapshot = _snapshot
@@ -486,7 +486,7 @@ export const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapsh
   if (snapshot === undefined || prevSnapshot === undefined) {
     el.toArray().forEach(createChildren)
   } else {
-    Y.typeArrayToArraySnapshot(el, new Y.Snapshot(prevSnapshot.ds, snapshot.sm, snapshot.userMap)).forEach(createChildren)
+    Y.typeListToArraySnapshot(el, new Y.Snapshot(prevSnapshot.ds, snapshot.sm)).forEach(createChildren)
   }
   let node
   try {
@@ -501,7 +501,7 @@ export const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapsh
     node = schema.node(el.nodeName.toLowerCase(), attrs, children)
   } catch (e) {
     // an error occured while creating the node. This is probably a result of a concurrent action.
-    /** @type {Y.Y} */ (el._y).transact(transaction => {
+    /** @type {Y.Doc} */ (el.doc).transact(transaction => {
       /** @type {Y.ItemType} */ (el._item).delete(transaction)
     })
     return null
@@ -536,7 +536,7 @@ export const createTextNodesFromYText = (text, schema, mapping, snapshot, prevSn
     }
   } catch (e) {
     // an error occured while creating the node. This is probably a result of a concurrent action.
-    /** @type {Y.Y} */ (text._y).transact(transaction => {
+    /** @type {Y.Doc} */ (text.doc).transact(transaction => {
       /** @type {Y.ItemType} */ (text._item).delete(transaction)
     })
     return null
@@ -640,7 +640,7 @@ const computeChildEqualityFactor = (ytype, pnode, mapping) => {
 
 /**
  * @private
- * @param {Y.Y} y
+ * @param {Y.Doc} y
  * @param {Y.XmlFragment} yDomFragment
  * @param {Object} pContent
  * @param {ProsemirrorMapping} mapping

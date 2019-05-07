@@ -33,7 +33,7 @@ const marksChoices = [
 
 const pmChanges = [
   /**
-   * @param {Y.Y} y
+   * @param {Y.Doc} y
    * @param {prng.PRNG} gen
    * @param {EditorView} p
    */
@@ -45,7 +45,7 @@ const pmChanges = [
     p.dispatch(tr.insert(insertPos, schema.text(text, marks)))
   },
   /**
-   * @param {Y.Y} y
+   * @param {Y.Doc} y
    * @param {prng.PRNG} gen
    * @param {EditorView} p
    */
@@ -55,7 +55,7 @@ const pmChanges = [
     p.dispatch(p.state.tr.insertText('', insertPos, insertPos + overwrite))
   },
   /**
-   * @param {Y.Y} y
+   * @param {Y.Doc} y
    * @param {prng.PRNG} gen
    * @param {EditorView} p
    */
@@ -66,7 +66,7 @@ const pmChanges = [
     p.dispatch(p.state.tr.insertText(text, insertPos, insertPos + overwrite))
   },
   /**
-   * @param {Y.Y} y
+   * @param {Y.Doc} y
    * @param {prng.PRNG} gen
    * @param {EditorView} p
    */
@@ -78,7 +78,7 @@ const pmChanges = [
     p.dispatch(tr.insert(insertPos, schema.node('paragraph', undefined, schema.text(text, marks))))
   },
   /**
-   * @param {Y.Y} y
+   * @param {Y.Doc} y
    * @param {prng.PRNG} gen
    * @param {EditorView} p
    */
@@ -89,7 +89,7 @@ const pmChanges = [
     p.dispatch(tr.insert(insertPos, schema.node('code_block', undefined, schema.text(text))))
   },
   /**
-   * @param {Y.Y} y
+   * @param {Y.Doc} y
    * @param {prng.PRNG} gen
    * @param {EditorView} p
    */
@@ -113,7 +113,7 @@ const pmChanges = [
  */
 export const testRepeatRandomProsemirrorInsertions = tc => {
   const gen = tc.prng
-  const y = new Y.Y()
+  const y = new Y.Doc()
   const p1 = createNewProsemirrorView(y)
   const p2 = createNewProsemirrorView(y)
   for (let i = 0; i < 30; i++) {

@@ -6,7 +6,7 @@
   "module": "./src/y-prosemirror.js",
   "sideEffects": false,
   "scripts": {
-    "dist": "rm -rf dist/* && rollup -c",
+    "dist": "rm -rf dist && rollup -c",
     "test": "echo 'should lint here'",
     "lint": "standard",
     "watch": "rollup -wc",
@@ -15,7 +15,8 @@
     "version": "npm run dist"
   },
   "files": [
-    "dist/*"
+    "dist/*",
+    "src/*"
   ],
   "repository": {
     "type": "git",
@@ -31,21 +32,22 @@
   },
   "homepage": "https://github.com/y-js/y-prosemirror#readme",
   "peerDependencies": {
-    "lib0": "*",
-    "yjs": "13.0.0-81",
+    "lib0": "0.0.4",
+    "yjs": "13.0.0-82",
     "prosemirror-model": "^1.7.0",
     "prosemirror-state": "^1.2.2",
     "prosemirror-view": "^1.7.1"
   },
   "devDependencies": {
-    "yjs": "13.0.0-81",
     "concurrently": "^4.1.0",
     "live-server": "^1.2.1",
     "prosemirror-model": "^1.7.0",
+    "prosemirror-schema-basic": "^1.0.1",
     "prosemirror-state": "^1.2.2",
     "prosemirror-view": "^1.7.1",
     "rollup": "^1.10.1",
     "rollup-plugin-commonjs": "^9.3.4",
-    "rollup-plugin-node-resolve": "^4.2.3"
+    "rollup-plugin-node-resolve": "^4.2.3",
+    "yjs": "13.0.0-82"
   }
 }
