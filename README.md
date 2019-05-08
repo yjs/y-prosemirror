@@ -26,3 +26,7 @@ const prosemirrorView = new EditorView(document.querySelector('#editor'), {
 ```
 
 Also look [here](https://github.com/y-js/yjs-demos/tree/master/prosemirror) for a working example.
+
+### License
+
+[The MIT License](./LICENSE) © Kevin Jahns
