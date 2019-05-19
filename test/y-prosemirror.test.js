@@ -109,25 +109,6 @@ const pmChanges = [
 ]
 
 /**
- * @param {t.TestCase} tc
- */
-export const testRepeatRandomProsemirrorInsertions = tc => {
-  const gen = tc.prng
-  const y = new Y.Doc()
-  const p1 = createNewProsemirrorView(y)
-  const p2 = createNewProsemirrorView(y)
-  for (let i = 0; i < 30; i++) {
-    const p = prng.oneOf(gen, [p1, p2])
-    prng.oneOf(gen, pmChanges)(y, gen, p)
-  }
-  t.compare(
-    p1.state.doc.toJSON(),
-    p2.state.doc.toJSON(),
-    'compare prosemirror models'
-  )
-}
-
-/**
  * @param {any} result
  */
 const checkResult = result => {

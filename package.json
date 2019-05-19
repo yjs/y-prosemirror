@@ -11,7 +11,7 @@
     "lint": "standard",
     "watch": "rollup -wc",
     "debug": "concurrently 'live-server --port=3443 --entry-file=test.html' 'npm run watch'",
-    "preversion": "npm run dist && npm run test"
+    "preversion": "npm run lint && npm run dist && npm run test"
   },
   "files": [
     "dist/*",
@@ -31,10 +31,11 @@
   },
   "homepage": "https://github.com/y-js/y-prosemirror#readme",
   "dependencies": {
-    "lib0": "0.0.4"
+    "lib0": "0.0.5"
   },
   "peerDependencies": {
-    "yjs": "13.0.0-82",
+    "yjs": "13.0.0-83",
+    "y-protocols": ">=0.0.6",
     "prosemirror-model": "^1.7.0",
     "prosemirror-state": "^1.2.2",
     "prosemirror-view": "^1.7.1"
@@ -50,6 +51,7 @@
     "rollup": "^1.10.1",
     "rollup-plugin-commonjs": "^9.3.4",
     "rollup-plugin-node-resolve": "^4.2.3",
-    "yjs": "13.0.0-82"
+    "yjs": "13.0.0-83",
+    "y-protocols": "0.0.6"
   }
 }

@@ -1,7 +1,7 @@
 # y-prosemirror
 > [ProseMirror](http://prosemirror.net/) Binding for [Yjs](https://github.com/y-js/yjs) - [Demo](https://yjs-demos.now.sh/prosemirror/)
 
-This binding maps a YXmlFragment to a ProseMirror model.
+This binding maps a Y.XmlFragment to the ProseMirror state.
 
 ### Features
 

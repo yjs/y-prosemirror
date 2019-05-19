@@ -11,6 +11,7 @@ import * as object from 'lib0/object.js'
 import { simpleDiff } from 'lib0/diff.js'
 import * as error from 'lib0/error.js'
 import * as Y from 'yjs'
+import { Awareness } from 'y-protocols/awareness.js' // eslint-disable-line
 
 export const isVisible = (item, snapshot) => snapshot === undefined ? !item._deleted : (snapshot.sm.has(item._id.user) && snapshot.sm.get(item._id.user) > item._id.clock && !snapshot.ds.isDeleted(item._id))
 
@@ -32,7 +33,7 @@ export const prosemirrorPluginKey = new PluginKey('yjs')
  * @param {Y.XmlFragment} yXmlFragment
  * @return {Plugin} Returns a prosemirror plugin that binds to this type
  */
-export const prosemirrorPlugin = yXmlFragment => {
+export const prosemirrorPlugin = (yXmlFragment) => {
   let changedInitialContent = false
   const plugin = new Plugin({
     props: {
@@ -113,20 +114,21 @@ export const cursorPluginKey = new PluginKey('yjs-cursor')
  * This requires that a `prosemirrorPlugin` is also bound to the prosemirror.
  *
  * @public
+ * @param {Awareness} awareness
+ * @return {Plugin}
  */
-export const cursorPlugin = new Plugin({
+export const cursorPlugin = awareness => new Plugin({
   key: cursorPluginKey,
   props: {
     decorations: state => {
       const ystate = prosemirrorPluginKey.getState(state)
       const y = ystate.doc
-      const awareness = y.getAwarenessInfo()
       const decorations = []
       if (ystate.snapshot != null || ystate.binding === null) {
         // do not render cursors while snapshot is active
         return
       }
-      awareness.forEach((aw, clientId) => {
+      awareness.getStates().forEach((aw, clientId) => {
         if (clientId === y.clientID) {
           return
         }
@@ -165,12 +167,11 @@ export const cursorPlugin = new Plugin({
   },
   view: view => {
     const ystate = prosemirrorPluginKey.getState(view.state)
-    const y = ystate.doc
     const awarenessListener = () => {
       view.updateState(view.state)
     }
     const updateCursorInfo = () => {
-      const current = y.getLocalAwarenessInfo()
+      const current = awareness.getLocalState() || {}
       if (view.hasFocus() && ystate.binding !== null) {
         /**
          * @type {Y.RelativePosition}
@@ -181,15 +182,15 @@ export const cursorPlugin = new Plugin({
          */
         const head = absolutePositionToRelativePosition(view.state.selection.head, ystate.type, ystate.binding.mapping)
         if (current.cursor == null || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(current.cursor.anchor), anchor) || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(current.cursor.head), head)) {
-          y.setAwarenessField('cursor', {
+          awareness.setLocalStateField('cursor', {
             anchor, head
           })
         }
       } else if (current.cursor !== null) {
-        y.setAwarenessField('cursor', null)
+        awareness.setLocalStateField('cursor', null)
       }
     }
-    y.on('awareness', awarenessListener)
+    awareness.on('change', awarenessListener)
     view.dom.addEventListener('focusin', updateCursorInfo)
     view.dom.addEventListener('focusout', updateCursorInfo)
     return {
@@ -197,7 +198,7 @@ export const cursorPlugin = new Plugin({
       destroy: () => {
         const y = prosemirrorPluginKey.getState(view.state).doc
         y.setAwarenessField('cursor', null)
-        y.off('awareness', awarenessListener)
+        y.off('change', awarenessListener)
       }
     }
   }
