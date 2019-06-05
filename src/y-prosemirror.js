@@ -216,7 +216,7 @@ export const absolutePositionToRelativePosition = (pos, type, mapping) => {
   if (pos === 0) {
     return Y.createRelativePositionFromTypeIndex(type, 0)
   }
-  let n = type._first !== null ? /** @type {Y.ItemType} */ (type._first).type : null
+  let n = type._first === null ? null : /** @type {Y.ContentType} */ (type._first.content).type
   while (n !== null && type !== n) {
     const pNodeSize = (mapping.get(n) || { nodeSize: 0 }).nodeSize
     if (n.constructor === Y.XmlText) {
@@ -226,7 +226,7 @@ export const absolutePositionToRelativePosition = (pos, type, mapping) => {
         pos -= n._length
       }
       if (n._item !== null && n._item.next !== null) {
-        n = /** @type {Y.ItemType} */ (n._item.next).type
+        n = /** @type {Y.ContentType} */ (n._item.next.content).type
       } else {
         do {
           n = n._item === null ? null : n._item.parent
@@ -234,11 +234,11 @@ export const absolutePositionToRelativePosition = (pos, type, mapping) => {
         } while (n !== type && n !== null && n._item !== null && n._item.next === null)
         if (n !== null && n !== type) {
           // @ts-gnore we know that n.next !== null because of above loop conditition
-          n = n._item === null ? null : /** @type {Y.ItemType} */ (n._item.next).type
+          n = n._item === null ? null : /** @type {Y.ContentType} */ (/** @type Y.Item */ (n._item.next).content).type
         }
       }
     } else if (n._first !== null && pos < pNodeSize) {
-      n = /** @type {Y.ItemType} */ (n._first).type
+      n = /** @type {Y.ContentType} */ (n._first.content).type
       pos--
     } else {
       if (pos === 1 && n._length === 0 && pNodeSize > 1) {
@@ -247,7 +247,7 @@ export const absolutePositionToRelativePosition = (pos, type, mapping) => {
       }
       pos -= pNodeSize
       if (n._item !== null && n._item.next !== null) {
-        n = /** @type {Y.ItemType} */ (n._item.next).type
+        n = /** @type {Y.ContentType} */ (n._item.next.content).type
       } else {
         if (pos === 0) {
           // set to end of n.parent
@@ -255,12 +255,13 @@ export const absolutePositionToRelativePosition = (pos, type, mapping) => {
           return new Y.RelativePosition(n._item === null ? null : n._item.id, n._item === null ? Y.findRootTypeKey(n) : null, null)
         }
         do {
-          n = /** @type {Y.ItemType} */ (n._item).parent
+          n = /** @type {Y.Item} */ (n._item).parent
           pos--
-        } while (n !== type && /** @type {Y.ItemType} */ (n._item).next === null)
+        } while (n !== type && /** @type {Y.Item} */ (n._item).next === null)
         // if n is null at this point, we have an unexpected case
         if (n !== type) {
-          n = /** @type {Y.ItemType} */ (/** @type {Y.ItemType} */ (n._item).next).type
+          // We know that n._item.next is defined because of above loop condition
+          n = /** @type {Y.ContentType} */ (/** @type {Y.Item} */ (/** @type {Y.Item} */ (n._item).next).content).type
         }
       }
     }
@@ -290,16 +291,17 @@ export const relativePositionToAbsolutePosition = (y, yDoc, relPos, mapping) => 
   if (type.constructor === Y.XmlText) {
     pos = decodedPos.index
   } else if (type._item === null || !type._item.deleted) {
-    let n = /** @type {Y.ItemType} */ (type._first)
+    let n = type._first
     let i = 0
     while (i < type._length && i < decodedPos.index && n !== null) {
       i++
-      if (n.type.constructor === Y.XmlText) {
-        pos += n.type._length
+      const t = /** @type {Y.ContentType} */ (n.content).type
+      if (t.constructor === Y.XmlText) {
+        pos += t._length
       } else {
-        pos += mapping.get(n.type).nodeSize
+        pos += mapping.get(t).nodeSize
       }
-      n = /** @type {Y.ItemType} */ (n.next)
+      n = /** @type {Y.Item} */ (n.next)
     }
     pos += 1 // increase because we go out of n
   }
@@ -309,18 +311,19 @@ export const relativePositionToAbsolutePosition = (y, yDoc, relPos, mapping) => 
     // @ts-ignore
     if (parent._item === null || !parent._item.deleted) {
       pos += 1 // the start tag
-      let n = /** @type {Y.ItemType} */ (parent._first)
+      let n = parent._first
       // now iterate until we found type
       while (n !== null) {
-        if (n.type === type) {
+        const contentType = /** @type {Y.ContentType} */ (n.content).type
+        if (contentType === type) {
           break
         }
-        if (n.type.constructor === Y.XmlText) {
-          pos += n.type._length
+        if (contentType.constructor === Y.XmlText) {
+          pos += contentType._length
         } else {
-          pos += mapping.get(n.type).nodeSize
+          pos += mapping.get(contentType).nodeSize
         }
-        n = /** @type {Y.ItemType} */ (n.next)
+        n = n.next
       }
     }
     type = parent
@@ -397,7 +400,7 @@ export class ProsemirrorBinding {
     }
     this.mux(() => {
       const delStruct = (_, struct) => this.mapping.delete(struct)
-      Y.iterateDeletedStructs(transaction.deleteSet, this.doc.store, struct => this.mapping.delete(/** @type {Y.ItemType} */ (struct).type))
+      Y.iterateDeletedStructs(transaction.deleteSet, this.doc.store, struct => struct.constructor === Y.Item && this.mapping.delete(/** @type {Y.Item} */ (struct).content.type))
       transaction.changed.forEach(delStruct)
       transaction.changedParentTypes.forEach(delStruct)
       const fragmentContent = this.type.toArray().map(t => createNodeIfNotExists(/** @type {Y.XmlElement | Y.XmlHook} */ (t), this.prosemirrorView.state.schema, this.mapping)).filter(n => n !== null)
@@ -494,16 +497,16 @@ export const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapsh
     const attrs = el.getAttributes(_snapshot)
     if (snapshot !== undefined) {
       if (!isVisible(el, snapshot)) {
-        attrs.ychange = { client: /** @type {Y.AbstractItem} */ (el._item).id.client, state: 'removed' }
+        attrs.ychange = { client: /** @type {Y.Item} */ (el._item).id.client, state: 'removed' }
       } else if (!isVisible(el, prevSnapshot)) {
-        attrs.ychange = { client: /** @type {Y.AbstractItem} */ (el._item).id.client, state: 'added' }
+        attrs.ychange = { client: /** @type {Y.Item} */ (el._item).id.client, state: 'added' }
       }
     }
     node = schema.node(el.nodeName.toLowerCase(), attrs, children)
   } catch (e) {
     // an error occured while creating the node. This is probably a result of a concurrent action.
     /** @type {Y.Doc} */ (el.doc).transact(transaction => {
-      /** @type {Y.ItemType} */ (el._item).delete(transaction)
+      /** @type {Y.Item} */ (el._item).delete(transaction)
     })
     return null
   }
@@ -538,7 +541,7 @@ export const createTextNodesFromYText = (text, schema, mapping, snapshot, prevSn
   } catch (e) {
     // an error occured while creating the node. This is probably a result of a concurrent action.
     /** @type {Y.Doc} */ (text.doc).transact(transaction => {
-      /** @type {Y.ItemType} */ (text._item).delete(transaction)
+      /** @type {Y.Item} */ (text._item).delete(transaction)
     })
     return null
   }
