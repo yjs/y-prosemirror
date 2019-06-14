@@ -8,7 +8,7 @@
   "scripts": {
     "dist": "rm -rf dist && rollup -c",
     "test": "rollup -c && node test/test.node.js",
-    "lint": "standard",
+    "lint": "standard && tsc",
     "watch": "rollup -wc",
     "debug": "concurrently 'live-server --port=3443 --entry-file=test.html' 'npm run watch'",
     "preversion": "npm run lint && npm run dist && npm run test"
@@ -26,6 +26,13 @@
   ],
   "author": "Kevin Jahns <kevin.jahns@protonmail.com>",
   "license": "MIT",
+  "standard": {
+    "ignore": [
+      "/dist",
+      "/node_modules",
+      "/docs"
+    ]
+  },
   "bugs": {
     "url": "https://github.com/y-js/y-prosemirror/issues"
   },
@@ -34,7 +41,7 @@
     "lib0": "0.0.5"
   },
   "peerDependencies": {
-    "yjs": "13.0.0-88",
+    "yjs": ">=13.0.0-90",
     "y-protocols": ">=0.0.6",
     "prosemirror-model": "^1.7.0",
     "prosemirror-state": "^1.2.2",
@@ -51,7 +58,8 @@
     "rollup": "^1.10.1",
     "rollup-plugin-commonjs": "^9.3.4",
     "rollup-plugin-node-resolve": "^4.2.3",
-    "yjs": "13.0.0-88",
-    "y-protocols": "0.0.6"
+    "standard": "^12.0.1",
+    "y-protocols": "0.0.6",
+    "yjs": "13.0.0-90"
   }
 }

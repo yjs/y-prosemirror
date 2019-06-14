@@ -502,7 +502,7 @@ export const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapsh
         attrs.ychange = { client: /** @type {Y.Item} */ (el._item).id.client, state: 'added' }
       }
     }
-    node = schema.node(el.nodeName.toLowerCase(), attrs, children)
+    node = schema.node(el.nodeName, attrs, children)
   } catch (e) {
     // an error occured while creating the node. This is probably a result of a concurrent action.
     /** @type {Y.Doc} */ (el.doc).transact(transaction => {
@@ -650,7 +650,7 @@ const computeChildEqualityFactor = (ytype, pnode, mapping) => {
  * @param {ProsemirrorMapping} mapping
  */
 const updateYFragment = (y, yDomFragment, pContent, mapping) => {
-  if (yDomFragment instanceof Y.XmlElement && yDomFragment.nodeName.toLowerCase() !== pContent.type.name) {
+  if (yDomFragment instanceof Y.XmlElement && yDomFragment.nodeName !== pContent.type.name) {
     throw new Error('node name mismatch!')
   }
   mapping.set(yDomFragment, pContent)
@@ -784,4 +784,4 @@ const updateYFragment = (y, yDomFragment, pContent, mapping) => {
  * @param {Y.XmlElement} yElement
  * @param {any} pNode Prosemirror Node
  */
-const matchNodeName = (yElement, pNode) => yElement.nodeName === pNode.type.name.toUpperCase()
+const matchNodeName = (yElement, pNode) => yElement.nodeName === pNode.type.name
