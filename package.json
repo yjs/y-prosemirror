@@ -8,7 +8,7 @@
   "scripts": {
     "dist": "rm -rf dist && rollup -c",
     "test": "rollup -c && node test/test.node.js",
-    "lint": "standard && tsc",
+    "lint": "standard",
     "watch": "rollup -wc",
     "debug": "concurrently 'live-server --port=3443 --entry-file=test.html' 'npm run watch'",
     "preversion": "npm run lint && npm run dist && npm run test"
