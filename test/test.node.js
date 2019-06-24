@@ -1,3 +1,5 @@
+// @ts-nocheck
+
 const fs = require('fs')
 const path = require('path')
 const { JSDOM } = require('jsdom')
@@ -5,13 +7,30 @@ const { JSDOM } = require('jsdom')
 const documentContent = fs.readFileSync(path.join(__dirname, '../test.html'))
 const { window } = new JSDOM(documentContent)
 
-// @ts-ignore
 global.window = window
-// @ts-ignore
 global.document = window.document
-// @ts-ignore
 global.innerHeight = 0
-// @ts-ignore
 document.getSelection = () => ({ })
+
+document.createRange = () => ({
+  setStart () {},
+  setEnd () {},
+  getClientRects () {
+    return {
+      left: 0,
+      top: 0,
+      right: 0,
+      bottom: 0
+    }
+  },
+  getBoundingClientRect () {
+    return {
+      left: 0,
+      top: 0,
+      right: 0,
+      bottom: 0
+    }
+  }
+})
 
 require('../dist/test.js')

@@ -5,7 +5,7 @@ import * as math from 'lib0/math.js'
 import * as Y from 'yjs'
 import { applyRandomTests } from 'yjs/tests/testHelper.js'
 
-import { prosemirrorPlugin } from '../src/y-prosemirror.js'
+import { ySyncPlugin } from '../src/y-prosemirror.js'
 import { EditorState, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { schema } from 'prosemirror-schema-basic'
@@ -15,7 +15,7 @@ const createNewProsemirrorView = y => {
   const view = new EditorView(null, {
     state: EditorState.create({
       schema,
-      plugins: [prosemirrorPlugin(y.get('prosemirror', Y.XmlFragment))]
+      plugins: [ySyncPlugin(y.get('prosemirror', Y.XmlFragment))]
     })
   })
   return view
