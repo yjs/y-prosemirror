@@ -82,7 +82,10 @@ export const ySyncPlugin = (yXmlFragment) => {
     },
     view: view => {
       const binding = new ProsemirrorBinding(yXmlFragment, view)
-      view.dispatch(view.state.tr.setMeta(ySyncPluginKey, { binding }))
+      // Make sure this is called in a separate context
+      setTimeout(() => {
+        view.dispatch(view.state.tr.setMeta(ySyncPluginKey, { binding }))
+      }, 0)
       return {
         update: () => {
           const pluginState = plugin.getState(view.state)

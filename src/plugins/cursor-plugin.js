@@ -72,11 +72,11 @@ export const yCursorPlugin = awareness => new Plugin({
     }
   },
   view: view => {
-    const ystate = ySyncPluginKey.getState(view.state)
     const awarenessListener = () => {
       view.updateState(view.state)
     }
     const updateCursorInfo = () => {
+      const ystate = ySyncPluginKey.getState(view.state)
       const current = awareness.getLocalState() || {}
       if (view.hasFocus() && ystate.binding !== null) {
         /**
