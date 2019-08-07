@@ -31,18 +31,32 @@ export const yUndoPlugin = new Plugin({
       const undoManager = new UndoManager(ystate.type, new Set([null, ySyncPluginKey]))
       return {
         undoManager,
-        prevSel: null
+        prevSel: null,
+        hasUndoOps: undoManager.undoStack.length > 0,
+        hasRedoOps: undoManager.redoStack.length > 0
       }
     },
     apply: (tr, val, oldState, state) => {
       const binding = ySyncPluginKey.getState(state).binding
+      const undoManager = val.undoManager
+      const hasUndoOps = undoManager.undoStack.length > 0
+      const hasRedoOps = undoManager.redoStack.length > 0
       if (binding) {
         return {
-          undoManager: val.undoManager,
-          prevSel: getRelativeSelection(binding, oldState)
+          undoManager,
+          prevSel: getRelativeSelection(binding, oldState),
+          hasUndoOps,
+          hasRedoOps
         }
       } else {
-        return val
+        if (hasUndoOps !== val.hasUndoOps || hasRedoOps !== val.hasRedoOps) {
+          return Object.assign({}, val, {
+            hasUndoOps: undoManager.undoStack.length > 0,
+            hasRedoOps: undoManager.redoStack.length > 0
+          })
+        } else { // nothing changed
+          return val
+        }
       }
     }
   },
