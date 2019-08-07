@@ -1,6 +1,6 @@
 {
   "name": "y-prosemirror",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "Prosemirror bindings for Yjs",
   "main": "./dist/y-prosemirror.js",
   "module": "./src/y-prosemirror.js",
