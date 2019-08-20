@@ -2,7 +2,7 @@
 import { Plugin, PluginKey, EditorState, TextSelection } from 'prosemirror-state' // eslint-disable-line
 
 import { ySyncPluginKey, getRelativeSelection } from './sync-plugin.js'
-import { UndoManager } from 'yjs'
+import { UndoManager, Item, ContentType, XmlElement, Text } from 'yjs'
 
 export const undo = state => {
   const undoManager = yUndoPluginKey.getState(state).undoManager
@@ -22,13 +22,20 @@ export const redo = state => {
 
 export const yUndoPluginKey = new PluginKey('y-undo')
 
-export const yUndoPlugin = new Plugin({
+export const yUndoPlugin = ({ protectedNodes = new Set(['paragraph']) } = {}) => new Plugin({
   key: yUndoPluginKey,
   state: {
     init: (initargs, state) => {
       // TODO: check if plugin order matches and fix
       const ystate = ySyncPluginKey.getState(state)
-      const undoManager = new UndoManager(ystate.type, new Set([null, ySyncPluginKey]))
+      const undoManager = new UndoManager(ystate.type, {
+        trackedOrigins: new Set([null, ySyncPluginKey]),
+        deleteFilter: item => !(item instanceof Item) ||
+                              !(item.content instanceof ContentType) ||
+                              !(item.content.type instanceof Text ||
+                              (item.content.type instanceof XmlElement && protectedNodes.has(item.content.type.nodeName))) ||
+                              item.content.type._length === 0
+      })
       return {
         undoManager,
         prevSel: null,

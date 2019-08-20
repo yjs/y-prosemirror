@@ -27,7 +27,7 @@ const prosemirrorView = new EditorView(document.querySelector('#editor'), {
     plugins: [
         ySyncPlugin(type),
         yCursorPlugin(provider.awareness),
-        yUndoPlugin,
+        yUndoPlugin(),
         keymap({
           'Mod-z': undo,
           'Mod-y': redo,
