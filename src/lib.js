@@ -2,6 +2,7 @@ import { ProsemirrorMapping } from './plugins/sync-plugin.js' // eslint-disable-
 
 import * as Y from 'yjs'
 import * as error from 'lib0/error.js'
+import * as PModel from 'prosemirror-model' // eslint-disable-line
 
 /**
  * Transforms a Prosemirror based absolute position to a Yjs Cursor (relative position in the Yjs model).
@@ -17,7 +18,6 @@ export const absolutePositionToRelativePosition = (pos, type, mapping) => {
   }
   let n = type._first === null ? null : /** @type {Y.ContentType} */ (type._first.content).type
   while (n !== null && type !== n) {
-    const pNodeSize = (mapping.get(n) || { nodeSize: 0 }).nodeSize
     if (n.constructor === Y.XmlText) {
       if (n._length >= pos) {
         return Y.createRelativePositionFromTypeIndex(n, pos)
@@ -36,31 +36,34 @@ export const absolutePositionToRelativePosition = (pos, type, mapping) => {
           n = n._item === null ? null : /** @type {Y.ContentType} */ (/** @type Y.Item */ (n._item.next).content).type
         }
       }
-    } else if (n._first !== null && pos < pNodeSize) {
-      n = /** @type {Y.ContentType} */ (n._first.content).type
-      pos--
     } else {
-      if (pos === 1 && n._length === 0 && pNodeSize > 1) {
-        // edge case, should end in this paragraph
-        return new Y.RelativePosition(n._item === null ? null : n._item.id, n._item === null ? Y.findRootTypeKey(n) : null, null)
-      }
-      pos -= pNodeSize
-      if (n._item !== null && n._item.next !== null) {
-        n = /** @type {Y.ContentType} */ (n._item.next.content).type
+      const pNodeSize = /** @type {any} */ (mapping.get(n) || { nodeSize: 0 }).nodeSize
+      if (n._first !== null && pos < pNodeSize) {
+        n = /** @type {Y.ContentType} */ (n._first.content).type
+        pos--
       } else {
-        if (pos === 0) {
-          // set to end of n.parent
-          n = n._item === null ? n : n._item.parent
+        if (pos === 1 && n._length === 0 && pNodeSize > 1) {
+          // edge case, should end in this paragraph
           return new Y.RelativePosition(n._item === null ? null : n._item.id, n._item === null ? Y.findRootTypeKey(n) : null, null)
         }
-        do {
-          n = /** @type {Y.Item} */ (n._item).parent
-          pos--
-        } while (n !== type && /** @type {Y.Item} */ (n._item).next === null)
-        // if n is null at this point, we have an unexpected case
-        if (n !== type) {
-          // We know that n._item.next is defined because of above loop condition
-          n = /** @type {Y.ContentType} */ (/** @type {Y.Item} */ (/** @type {Y.Item} */ (n._item).next).content).type
+        pos -= pNodeSize
+        if (n._item !== null && n._item.next !== null) {
+          n = /** @type {Y.ContentType} */ (n._item.next.content).type
+        } else {
+          if (pos === 0) {
+            // set to end of n.parent
+            n = n._item === null ? n : n._item.parent
+            return new Y.RelativePosition(n._item === null ? null : n._item.id, n._item === null ? Y.findRootTypeKey(n) : null, null)
+          }
+          do {
+            n = /** @type {Y.Item} */ (n._item).parent
+            pos--
+          } while (n !== type && /** @type {Y.Item} */ (n._item).next === null)
+          // if n is null at this point, we have an unexpected case
+          if (n !== type) {
+            // We know that n._item.next is defined because of above loop condition
+            n = /** @type {Y.ContentType} */ (/** @type {Y.Item} */ (/** @type {Y.Item} */ (n._item).next).content).type
+          }
         }
       }
     }
@@ -99,7 +102,7 @@ export const relativePositionToAbsolutePosition = (y, yDoc, relPos, mapping) => 
         if (t.constructor === Y.XmlText) {
           pos += t._length
         } else {
-          pos += mapping.get(t).nodeSize
+          pos += /** @type {any} */ (mapping.get(t)).nodeSize
         }
       }
       n = /** @type {Y.Item} */ (n.right)
@@ -123,7 +126,7 @@ export const relativePositionToAbsolutePosition = (y, yDoc, relPos, mapping) => 
           if (contentType.constructor === Y.XmlText) {
             pos += contentType._length
           } else {
-            pos += mapping.get(contentType).nodeSize
+            pos += /** @type {any} */ (mapping.get(contentType)).nodeSize
           }
         }
         n = n.right

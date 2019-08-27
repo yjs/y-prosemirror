@@ -122,6 +122,13 @@ const checkResult = result => {
 /**
  * @param {t.TestCase} tc
  */
+export const testRepeatGenerateProsemirrorChanges2 = tc => {
+  checkResult(applyRandomTests(tc, pmChanges, 2, createNewProsemirrorView))
+}
+
+/**
+ * @param {t.TestCase} tc
+ */
 export const testRepeatGenerateProsemirrorChanges3 = tc => {
   checkResult(applyRandomTests(tc, pmChanges, 3, createNewProsemirrorView))
 }
