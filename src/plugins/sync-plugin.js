@@ -155,7 +155,12 @@ export class ProsemirrorBinding {
      */
     this.beforeTransactionSelection = null
     this.doc.on('beforeTransaction', e => {
-      this.beforeTransactionSelection = getRelativeSelection(this, prosemirrorView.state)
+      if (this.beforeTransactionSelection === null) {
+        this.beforeTransactionSelection = getRelativeSelection(this, prosemirrorView.state)
+      }
+    })
+    this.doc.on('afterTransaction', e => {
+      this.beforeTransactionSelection = null
     })
     yXmlFragment.observeDeep(this._observeFunction)
   }
@@ -186,11 +191,11 @@ export class ProsemirrorBinding {
    * @param {Y.Transaction} transaction
    */
   _typeChanged (events, transaction) {
-    if (events.length === 0 || ySyncPluginKey.getState(this.prosemirrorView.state).snapshot != null) {
-      // drop out if snapshot is active
-      return
-    }
     this.mux(() => {
+      if (events.length === 0 || ySyncPluginKey.getState(this.prosemirrorView.state).snapshot != null) {
+        // drop out if snapshot is active
+        return
+      }
       /**
        * @param {any} _
        * @param {Y.AbstractType} type
@@ -211,7 +216,10 @@ export class ProsemirrorBinding {
   }
   _prosemirrorChanged (doc) {
     this.mux(() => {
-      updateYFragment(this.doc, this.type, doc, this.mapping)
+      this.doc.transact(() => {
+        updateYFragment(this.doc, this.type, doc, this.mapping)
+        this.beforeTransactionSelection = getRelativeSelection(this, this.prosemirrorView.state)
+      })
     })
   }
   destroy () {
