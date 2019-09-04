@@ -19,7 +19,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/y-js/y-prosemirror.git"
+    "url": "git+https://github.com/yjs/y-prosemirror.git"
   },
   "keywords": [
     "Yjs"
@@ -34,15 +34,15 @@
     ]
   },
   "bugs": {
-    "url": "https://github.com/y-js/y-prosemirror/issues"
+    "url": "https://github.com/yjs/y-prosemirror/issues"
   },
-  "homepage": "https://github.com/y-js/y-prosemirror#readme",
+  "homepage": "https://github.com/yjs/y-prosemirror#readme",
   "dependencies": {
-    "lib0": "0.0.6"
+    "lib0": "^0.1.0"
   },
   "peerDependencies": {
-    "yjs": ">=13.0.0-96",
-    "y-protocols": ">=0.0.7",
+    "yjs": ">=13.0.0-97",
+    "y-protocols": "^0.1.0",
     "prosemirror-model": "^1.7.0",
     "prosemirror-state": "^1.2.2",
     "prosemirror-view": "^1.7.1"
@@ -59,7 +59,7 @@
     "rollup-plugin-commonjs": "^9.3.4",
     "rollup-plugin-node-resolve": "^4.2.4",
     "standard": "^12.0.1",
-    "y-protocols": "0.0.7",
-    "yjs": "13.0.0-96"
+    "y-protocols": "^0.1.0",
+    "yjs": "13.0.0-97"
   }
 }

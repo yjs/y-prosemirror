@@ -13,7 +13,11 @@ import * as error from 'lib0/error.js'
 import * as Y from 'yjs'
 import { absolutePositionToRelativePosition, relativePositionToAbsolutePosition } from '../lib.js'
 
-export const isVisible = (item, snapshot) => snapshot === undefined ? !item._deleted : (snapshot.sm.has(item._id.user) && snapshot.sm.get(item._id.user) > item._id.clock && !snapshot.ds.isDeleted(item._id))
+/**
+ * @param {Y.Item} item
+ * @param {Y.Snapshot} [snapshot]
+ */
+export const isVisible = (item, snapshot) => snapshot === undefined ? !item.deleted : (snapshot.sv.has(item.id.client) && /** @type {number} */ (snapshot.sv.get(item.id.client)) > item.id.clock && !Y.isDeleted(snapshot.ds, item.id))
 
 /**
  * Either a node if type is YXmlElement or an Array of text nodes if YXmlText
@@ -48,6 +52,7 @@ export const ySyncPlugin = yXmlFragment => {
           doc: yXmlFragment.doc,
           binding: null,
           snapshot: null,
+          prevSnapshot: null,
           isChangeOrigin: false
         }
       },
@@ -62,7 +67,7 @@ export const ySyncPlugin = yXmlFragment => {
         // always set isChangeOrigin. If undefined, this is not change origin.
         pluginState.isChangeOrigin = change !== undefined && !!change.isChangeOrigin
         if (pluginState.binding !== null) {
-          if (change !== undefined && change.snapshot !== undefined) {
+          if (change !== undefined && change.snapshot != null) {
             // snapshot changed, rerender next
             setTimeout(() => {
               if (change.restore == null) {
@@ -164,6 +169,21 @@ export class ProsemirrorBinding {
     })
     yXmlFragment.observeDeep(this._observeFunction)
   }
+  renderSnapshot (snapshot, prevSnapshot) {
+    if (!prevSnapshot) {
+      prevSnapshot = Y.createSnapshot(Y.createDeleteSet(), new Map())
+    }
+    this.prosemirrorView.dispatch(this.prosemirrorView.state.tr.setMeta(ySyncPluginKey, { snapshot, prevSnapshot }))
+  }
+  unrenderSnapshot () {
+    this.mapping = new Map()
+    this.mux(() => {
+      const fragmentContent = this.type.toArray().map(t => createNodeFromYElement(/** @type {Y.XmlElement} */ (t), this.prosemirrorView.state.schema, this.mapping)).filter(n => n !== null)
+      const tr = this.prosemirrorView.state.tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
+      tr.setMeta(ySyncPluginKey, { snapshot: null, prevSnapshot: null })
+      this.prosemirrorView.dispatch(tr)
+    })
+  }
   _forceRerender () {
     this.mapping = new Map()
     this.mux(() => {
@@ -173,7 +193,6 @@ export class ProsemirrorBinding {
     })
   }
   /**
-   *
    * @param {Y.Snapshot} snapshot
    * @param {Y.Snapshot} prevSnapshot
    */
@@ -181,7 +200,7 @@ export class ProsemirrorBinding {
     // clear mapping because we are going to rerender
     this.mapping = new Map()
     this.mux(() => {
-      const fragmentContent = Y.typeListToArraySnapshot(this.type, new Y.Snapshot(prevSnapshot.ds, snapshot.sm)).map(t => createNodeFromYElement(t, this.prosemirrorView.state.schema, new Map(), snapshot, prevSnapshot)).filter(n => n !== null)
+      const fragmentContent = Y.typeListToArraySnapshot(this.type, new Y.Snapshot(prevSnapshot.ds, snapshot.sv)).map(t => createNodeFromYElement(t, this.prosemirrorView.state.schema, new Map(), snapshot, prevSnapshot)).filter(n => n !== null)
       const tr = this.prosemirrorView.state.tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
       this.prosemirrorView.dispatch(tr)
     })
@@ -261,11 +280,11 @@ export const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapsh
   let _snapshot = snapshot
   let _prevSnapshot = prevSnapshot
   if (snapshot !== undefined && prevSnapshot !== undefined) {
-    if (!isVisible(el, snapshot)) {
+    if (!isVisible(/** @type {Y.Item} */ (el._item), snapshot)) {
       // if this element is already rendered as deleted (ychange), then do not render children as deleted
-      _snapshot = new Y.Snapshot(prevSnapshot.ds, snapshot.sm)
+      _snapshot = new Y.Snapshot(prevSnapshot.ds, snapshot.sv)
       _prevSnapshot = _snapshot
-    } else if (!isVisible(el, prevSnapshot)) {
+    } else if (!isVisible(/** @type {Y.Item} */(el._item), prevSnapshot)) {
       _prevSnapshot = _snapshot
     }
   }
@@ -290,15 +309,15 @@ export const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapsh
   if (snapshot === undefined || prevSnapshot === undefined) {
     el.toArray().forEach(createChildren)
   } else {
-    Y.typeListToArraySnapshot(el, new Y.Snapshot(prevSnapshot.ds, snapshot.sm)).forEach(createChildren)
+    Y.typeListToArraySnapshot(el, new Y.Snapshot(prevSnapshot.ds, snapshot.sv)).forEach(createChildren)
   }
   try {
     const attrs = el.getAttributes(_snapshot)
     if (snapshot !== undefined) {
-      if (!isVisible(el, snapshot)) {
-        attrs.ychange = { client: /** @type {Y.Item} */ (el._item).id.client, state: 'removed' }
-      } else if (!isVisible(el, prevSnapshot)) {
-        attrs.ychange = { client: /** @type {Y.Item} */ (el._item).id.client, state: 'added' }
+      if (!isVisible(/** @type {Y.Item} */ (el._item), snapshot)) {
+        attrs.ychange = { user: /** @type {Y.Item} */ (el._item).id.client, state: 'removed' }
+      } else if (!isVisible(/** @type {Y.Item} */ (el._item), prevSnapshot)) {
+        attrs.ychange = { user: /** @type {Y.Item} */ (el._item).id.client, state: 'added' }
       }
     }
     const node = schema.node(el.nodeName, attrs, children)

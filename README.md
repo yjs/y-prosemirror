@@ -1,6 +1,6 @@
 # y-prosemirror
 
-> [ProseMirror](http://prosemirror.net/) Binding for [Yjs](https://github.com/y-js/yjs) - [Demo](https://yjs-demos.now.sh/prosemirror/)
+> [ProseMirror](http://prosemirror.net/) Binding for [Yjs](https://github.com/yjs/yjs) - [Demo](https://yjs-demos.now.sh/prosemirror/)
 
 This binding maps a Y.XmlFragment to the ProseMirror state.
 
@@ -38,7 +38,7 @@ const prosemirrorView = new EditorView(document.querySelector('#editor'), {
 })
 ```
 
-Also look [here](https://github.com/y-js/yjs-demos/tree/master/prosemirror) for a working example.
+Also look [here](https://github.com/yjs/yjs-demos/tree/master/prosemirror) for a working example.
 
 ### License
 
