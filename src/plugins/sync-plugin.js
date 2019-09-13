@@ -692,4 +692,4 @@ const updateYFragment = (y, yDomFragment, pNode, mapping) => {
  * @param {Y.XmlElement} yElement
  * @param {any} pNode Prosemirror Node
  */
-const matchNodeName = (yElement, pNode) => yElement.nodeName === pNode.type.name
+const matchNodeName = (yElement, pNode) => !(pNode instanceof Array) && yElement.nodeName === pNode.type.name
