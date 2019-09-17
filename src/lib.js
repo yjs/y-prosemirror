@@ -136,32 +136,3 @@ export const relativePositionToAbsolutePosition = (y, yDoc, relPos, mapping) => 
   }
   return pos - 1 // we don't count the most outer tag, because it is a fragment
 }
-
-/*
-class PermanentUserData {
-  /**
-   * @param {Y.Doc} doc
-   * @param {string} userid
-   *
-  constructor (doc, userid) {
-    const users = doc.getMap('users')
-    this.doc = doc
-    this.users = users
-    let user = users.get(userid)
-    if (!user) {
-      user = new Y.Map()
-      const ids = new Y.Array()
-      const ds = new Y.Array()
-      ids.push([userid])
-      user.set('ids', ids)
-      user.set('ds', ds)
-      users.set(userid, user)
-    }
-    users.observe(event => {
-      event.changes.added.forEach(item => {
-        item.content.type
-      })
-    })
-  }
-}
-*/

@@ -8,10 +8,12 @@ import { EditorView,  Decoration, DecorationSet } from 'prosemirror-view' // esl
 import { Plugin, PluginKey, EditorState, TextSelection } from 'prosemirror-state' // eslint-disable-line
 import * as math from 'lib0/math.js'
 import * as object from 'lib0/object.js'
+import * as set from 'lib0/set.js'
 import { simpleDiff } from 'lib0/diff.js'
 import * as error from 'lib0/error.js'
 import * as Y from 'yjs'
 import { absolutePositionToRelativePosition, relativePositionToAbsolutePosition } from '../lib.js'
+import * as random from 'lib0/random.js'
 
 /**
  * @param {Y.Item} item
@@ -32,13 +34,51 @@ export const isVisible = (item, snapshot) => snapshot === undefined ? !item.dele
 export const ySyncPluginKey = new PluginKey('y-sync')
 
 /**
+ * @typedef {Object} ColorDef
+ * @property {string} ColorDef.light
+ * @property {string} ColorDef.dark
+ */
+
+/**
+ * @typedef {Object} YSyncOpts
+ * @property {Array<ColorDef>} [YSyncOpts.colors]
+ * @property {Map<string,ColorDef>} [YSyncOpts.colorMapping]
+ * @property {Y.PermanentUserData|null} [YSyncOpts.permanentUserData]
+ */
+
+/**
+ * @type {Array<ColorDef>}
+ */
+const defaultColors = [{ light: '#ecd44433', dark: '#ecd444' }]
+
+/**
+ * @param {Map<string,ColorDef>} colorMapping
+ * @param {Array<ColorDef>} colors
+ * @param {string} user
+ * @return {ColorDef}
+ */
+const getUserColor = (colorMapping, colors, user) => {
+  // @todo do not hit the same color twice if possible
+  if (!colorMapping.has(user)) {
+    if (colorMapping.size < colors.length) {
+      const usedColors = set.create()
+      colorMapping.forEach(color => usedColors.add(color))
+      colors = colors.filter(color => !usedColors.has(color))
+    }
+    colorMapping.set(user, random.oneOf(colors))
+  }
+  return /** @type {ColorDef} */ (colorMapping.get(user))
+}
+
+/**
  * This plugin listens to changes in prosemirror view and keeps yXmlState and view in sync.
  *
  * This plugin also keeps references to the type and the shared document so other plugins can access it.
  * @param {Y.XmlFragment} yXmlFragment
+ * @param {YSyncOpts} opts
  * @return {Plugin} Returns a prosemirror plugin that binds to this type
  */
-export const ySyncPlugin = yXmlFragment => {
+export const ySyncPlugin = (yXmlFragment, { colors = defaultColors, colorMapping = new Map(), permanentUserData = null } = {}) => {
   let changedInitialContent = false
   const plugin = new Plugin({
     props: {
@@ -53,7 +93,10 @@ export const ySyncPlugin = yXmlFragment => {
           binding: null,
           snapshot: null,
           prevSnapshot: null,
-          isChangeOrigin: false
+          isChangeOrigin: false,
+          colors,
+          colorMapping,
+          permanentUserData
         }
       },
       apply: (tr, pluginState) => {
@@ -71,9 +114,9 @@ export const ySyncPlugin = yXmlFragment => {
             // snapshot changed, rerender next
             setTimeout(() => {
               if (change.restore == null) {
-                pluginState.binding._renderSnapshot(change.snapshot, change.prevSnapshot)
+                pluginState.binding._renderSnapshot(change.snapshot, change.prevSnapshot, pluginState)
               } else {
-                pluginState.binding._renderSnapshot(change.snapshot, change.snapshot)
+                pluginState.binding._renderSnapshot(change.snapshot, change.snapshot, pluginState)
                 // reset to current prosemirror state
                 delete pluginState.restore
                 delete pluginState.snapshot
@@ -195,14 +238,34 @@ export class ProsemirrorBinding {
   /**
    * @param {Y.Snapshot} snapshot
    * @param {Y.Snapshot} prevSnapshot
+   * @param {Object} pluginState
    */
-  _renderSnapshot (snapshot, prevSnapshot) {
+  _renderSnapshot (snapshot, prevSnapshot, pluginState) {
     // clear mapping because we are going to rerender
     this.mapping = new Map()
     this.mux(() => {
-      const fragmentContent = Y.typeListToArraySnapshot(this.type, new Y.Snapshot(prevSnapshot.ds, snapshot.sv)).map(t => createNodeFromYElement(t, this.prosemirrorView.state.schema, new Map(), snapshot, prevSnapshot)).filter(n => n !== null)
-      const tr = this.prosemirrorView.state.tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
-      this.prosemirrorView.dispatch(tr)
+      this.doc.transact(transaction => {
+        // before rendering, we are going to sanitize ops and split deleted ops
+        // if they were deleted by seperate users.
+        const pud = pluginState.permanentUserData
+        if (pud) {
+          pud.dss.forEach(ds => {
+            Y.iterateDeletedStructs(transaction, ds, item => {})
+          })
+        }
+        const computeYChange = (type, id) => {
+          const user = type === 'added' ? pud.getUserByClientId(id.client) : pud.getUserByDeletedId(id)
+          return {
+            user,
+            type,
+            color: getUserColor(pluginState.colorMapping, pluginState.colors, user)
+          }
+        }
+        // Create document fragment and render
+        const fragmentContent = Y.typeListToArraySnapshot(this.type, new Y.Snapshot(prevSnapshot.ds, snapshot.sv)).map(t => createNodeFromYElement(t, this.prosemirrorView.state.schema, new Map(), snapshot, prevSnapshot, computeYChange)).filter(n => n !== null)
+        const tr = this.prosemirrorView.state.tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
+        this.prosemirrorView.dispatch(tr)
+      })
     })
   }
   /**
@@ -220,7 +283,7 @@ export class ProsemirrorBinding {
        * @param {Y.AbstractType} type
        */
       const delType = (_, type) => this.mapping.delete(type)
-      Y.iterateDeletedStructs(transaction, transaction.deleteSet, this.doc.store, struct => struct.constructor === Y.Item && this.mapping.delete(/** @type {Y.ContentType} */ (/** @type {Y.Item} */ (struct).content).type))
+      Y.iterateDeletedStructs(transaction, transaction.deleteSet, struct => struct.constructor === Y.Item && this.mapping.delete(/** @type {Y.ContentType} */ (/** @type {Y.Item} */ (struct).content).type))
       transaction.changed.forEach(delType)
       transaction.changedParentTypes.forEach(delType)
       const fragmentContent = this.type.toArray().map(t => createNodeIfNotExists(/** @type {Y.XmlElement | Y.XmlHook} */ (t), this.prosemirrorView.state.schema, this.mapping)).filter(n => n !== null)
@@ -253,13 +316,14 @@ export class ProsemirrorBinding {
  * @param {ProsemirrorMapping} mapping
  * @param {Y.Snapshot} [snapshot]
  * @param {Y.Snapshot} [prevSnapshot]
+ * @param {function('removed' | 'added', Y.ID):any} [computeYChange]
  * @return {PModel.Node | null}
  */
-export const createNodeIfNotExists = (el, schema, mapping, snapshot, prevSnapshot) => {
+export const createNodeIfNotExists = (el, schema, mapping, snapshot, prevSnapshot, computeYChange) => {
   const node = /** @type {PModel.Node} */ (mapping.get(el))
   if (node === undefined) {
     if (el instanceof Y.XmlElement) {
-      return createNodeFromYElement(el, schema, mapping, snapshot, prevSnapshot)
+      return createNodeFromYElement(el, schema, mapping, snapshot, prevSnapshot, computeYChange)
     } else {
       throw error.methodUnimplemented() // we are currently not handling hooks
     }
@@ -274,9 +338,10 @@ export const createNodeIfNotExists = (el, schema, mapping, snapshot, prevSnapsho
  * @param {ProsemirrorMapping} mapping
  * @param {Y.Snapshot} [snapshot]
  * @param {Y.Snapshot} [prevSnapshot]
+ * @param {function('removed' | 'added', Y.ID):any} [computeYChange]
  * @return {PModel.Node | null} Returns node if node could be created. Otherwise it deletes the yjs type and returns null
  */
-export const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapshot) => {
+export const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapshot, computeYChange) => {
   let _snapshot = snapshot
   let _prevSnapshot = prevSnapshot
   if (snapshot !== undefined && prevSnapshot !== undefined) {
@@ -291,12 +356,12 @@ export const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapsh
   const children = []
   const createChildren = type => {
     if (type.constructor === Y.XmlElement) {
-      const n = createNodeIfNotExists(type, schema, mapping, _snapshot, _prevSnapshot)
+      const n = createNodeIfNotExists(type, schema, mapping, _snapshot, _prevSnapshot, computeYChange)
       if (n !== null) {
         children.push(n)
       }
     } else {
-      const ns = createTextNodesFromYText(type, schema, mapping, _snapshot, _prevSnapshot)
+      const ns = createTextNodesFromYText(type, schema, mapping, _snapshot, _prevSnapshot, computeYChange)
       if (ns !== null) {
         ns.forEach(textchild => {
           if (textchild !== null) {
@@ -315,9 +380,9 @@ export const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapsh
     const attrs = el.getAttributes(_snapshot)
     if (snapshot !== undefined) {
       if (!isVisible(/** @type {Y.Item} */ (el._item), snapshot)) {
-        attrs.ychange = { user: /** @type {Y.Item} */ (el._item).id.client, state: 'removed' }
+        attrs.ychange = computeYChange ? computeYChange('removed', /** @type {Y.Item} */ (el._item).id) : { type: 'removed' }
       } else if (!isVisible(/** @type {Y.Item} */ (el._item), prevSnapshot)) {
-        attrs.ychange = { user: /** @type {Y.Item} */ (el._item).id.client, state: 'added' }
+        attrs.ychange = computeYChange ? computeYChange('added', /** @type {Y.Item} */ (el._item).id) : { type: 'added' }
       }
     }
     const node = schema.node(el.nodeName, attrs, children)
@@ -340,11 +405,12 @@ export const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapsh
  * @param {ProsemirrorMapping} mapping
  * @param {Y.Snapshot} [snapshot]
  * @param {Y.Snapshot} [prevSnapshot]
+ * @param {function('removed' | 'added', Y.ID):any} [computeYChange]
  * @return {Array<PModel.Node>|null}
  */
-export const createTextNodesFromYText = (text, schema, mapping, snapshot, prevSnapshot) => {
+export const createTextNodesFromYText = (text, schema, mapping, snapshot, prevSnapshot, computeYChange) => {
   const nodes = []
-  const deltas = text.toDelta(snapshot, prevSnapshot)
+  const deltas = text.toDelta(snapshot, prevSnapshot, computeYChange)
   try {
     for (let i = 0; i < deltas.length; i++) {
       const delta = deltas[i]
