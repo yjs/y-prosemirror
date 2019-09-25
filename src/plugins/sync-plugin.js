@@ -133,6 +133,7 @@ export const ySyncPlugin = (yXmlFragment, { colors = defaultColors, colorMapping
       const binding = new ProsemirrorBinding(yXmlFragment, view)
       // Make sure this is called in a separate context
       setTimeout(() => {
+        binding._forceRerender()
         view.dispatch(view.state.tr.setMeta(ySyncPluginKey, { binding }))
       }, 0)
       return {
