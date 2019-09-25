@@ -101,6 +101,7 @@ export const yCursorPlugin = awareness => new Plugin({
     }
     const updateCursorInfo = () => {
       const ystate = ySyncPluginKey.getState(view.state)
+      // @note We make implicit checks when checking for the cursor property
       const current = awareness.getLocalState() || {}
       if (view.hasFocus() && ystate.binding !== null) {
         /**
@@ -116,7 +117,7 @@ export const yCursorPlugin = awareness => new Plugin({
             anchor, head
           })
         }
-      } else if (current.cursor !== null) {
+      } else if (current.cursor != null) {
         awareness.setLocalStateField('cursor', null)
       }
     }
