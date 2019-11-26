@@ -343,26 +343,15 @@ export const createNodeIfNotExists = (el, schema, mapping, snapshot, prevSnapsho
  * @return {PModel.Node | null} Returns node if node could be created. Otherwise it deletes the yjs type and returns null
  */
 export const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapshot, computeYChange) => {
-  let _snapshot = snapshot
-  let _prevSnapshot = prevSnapshot
-  if (snapshot !== undefined && prevSnapshot !== undefined) {
-    if (!isVisible(/** @type {Y.Item} */ (el._item), snapshot)) {
-      // if this element is already rendered as deleted (ychange), then do not render children as deleted
-      _snapshot = new Y.Snapshot(prevSnapshot.ds, snapshot.sv)
-      _prevSnapshot = _snapshot
-    } else if (!isVisible(/** @type {Y.Item} */(el._item), prevSnapshot)) {
-      _prevSnapshot = _snapshot
-    }
-  }
   const children = []
   const createChildren = type => {
     if (type.constructor === Y.XmlElement) {
-      const n = createNodeIfNotExists(type, schema, mapping, _snapshot, _prevSnapshot, computeYChange)
+      const n = createNodeIfNotExists(type, schema, mapping, snapshot, prevSnapshot, computeYChange)
       if (n !== null) {
         children.push(n)
       }
     } else {
-      const ns = createTextNodesFromYText(type, schema, mapping, _snapshot, _prevSnapshot, computeYChange)
+      const ns = createTextNodesFromYText(type, schema, mapping, snapshot, prevSnapshot, computeYChange)
       if (ns !== null) {
         ns.forEach(textchild => {
           if (textchild !== null) {
@@ -378,7 +367,7 @@ export const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapsh
     Y.typeListToArraySnapshot(el, new Y.Snapshot(prevSnapshot.ds, snapshot.sv)).forEach(createChildren)
   }
   try {
-    const attrs = el.getAttributes(_snapshot)
+    const attrs = el.getAttributes(snapshot)
     if (snapshot !== undefined) {
       if (!isVisible(/** @type {Y.Item} */ (el._item), snapshot)) {
         attrs.ychange = computeYChange ? computeYChange('removed', /** @type {Y.Item} */ (el._item).id) : { type: 'removed' }
