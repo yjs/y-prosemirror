@@ -82,7 +82,10 @@ export const ySyncPlugin = (yXmlFragment, { colors = defaultColors, colorMapping
   let changedInitialContent = false
   const plugin = new Plugin({
     props: {
-      editable: (state) => ySyncPluginKey.getState(state).snapshot == null
+      editable: (state) => {
+        const syncState = ySyncPluginKey.getState(state)
+        return syncState.snapshot == null && syncState.prevSnapshot == null
+      }
     },
     key: ySyncPluginKey,
     state: {
@@ -110,7 +113,7 @@ export const ySyncPlugin = (yXmlFragment, { colors = defaultColors, colorMapping
         // always set isChangeOrigin. If undefined, this is not change origin.
         pluginState.isChangeOrigin = change !== undefined && !!change.isChangeOrigin
         if (pluginState.binding !== null) {
-          if (change !== undefined && change.snapshot != null) {
+          if (change !== undefined && (change.snapshot != null || change.prevSnapshot != null)) {
             // snapshot changed, rerender next
             setTimeout(() => {
               if (change.restore == null) {
@@ -139,7 +142,7 @@ export const ySyncPlugin = (yXmlFragment, { colors = defaultColors, colorMapping
       return {
         update: () => {
           const pluginState = plugin.getState(view.state)
-          if (pluginState.snapshot == null) {
+          if (pluginState.snapshot == null && pluginState.prevSnapshot == null) {
             if (changedInitialContent || view.state.doc.content.size > 2) {
               changedInitialContent = true
               binding._prosemirrorChanged(view.state.doc)
@@ -242,6 +245,9 @@ export class ProsemirrorBinding {
    * @param {Object} pluginState
    */
   _renderSnapshot (snapshot, prevSnapshot, pluginState) {
+    if (!snapshot) {
+      snapshot = Y.snapshot(this.doc)
+    }
     // clear mapping because we are going to rerender
     this.mapping = new Map()
     this.mux(() => {
@@ -263,7 +269,15 @@ export class ProsemirrorBinding {
           }
         }
         // Create document fragment and render
-        const fragmentContent = Y.typeListToArraySnapshot(this.type, new Y.Snapshot(prevSnapshot.ds, snapshot.sv)).map(t => createNodeFromYElement(t, this.prosemirrorView.state.schema, new Map(), snapshot, prevSnapshot, computeYChange)).filter(n => n !== null)
+        const fragmentContent = Y.typeListToArraySnapshot(this.type, new Y.Snapshot(prevSnapshot.ds, snapshot.sv)).map(t => {
+          if (!t._item.deleted || isVisible(t._item, snapshot) || isVisible(t._item, prevSnapshot)) {
+            return createNodeFromYElement(t, this.prosemirrorView.state.schema, new Map(), snapshot, prevSnapshot, computeYChange)
+          } else {
+            // No need to render elements that are not visible by either snapshot.
+            // If a client adds and deletes content in the same snapshot the element is not visible by either snapshot.
+            return null
+          }
+        }).filter(n => n !== null)
         const tr = this.prosemirrorView.state.tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
         this.prosemirrorView.dispatch(tr)
       })
@@ -274,11 +288,13 @@ export class ProsemirrorBinding {
    * @param {Y.Transaction} transaction
    */
   _typeChanged (events, transaction) {
+    const syncState = ySyncPluginKey.getState(this.prosemirrorView.state)
+    if (events.length === 0 || syncState.snapshot != null || syncState.prevSnapshot != null) {
+      // drop out if snapshot is active
+      this.renderSnapshot(syncState.snapshot, syncState.prevSnapshot)
+      return
+    }
     this.mux(() => {
-      if (events.length === 0 || ySyncPluginKey.getState(this.prosemirrorView.state).snapshot != null) {
-        // drop out if snapshot is active
-        return
-      }
       /**
        * @param {any} _
        * @param {Y.AbstractType} type

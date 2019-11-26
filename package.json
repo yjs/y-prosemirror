@@ -60,7 +60,7 @@
     "rollup-plugin-node-resolve": "^4.2.4",
     "standard": "^12.0.1",
     "y-protocols": "^0.1.0",
-    "yjs": "13.0.0-98",
+    "yjs": "13.0.0-102",
     "lib0": "^0.1.1"
   }
 }
