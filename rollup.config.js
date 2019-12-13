@@ -46,6 +46,9 @@ export default [{
       if (/^lib0\//.test(path)) {
         return `lib0/dist/${path.slice(5)}`
       }
+      if (/^y-protocols\//.test(path)) {
+        return `lib0/dist/${path.slice(12)}`
+      }
       return path
     }
   }],
