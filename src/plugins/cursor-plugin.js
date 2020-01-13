@@ -18,7 +18,7 @@ export const yCursorPluginKey = new PluginKey('yjs-cursor')
 /**
  * @param {any} state
  * @param {Awareness} awareness
- * @return {DecorationSet}
+ * @return {any} DecorationSet
  */
 export const createDecorations = (state, awareness) => {
   const ystate = ySyncPluginKey.getState(state)
@@ -71,7 +71,7 @@ export const createDecorations = (state, awareness) => {
  *
  * @public
  * @param {Awareness} awareness
- * @return {Plugin}
+ * @return {any}
  */
 export const yCursorPlugin = awareness => new Plugin({
   key: yCursorPluginKey,

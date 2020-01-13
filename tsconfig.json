@@ -20,7 +20,7 @@
     // "isolatedModules": true,               /* Transpile each file as a separate module (similar to 'ts.transpileModule'). */
 
     /* Strict Type-Checking Options */
-    "strict": true,                           /* Enable all strict type-checking options. */
+    "strict": false,                           /* Enable all strict type-checking options. */
     "noImplicitAny": false,                 /* Raise error on expressions and declarations with an implied 'any' type. */
     // "strictNullChecks": true,              /* Enable strict null checks. */
     // "strictFunctionTypes": true,           /* Enable strict checking of function types. */
@@ -38,7 +38,8 @@
     "moduleResolution": "node",            /* Specify module resolution strategy: 'node' (Node.js) or 'classic' (TypeScript pre-1.6). */
     "baseUrl": "./",                       /* Base directory to resolve non-absolute module names. */
     "paths": {
-      "yjs": ["node_modules/yjs/src/index.js"]
+      "yjs": ["node_modules/yjs/src/index.js"],
+      "lib0/*": ["node_modules/lib0/*"]
     },
     // "rootDirs": [],                        /* List of root folders whose combined content represents the structure of the project at runtime. */
     // "typeRoots": [],                       /* List of folders to include type definitions from. */
@@ -59,5 +60,5 @@
     "maxNodeModuleJsDepth": 5
   },
   "include": ["./src/**/*"],
-  "exclude": ["./node_modules/**/*"]
+  "exclude": ["./node_modules"]
 }

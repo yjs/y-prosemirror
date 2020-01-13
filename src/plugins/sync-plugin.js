@@ -76,7 +76,7 @@ const getUserColor = (colorMapping, colors, user) => {
  * This plugin also keeps references to the type and the shared document so other plugins can access it.
  * @param {Y.XmlFragment} yXmlFragment
  * @param {YSyncOpts} opts
- * @return {Plugin} Returns a prosemirror plugin that binds to this type
+ * @return {any} Returns a prosemirror plugin that binds to this type
  */
 export const ySyncPlugin = (yXmlFragment, { colors = defaultColors, colorMapping = new Map(), permanentUserData = null } = {}) => {
   let changedInitialContent = false
@@ -186,7 +186,7 @@ export const getRelativeSelection = (pmbinding, state) => ({
 export class ProsemirrorBinding {
   /**
    * @param {Y.XmlFragment} yXmlFragment The bind source
-   * @param {EditorView} prosemirrorView The target binding
+   * @param {any} prosemirrorView The target binding
    */
   constructor (yXmlFragment, prosemirrorView) {
     this.type = yXmlFragment
@@ -351,7 +351,7 @@ export const createNodeIfNotExists = (el, schema, mapping, snapshot, prevSnapsho
 /**
  * @private
  * @param {Y.XmlElement} el
- * @param {PModel.Schema} schema
+ * @param {any} schema
  * @param {ProsemirrorMapping} mapping
  * @param {Y.Snapshot} [snapshot]
  * @param {Y.Snapshot} [prevSnapshot]
@@ -407,7 +407,7 @@ export const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapsh
 /**
  * @private
  * @param {Y.XmlText} text
- * @param {PModel.Schema} schema
+ * @param {any} schema
  * @param {ProsemirrorMapping} mapping
  * @param {Y.Snapshot} [snapshot]
  * @param {Y.Snapshot} [prevSnapshot]
@@ -439,7 +439,7 @@ export const createTextNodesFromYText = (text, schema, mapping, snapshot, prevSn
 
 /**
  * @private
- * @param {Array<PModel.Node>} nodes prosemirror node
+ * @param {Array<any>} nodes prosemirror node
  * @param {ProsemirrorMapping} mapping
  * @return {Y.XmlText}
  */
@@ -457,7 +457,7 @@ export const createTypeFromTextNodes = (nodes, mapping) => {
 
 /**
  * @private
- * @param {PModel.Node} node prosemirror node
+ * @param {any} node prosemirror node
  * @param {ProsemirrorMapping} mapping
  * @return {Y.XmlElement}
  */
@@ -499,7 +499,7 @@ const equalAttrs = (pattrs, yattrs) => {
  */
 
 /**
- * @param {PModel.Node} pnode
+ * @param {any} pnode
  * @return {NormalizedPNodeContent}
  */
 export const normalizePNodeContent = pnode => {
@@ -523,7 +523,7 @@ export const normalizePNodeContent = pnode => {
 
 /**
  * @param {Y.XmlText} ytext
- * @param {Array<PModel.Node>} ptexts
+ * @param {Array<any>} ptexts
  */
 const equalYTextPText = (ytext, ptexts) => {
   const delta = ytext.toDelta()
@@ -532,7 +532,7 @@ const equalYTextPText = (ytext, ptexts) => {
 
 /**
  * @param {Y.XmlElement|Y.XmlText|Y.XmlHook} ytype
- * @param {PModel.Node|Array<PModel.Node>} pnode
+ * @param {any|Array<any>} pnode
  */
 const equalYTypePNode = (ytype, pnode) => {
   if (ytype instanceof Y.XmlElement && !(pnode instanceof Array) && matchNodeName(ytype, pnode)) {
@@ -614,7 +614,7 @@ const ytextTrans = ytext => {
  * @todo test this more
  *
  * @param {Y.Text} ytext
- * @param {Array<PModel.Node>} ptexts
+ * @param {Array<any>} ptexts
  * @param {ProsemirrorMapping} mapping
  */
 const updateYText = (ytext, ptexts, mapping) => {
@@ -641,7 +641,7 @@ const marksToAttributes = marks => {
  * @private
  * @param {Y.Doc} y
  * @param {Y.XmlFragment} yDomFragment
- * @param {PModel.Node} pNode
+ * @param {any} pNode
  * @param {ProsemirrorMapping} mapping
  */
 const updateYFragment = (y, yDomFragment, pNode, mapping) => {

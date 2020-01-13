@@ -1,11 +1,16 @@
 // @ts-nocheck
+import fs from 'fs'
+import path from 'path'
+import jsdom from 'jsdom'
 
-const fs = require('fs')
-const path = require('path')
-const { JSDOM } = require('jsdom')
+import * as prosemirror from './y-prosemirror.test.js'
+
+import { runTests } from 'lib0/testing.js'
+import { isBrowser, isNode } from 'lib0/environment.js'
+import * as log from 'lib0/logging.js'
 
 const documentContent = fs.readFileSync(path.join(__dirname, '../test.html'))
-const { window } = new JSDOM(documentContent)
+const { window } = new jsdom.JSDOM(documentContent)
 
 global.window = window
 global.document = window.document
@@ -33,4 +38,14 @@ document.createRange = () => ({
   }
 })
 
-require('../dist/test.js')
+if (isBrowser) {
+  log.createVConsole(document.body)
+}
+runTests({
+  prosemirror
+}).then(success => {
+  /* istanbul ignore next */
+  if (isNode) {
+    process.exit(success ? 0 : 1)
+  }
+})

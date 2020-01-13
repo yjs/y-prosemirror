@@ -1,5 +1,5 @@
-import nodeResolve from 'rollup-plugin-node-resolve'
-import commonjs from 'rollup-plugin-commonjs'
+import nodeResolve from '@rollup/plugin-node-resolve'
+import commonjs from '@rollup/plugin-commonjs'
 
 const customModules = new Set([
   'y-websocket',
@@ -39,20 +39,20 @@ export default [{
   input: './src/y-prosemirror.js',
   output: [{
     name: 'Y',
-    file: 'dist/y-prosemirror.js',
+    file: 'dist/y-prosemirror.cjs',
     format: 'cjs',
     sourcemap: true,
     paths: path => {
       if (/^lib0\//.test(path)) {
-        return `lib0/dist/${path.slice(5)}`
+        return `lib0/dist/${path.slice(5, -3)}.cjs`
       }
       if (/^y-protocols\//.test(path)) {
-        return `lib0/dist/${path.slice(12)}`
+        return `y-protocols/dist/${path.slice(12, -3)}.cjs`
       }
       return path
     }
   }],
-  external: id => /^lib0\//.test(id)
+  external: id => /^(lib0|y-protocols|prosemirror|yjs)/.test(id)
 }, {
   input: './test/index.js',
   output: {
@@ -64,9 +64,28 @@ export default [{
   plugins: [
     debugResolve,
     nodeResolve({
-      module: true,
-      browser: true
+      mainFields: ['module', 'browser', 'main']
     }),
     commonjs()
   ]
+}, {
+  input: './test/index.node.js',
+  output: {
+    name: 'test',
+    file: 'dist/test.cjs',
+    format: 'cjs',
+    sourcemap: true,
+    paths: path => {
+      if (/^lib0\//.test(path)) {
+        return `lib0/dist/${path.slice(5, -3)}.cjs`
+      }
+    }
+  },
+  plugins: [
+    debugResolve,
+    nodeResolve({
+      mainFields: ['module', 'main']
+    })
+  ],
+  external: id => /^(lib0|prosemirror|fs|path|jsdom|isomorphic)/.test(id)
 }]
