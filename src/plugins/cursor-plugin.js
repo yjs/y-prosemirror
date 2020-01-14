@@ -96,7 +96,9 @@ export const yCursorPlugin = awareness => new Plugin({
   view: view => {
     const awarenessListener = () => {
       setTimeout(() => {
-        view.dispatch(view.state.tr.setMeta(yCursorPluginKey, { awarenessUpdated: true }))
+        if (view.docView) {
+          view.dispatch(view.state.tr.setMeta(yCursorPluginKey, { awarenessUpdated: true }))
+        }
       })
     }
     const updateCursorInfo = () => {
