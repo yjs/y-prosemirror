@@ -79,13 +79,13 @@ export const absolutePositionToRelativePosition = (pos, type, mapping) => {
 
 /**
  * @param {Y.Doc} y
- * @param {Y.XmlFragment} yDoc Top level type that is bound to pView
+ * @param {Y.XmlFragment} documentType Top level type that is bound to pView
  * @param {any} relPos Encoded Yjs based relative position
  * @param {ProsemirrorMapping} mapping
  */
-export const relativePositionToAbsolutePosition = (y, yDoc, relPos, mapping) => {
+export const relativePositionToAbsolutePosition = (y, documentType, relPos, mapping) => {
   const decodedPos = Y.createAbsolutePositionFromRelativePosition(relPos, y)
-  if (decodedPos === null) {
+  if (decodedPos === null || !Y.isParentOf(documentType, decodedPos.type._item)) {
     return null
   }
   let type = decodedPos.type
@@ -109,7 +109,7 @@ export const relativePositionToAbsolutePosition = (y, yDoc, relPos, mapping) => 
     }
     pos += 1 // increase because we go out of n
   }
-  while (type !== yDoc && type._item !== null) {
+  while (type !== documentType && type._item !== null) {
     // @ts-ignore
     const parent = type._item.parent
     // @ts-ignore
