@@ -127,8 +127,8 @@ export const yCursorPlugin = awareness => new Plugin({
     return {
       update: updateCursorInfo,
       destroy: () => {
-        awareness.setLocalStateField('cursor', null)
         awareness.off('change', awarenessListener)
+        awareness.setLocalStateField('cursor', null)
       }
     }
   }
