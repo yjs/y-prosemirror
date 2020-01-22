@@ -22,14 +22,14 @@ export const redo = state => {
 
 export const yUndoPluginKey = new PluginKey('y-undo')
 
-export const yUndoPlugin = ({ protectedNodes = new Set(['paragraph']) } = {}) => new Plugin({
+export const yUndoPlugin = ({ protectedNodes = new Set(['paragraph']), trackedOrigins = [] } = {}) => new Plugin({
   key: yUndoPluginKey,
   state: {
     init: (initargs, state) => {
       // TODO: check if plugin order matches and fix
       const ystate = ySyncPluginKey.getState(state)
       const undoManager = new UndoManager(ystate.type, {
-        trackedOrigins: new Set([null, ySyncPluginKey]),
+        trackedOrigins: new Set([null, ySyncPluginKey].concat(trackedOrigins)),
         deleteFilter: item => !(item instanceof Item) ||
                               !(item.content instanceof ContentType) ||
                               !(item.content.type instanceof Text ||
