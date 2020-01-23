@@ -24,7 +24,7 @@ export const createDecorations = (state, awareness) => {
   const ystate = ySyncPluginKey.getState(state)
   const y = ystate.doc
   const decorations = []
-  if (ystate.snapshot != null || ystate.binding === null) {
+  if (ystate.snapshot != null || ystate.prevSnapshot != null || ystate.binding === null) {
     // do not render cursors while snapshot is active
     return DecorationSet.create(state.doc, [])
   }
