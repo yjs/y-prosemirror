@@ -29,7 +29,7 @@ export const yUndoPlugin = ({ protectedNodes = new Set(['paragraph']), trackedOr
       // TODO: check if plugin order matches and fix
       const ystate = ySyncPluginKey.getState(state)
       const undoManager = new UndoManager(ystate.type, {
-        trackedOrigins: new Set([null, ySyncPluginKey].concat(trackedOrigins)),
+        trackedOrigins: new Set([ySyncPluginKey].concat(trackedOrigins)),
         deleteFilter: item => !(item instanceof Item) ||
                               !(item.content instanceof ContentType) ||
                               !(item.content.type instanceof Text ||
