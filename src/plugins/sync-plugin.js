@@ -4,7 +4,6 @@
 
 import { createMutex } from 'lib0/mutex.js'
 import * as PModel from 'prosemirror-model'
-import { EditorView,  Decoration, DecorationSet } from 'prosemirror-view' // eslint-disable-line
 import { Plugin, PluginKey, EditorState, TextSelection } from 'prosemirror-state' // eslint-disable-line
 import * as math from 'lib0/math.js'
 import * as object from 'lib0/object.js'

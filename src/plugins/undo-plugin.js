@@ -1,5 +1,5 @@
 
-import { Plugin, PluginKey, EditorState, TextSelection } from 'prosemirror-state' // eslint-disable-line
+import { Plugin, PluginKey } from 'prosemirror-state' // eslint-disable-line
 
 import { ySyncPluginKey, getRelativeSelection } from './sync-plugin.js'
 import { UndoManager, Item, ContentType, XmlElement, Text } from 'yjs'

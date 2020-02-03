@@ -2,7 +2,6 @@ import { ProsemirrorMapping } from './plugins/sync-plugin.js' // eslint-disable-
 
 import * as Y from 'yjs'
 import * as error from 'lib0/error.js'
-import * as PModel from 'prosemirror-model' // eslint-disable-line
 
 /**
  * Transforms a Prosemirror based absolute position to a Yjs Cursor (relative position in the Yjs model).
