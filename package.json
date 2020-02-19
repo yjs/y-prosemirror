@@ -1,12 +1,13 @@
 {
   "name": "y-prosemirror",
-  "version": "0.2.4",
+  "version": "0.3.2",
   "description": "Prosemirror bindings for Yjs",
   "main": "./dist/y-prosemirror.cjs",
   "module": "./src/y-prosemirror.js",
+  "types": "./dist/src/y-prosemirror.d.ts",
   "sideEffects": false,
   "scripts": {
-    "dist": "rm -rf dist && rollup -c",
+    "dist": "rm -rf dist && rollup -c && tsc",
     "test": "rollup -c && node dist/test.cjs",
     "lint": "standard",
     "watch": "rollup -wc",
@@ -41,7 +42,7 @@
     "lib0": "^0.2.15"
   },
   "peerDependencies": {
-    "yjs": ">=13.0.0-106",
+    "yjs": "^13.0.0",
     "y-protocols": "^0.2.0",
     "prosemirror-model": "^1.7.1",
     "prosemirror-state": "^1.2.3",
@@ -50,17 +51,18 @@
   "devDependencies": {
     "@rollup/plugin-commonjs": "^11.0.1",
     "@rollup/plugin-node-resolve": "^7.0.0",
+    "@types/prosemirror-state": "^1.2.3",
     "concurrently": "^4.1.0",
     "http-server": "^0.12.1",
     "jsdom": "^15.1.1",
-    "prosemirror-model": "^1.7.1",
+    "prosemirror-model": "^1.9.1",
     "prosemirror-schema-basic": "^1.0.1",
     "prosemirror-state": "^1.2.3",
-    "prosemirror-view": "^1.9.10",
-    "rollup": "^1.29.0",
+    "prosemirror-view": "^1.13.8",
+    "rollup": "^1.29.1",
     "standard": "^12.0.1",
-    "typescript": "^3.7.4",
+    "typescript": "^3.7.5",
     "y-protocols": "^0.2.0",
-    "yjs": "13.0.0-106"
+    "yjs": "13.0.0"
   }
 }

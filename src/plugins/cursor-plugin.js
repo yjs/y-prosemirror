@@ -1,7 +1,7 @@
 
 import * as Y from 'yjs'
 import { Decoration, DecorationSet } from 'prosemirror-view' // eslint-disable-line
-import { Plugin, PluginKey, EditorState, TextSelection } from 'prosemirror-state' // eslint-disable-line
+import { Plugin, PluginKey } from 'prosemirror-state' // eslint-disable-line
 import { Awareness } from 'y-protocols/awareness.js' // eslint-disable-line
 import { ySyncPluginKey } from './sync-plugin.js'
 import { absolutePositionToRelativePosition, relativePositionToAbsolutePosition } from '../lib.js'
@@ -24,7 +24,7 @@ export const createDecorations = (state, awareness) => {
   const ystate = ySyncPluginKey.getState(state)
   const y = ystate.doc
   const decorations = []
-  if (ystate.snapshot != null || ystate.binding === null) {
+  if (ystate.snapshot != null || ystate.prevSnapshot != null || ystate.binding === null) {
     // do not render cursors while snapshot is active
     return DecorationSet.create(state.doc, [])
   }
@@ -96,6 +96,7 @@ export const yCursorPlugin = awareness => new Plugin({
   view: view => {
     const awarenessListener = () => {
       setTimeout(() => {
+        // @ts-ignore
         if (view.docView) {
           view.dispatch(view.state.tr.setMeta(yCursorPluginKey, { awarenessUpdated: true }))
         }

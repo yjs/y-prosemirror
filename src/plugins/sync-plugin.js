@@ -4,7 +4,6 @@
 
 import { createMutex } from 'lib0/mutex.js'
 import * as PModel from 'prosemirror-model'
-import { EditorView,  Decoration, DecorationSet } from 'prosemirror-view' // eslint-disable-line
 import { Plugin, PluginKey, EditorState, TextSelection } from 'prosemirror-state' // eslint-disable-line
 import * as math from 'lib0/math.js'
 import * as object from 'lib0/object.js'
@@ -226,6 +225,7 @@ export class ProsemirrorBinding {
     this.mapping = new Map()
     this.mux(() => {
       const fragmentContent = this.type.toArray().map(t => createNodeFromYElement(/** @type {Y.XmlElement} */ (t), this.prosemirrorView.state.schema, this.mapping)).filter(n => n !== null)
+      // @ts-ignore
       const tr = this.prosemirrorView.state.tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
       tr.setMeta(ySyncPluginKey, { snapshot: null, prevSnapshot: null })
       this.prosemirrorView.dispatch(tr)
@@ -235,6 +235,7 @@ export class ProsemirrorBinding {
     this.mapping = new Map()
     this.mux(() => {
       const fragmentContent = this.type.toArray().map(t => createNodeFromYElement(/** @type {Y.XmlElement} */ (t), this.prosemirrorView.state.schema, this.mapping)).filter(n => n !== null)
+      // @ts-ignore
       const tr = this.prosemirrorView.state.tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
       this.prosemirrorView.dispatch(tr)
     })
@@ -278,9 +279,10 @@ export class ProsemirrorBinding {
             return null
           }
         }).filter(n => n !== null)
+        // @ts-ignore
         const tr = this.prosemirrorView.state.tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
         this.prosemirrorView.dispatch(tr)
-      })
+      }, ySyncPluginKey)
     })
   }
   /**
@@ -304,6 +306,7 @@ export class ProsemirrorBinding {
       transaction.changed.forEach(delType)
       transaction.changedParentTypes.forEach(delType)
       const fragmentContent = this.type.toArray().map(t => createNodeIfNotExists(/** @type {Y.XmlElement | Y.XmlHook} */ (t), this.prosemirrorView.state.schema, this.mapping)).filter(n => n !== null)
+      // @ts-ignore
       let tr = this.prosemirrorView.state.tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
       restoreRelativeSelection(tr, this.beforeTransactionSelection, this)
       tr = tr.setMeta(ySyncPluginKey, { isChangeOrigin: true })
@@ -318,7 +321,7 @@ export class ProsemirrorBinding {
       this.doc.transact(() => {
         updateYFragment(this.doc, this.type, doc, this.mapping)
         this.beforeTransactionSelection = getRelativeSelection(this, this.prosemirrorView.state)
-      })
+      }, ySyncPluginKey)
     })
   }
   destroy () {
@@ -398,7 +401,7 @@ export const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapsh
     // an error occured while creating the node. This is probably a result of a concurrent action.
     /** @type {Y.Doc} */ (el.doc).transact(transaction => {
       /** @type {Y.Item} */ (el._item).delete(transaction)
-    })
+    }, ySyncPluginKey)
     mapping.delete(el)
     return null
   }
@@ -430,7 +433,7 @@ export const createTextNodesFromYText = (text, schema, mapping, snapshot, prevSn
     // an error occured while creating the node. This is probably a result of a concurrent action.
     /** @type {Y.Doc} */ (text.doc).transact(transaction => {
       /** @type {Y.Item} */ (text._item).delete(transaction)
-    })
+    }, ySyncPluginKey)
     return null
   }
   // @ts-ignore
@@ -756,7 +759,7 @@ const updateYFragment = (y, yDomFragment, pNode, mapping) => {
       }
       yDomFragment.insert(left, ins)
     }
-  })
+  }, ySyncPluginKey)
 }
 
 /**
