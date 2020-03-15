@@ -105,7 +105,7 @@ export const ySyncPlugin = (yXmlFragment, { colors = defaultColors, colorMapping
         const change = tr.getMeta(ySyncPluginKey)
         if (change !== undefined) {
           pluginState = Object.assign({}, pluginState)
-          for (let key in change) {
+          for (const key in change) {
             pluginState[key] = change[key]
           }
         }
@@ -142,7 +142,7 @@ export const ySyncPlugin = (yXmlFragment, { colors = defaultColors, colorMapping
         update: () => {
           const pluginState = plugin.getState(view.state)
           if (pluginState.snapshot == null && pluginState.prevSnapshot == null) {
-            const emptySize = view.state.doc.type.createAndFill().content.size;
+            const emptySize = view.state.doc.type.createAndFill().content.size
             if (changedInitialContent || view.state.doc.content.size > emptySize) {
               changedInitialContent = true
               binding._prosemirrorChanged(view.state.doc)
@@ -216,12 +216,14 @@ export class ProsemirrorBinding {
     })
     yXmlFragment.observeDeep(this._observeFunction)
   }
+
   renderSnapshot (snapshot, prevSnapshot) {
     if (!prevSnapshot) {
       prevSnapshot = Y.createSnapshot(Y.createDeleteSet(), new Map())
     }
     this.prosemirrorView.dispatch(this.prosemirrorView.state.tr.setMeta(ySyncPluginKey, { snapshot, prevSnapshot }))
   }
+
   unrenderSnapshot () {
     this.mapping = new Map()
     this.mux(() => {
@@ -232,6 +234,7 @@ export class ProsemirrorBinding {
       this.prosemirrorView.dispatch(tr)
     })
   }
+
   _forceRerender () {
     this.mapping = new Map()
     this.mux(() => {
@@ -241,6 +244,7 @@ export class ProsemirrorBinding {
       this.prosemirrorView.dispatch(tr)
     })
   }
+
   /**
    * @param {Y.Snapshot} snapshot
    * @param {Y.Snapshot} prevSnapshot
@@ -286,6 +290,7 @@ export class ProsemirrorBinding {
       }, ySyncPluginKey)
     })
   }
+
   /**
    * @param {Array<Y.YEvent>} events
    * @param {Y.Transaction} transaction
@@ -317,6 +322,7 @@ export class ProsemirrorBinding {
       this.prosemirrorView.dispatch(tr)
     })
   }
+
   _prosemirrorChanged (doc) {
     this.mux(() => {
       this.doc.transact(() => {
@@ -325,6 +331,7 @@ export class ProsemirrorBinding {
       }, ySyncPluginKey)
     })
   }
+
   destroy () {
     this.type.unobserveDeep(this._observeFunction)
   }
@@ -425,7 +432,7 @@ export const createTextNodesFromYText = (text, schema, mapping, snapshot, prevSn
     for (let i = 0; i < deltas.length; i++) {
       const delta = deltas[i]
       const marks = []
-      for (let markName in delta.attributes) {
+      for (const markName in delta.attributes) {
         marks.push(schema.mark(markName, delta.attributes[markName]))
       }
       nodes.push(schema.text(delta.insert, marks))
@@ -467,7 +474,7 @@ export const createTypeFromTextNodes = (nodes, mapping) => {
  */
 export const createTypeFromElementNode = (node, mapping) => {
   const type = new Y.XmlElement(node.type.name)
-  for (let key in node.attrs) {
+  for (const key in node.attrs) {
     const val = node.attrs[key]
     if (val !== null && key !== 'ychange') {
       type.setAttribute(key, val)
@@ -657,7 +664,7 @@ const updateYFragment = (y, yDomFragment, pNode, mapping) => {
   if (yDomFragment instanceof Y.XmlElement) {
     const yDomAttrs = yDomFragment.getAttributes()
     const pAttrs = pNode.attrs
-    for (let key in pAttrs) {
+    for (const key in pAttrs) {
       if (pAttrs[key] !== null) {
         if (yDomAttrs[key] !== pAttrs[key] && key !== 'ychange') {
           yDomFragment.setAttribute(key, pAttrs[key])
@@ -667,7 +674,7 @@ const updateYFragment = (y, yDomFragment, pNode, mapping) => {
       }
     }
     // remove all keys that are no longer in pAttrs
-    for (let key in yDomAttrs) {
+    for (const key in yDomAttrs) {
       if (pAttrs[key] === undefined) {
         yDomFragment.removeAttribute(key)
       }

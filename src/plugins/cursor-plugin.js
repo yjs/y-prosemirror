@@ -33,7 +33,7 @@ export const createDecorations = (state, awareness) => {
       return
     }
     if (aw.cursor != null) {
-      let user = aw.user || {}
+      const user = aw.user || {}
       if (user.color == null) {
         user.color = '#ffa500'
       }
@@ -43,7 +43,7 @@ export const createDecorations = (state, awareness) => {
       let anchor = relativePositionToAbsolutePosition(y, ystate.type, Y.createRelativePositionFromJSON(aw.cursor.anchor), ystate.binding.mapping)
       let head = relativePositionToAbsolutePosition(y, ystate.type, Y.createRelativePositionFromJSON(aw.cursor.head), ystate.binding.mapping)
       if (anchor !== null && head !== null) {
-        let maxsize = math.max(state.doc.content.size - 1, 0)
+        const maxsize = math.max(state.doc.content.size - 1, 0)
         anchor = math.min(anchor, maxsize)
         head = math.min(head, maxsize)
         decorations.push(Decoration.widget(head, () => {
