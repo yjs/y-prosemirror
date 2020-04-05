@@ -17,7 +17,9 @@ export const yCursorPluginKey = new PluginKey('yjs-cursor')
 
 /**
  * Default generator for a cursor element
- * @param {*} user user data
+ * 
+ * @param {any} user user data
+ * @return HTMLElement
  */
 export const cursorBuilder = user => {
   const cursor = document.createElement('span')
