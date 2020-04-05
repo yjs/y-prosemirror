@@ -73,17 +73,17 @@ export const createDecorations = (state, awareness) => {
  * @param {Awareness} awareness
  * @return {any}
  */
-export const yCursorPlugin = awareness => new Plugin({
+export const yCursorPlugin = (awareness, decorator = createDecorations) => new Plugin({
   key: yCursorPluginKey,
   state: {
     init (_, state) {
-      return createDecorations(state, awareness)
+      return decorator(state, awareness)
     },
     apply (tr, prevState, oldState, newState) {
       const ystate = ySyncPluginKey.getState(newState)
       const yCursorState = tr.getMeta(yCursorPluginKey)
       if ((ystate && ystate.isChangeOrigin) || (yCursorState && yCursorState.awarenessUpdated)) {
-        return createDecorations(newState, awareness)
+        return decorator(newState, awareness)
       }
       return prevState.map(tr.mapping, tr.doc)
     }
