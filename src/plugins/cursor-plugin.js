@@ -16,11 +16,28 @@ import * as math from 'lib0/math.js'
 export const yCursorPluginKey = new PluginKey('yjs-cursor')
 
 /**
+ * Default generator for a cursor element
+ *
+ * @param {any} user user data
+ * @return HTMLElement
+ */
+export const defaultCursorBuilder = user => {
+  const cursor = document.createElement('span')
+  cursor.classList.add('ProseMirror-yjs-cursor')
+  cursor.setAttribute('style', `border-color: ${user.color}`)
+  const userDiv = document.createElement('div')
+  userDiv.setAttribute('style', `background-color: ${user.color}`)
+  userDiv.insertBefore(document.createTextNode(user.name), null)
+  cursor.insertBefore(userDiv, null)
+  return cursor
+}
+
+/**
  * @param {any} state
  * @param {Awareness} awareness
  * @return {any} DecorationSet
  */
-export const createDecorations = (state, awareness) => {
+export const createDecorations = (state, awareness, createCursor) => {
   const ystate = ySyncPluginKey.getState(state)
   const y = ystate.doc
   const decorations = []
@@ -46,16 +63,7 @@ export const createDecorations = (state, awareness) => {
         const maxsize = math.max(state.doc.content.size - 1, 0)
         anchor = math.min(anchor, maxsize)
         head = math.min(head, maxsize)
-        decorations.push(Decoration.widget(head, () => {
-          const cursor = document.createElement('span')
-          cursor.classList.add('ProseMirror-yjs-cursor')
-          cursor.setAttribute('style', `border-color: ${user.color}`)
-          const userDiv = document.createElement('div')
-          userDiv.setAttribute('style', `background-color: ${user.color}`)
-          userDiv.insertBefore(document.createTextNode(user.name), null)
-          cursor.insertBefore(userDiv, null)
-          return cursor
-        }, { key: clientId + '', side: 10 }))
+        decorations.push(Decoration.widget(head, () => createCursor(user), { key: clientId + '', side: 10 }))
         const from = math.min(anchor, head)
         const to = math.max(anchor, head)
         decorations.push(Decoration.inline(from, to, { style: `background-color: ${user.color}70` }, { inclusiveEnd: true, inclusiveStart: false }))
@@ -71,19 +79,21 @@ export const createDecorations = (state, awareness) => {
  *
  * @public
  * @param {Awareness} awareness
+ * @param {object} [opts]
+ * @param {function(any):HTMLElement} [opts.cursorBuilder]
  * @return {any}
  */
-export const yCursorPlugin = awareness => new Plugin({
+export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder } = {}) => new Plugin({
   key: yCursorPluginKey,
   state: {
     init (_, state) {
-      return createDecorations(state, awareness)
+      return createDecorations(state, awareness, cursorBuilder)
     },
     apply (tr, prevState, oldState, newState) {
       const ystate = ySyncPluginKey.getState(newState)
       const yCursorState = tr.getMeta(yCursorPluginKey)
       if ((ystate && ystate.isChangeOrigin) || (yCursorState && yCursorState.awarenessUpdated)) {
-        return createDecorations(newState, awareness)
+        return createDecorations(newState, awareness, cursorBuilder)
       }
       return prevState.map(tr.mapping, tr.doc)
     }
