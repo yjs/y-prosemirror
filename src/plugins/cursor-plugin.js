@@ -17,11 +17,11 @@ export const yCursorPluginKey = new PluginKey('yjs-cursor')
 
 /**
  * Default generator for a cursor element
- * 
+ *
  * @param {any} user user data
  * @return HTMLElement
  */
-export const cursorBuilder = user => {
+export const defaultCursorBuilder = user => {
   const cursor = document.createElement('span')
   cursor.classList.add('ProseMirror-yjs-cursor')
   cursor.setAttribute('style', `border-color: ${user.color}`)
@@ -30,14 +30,14 @@ export const cursorBuilder = user => {
   userDiv.insertBefore(document.createTextNode(user.name), null)
   cursor.insertBefore(userDiv, null)
   return cursor
-};
+}
 
 /**
  * @param {any} state
  * @param {Awareness} awareness
  * @return {any} DecorationSet
  */
-export const createDecorations = (state, awareness, createCursor = cursorBuilder) => {
+export const createDecorations = (state, awareness, createCursor) => {
   const ystate = ySyncPluginKey.getState(state)
   const y = ystate.doc
   const decorations = []
@@ -79,19 +79,21 @@ export const createDecorations = (state, awareness, createCursor = cursorBuilder
  *
  * @public
  * @param {Awareness} awareness
+ * @param {object} [opts]
+ * @param {function(any):HTMLElement} [opts.cursorBuilder]
  * @return {any}
  */
-export const yCursorPlugin = (awareness, createCursor = cursorBuilder) => new Plugin({
+export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder } = {}) => new Plugin({
   key: yCursorPluginKey,
   state: {
     init (_, state) {
-      return createDecorations(state, awareness, createCursor)
+      return createDecorations(state, awareness, cursorBuilder)
     },
     apply (tr, prevState, oldState, newState) {
       const ystate = ySyncPluginKey.getState(newState)
       const yCursorState = tr.getMeta(yCursorPluginKey)
       if ((ystate && ystate.isChangeOrigin) || (yCursorState && yCursorState.awarenessUpdated)) {
-        return createDecorations(newState, awareness, createCursor)
+        return createDecorations(newState, awareness, cursorBuilder)
       }
       return prevState.map(tr.mapping, tr.doc)
     }
