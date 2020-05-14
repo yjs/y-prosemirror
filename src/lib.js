@@ -1,7 +1,39 @@
 import { ProsemirrorMapping } from './plugins/sync-plugin.js' // eslint-disable-line
 
 import * as Y from 'yjs'
+// eslint-disable-next-line
+import { EditorView } from 'prosemirror-view'
 import * as error from 'lib0/error.js'
+import * as map from 'lib0/map.js'
+import * as eventloop from 'lib0/eventloop.js'
+
+/**
+ * Is null if no timeout is in progress.
+ * Is defined if a timeout is in progress.
+ * Maps from view
+ * @type {Map<EditorView, Map<any, any>>|null}
+ */
+let viewsToUpdate = null
+
+const updateMetas = () => {
+  const ups = /** @type {Map<EditorView, Map<any, any>>} */ (viewsToUpdate)
+  viewsToUpdate = null
+  ups.forEach((metas, view) => {
+    const tr = view.state.tr
+    metas.forEach((val, key) => {
+      tr.setMeta(key, val)
+    })
+    view.dispatch(tr)
+  })
+}
+
+export const setMeta = (view, key, value) => {
+  if (!viewsToUpdate) {
+    viewsToUpdate = new Map()
+    eventloop.timeout(0, updateMetas)
+  }
+  map.setIfUndefined(viewsToUpdate, view, map.create).set(key, value)
+}
 
 /**
  * Transforms a Prosemirror based absolute position to a Yjs Cursor (relative position in the Yjs model).

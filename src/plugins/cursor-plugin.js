@@ -4,7 +4,7 @@ import { Decoration, DecorationSet } from 'prosemirror-view' // eslint-disable-l
 import { Plugin, PluginKey } from 'prosemirror-state' // eslint-disable-line
 import { Awareness } from 'y-protocols/awareness.js' // eslint-disable-line
 import { ySyncPluginKey } from './sync-plugin.js'
-import { absolutePositionToRelativePosition, relativePositionToAbsolutePosition } from '../lib.js'
+import { absolutePositionToRelativePosition, relativePositionToAbsolutePosition, setMeta } from '../lib.js'
 
 import * as math from 'lib0/math.js'
 
@@ -81,9 +81,10 @@ export const createDecorations = (state, awareness, createCursor) => {
  * @param {Awareness} awareness
  * @param {object} [opts]
  * @param {function(any):HTMLElement} [opts.cursorBuilder]
+ * @param {function(any):any} [opts.getSelection]
  * @return {any}
  */
-export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder } = {}) => new Plugin({
+export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder, getSelection = state => state.selection } = {}) => new Plugin({
   key: yCursorPluginKey,
   state: {
     init (_, state) {
@@ -105,26 +106,25 @@ export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder 
   },
   view: view => {
     const awarenessListener = () => {
-      setTimeout(() => {
-        // @ts-ignore
-        if (view.docView) {
-          view.dispatch(view.state.tr.setMeta(yCursorPluginKey, { awarenessUpdated: true }))
-        }
-      })
+      // @ts-ignore
+      if (view.docView) {
+        setMeta(view, yCursorPluginKey, { awarenessUpdated: true })
+      }
     }
     const updateCursorInfo = () => {
       const ystate = ySyncPluginKey.getState(view.state)
       // @note We make implicit checks when checking for the cursor property
       const current = awareness.getLocalState() || {}
       if (view.hasFocus() && ystate.binding !== null) {
+        const selection = getSelection(view.state)
         /**
          * @type {Y.RelativePosition}
          */
-        const anchor = absolutePositionToRelativePosition(view.state.selection.anchor, ystate.type, ystate.binding.mapping)
+        const anchor = absolutePositionToRelativePosition(selection.anchor, ystate.type, ystate.binding.mapping)
         /**
          * @type {Y.RelativePosition}
          */
-        const head = absolutePositionToRelativePosition(view.state.selection.head, ystate.type, ystate.binding.mapping)
+        const head = absolutePositionToRelativePosition(selection.head, ystate.type, ystate.binding.mapping)
         if (current.cursor == null || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(current.cursor.anchor), anchor) || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(current.cursor.head), head)) {
           awareness.setLocalStateField('cursor', {
             anchor, head
