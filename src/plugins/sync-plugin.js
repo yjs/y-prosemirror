@@ -316,9 +316,6 @@ export class ProsemirrorBinding {
       let tr = this.prosemirrorView.state.tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
       restoreRelativeSelection(tr, this.beforeTransactionSelection, this)
       tr = tr.setMeta(ySyncPluginKey, { isChangeOrigin: true })
-      if (this.beforeTransactionSelection !== null && this.prosemirrorView.hasFocus()) {
-        tr.scrollIntoView()
-      }
       this.prosemirrorView.dispatch(tr)
     })
   }
