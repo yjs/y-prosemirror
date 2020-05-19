@@ -253,7 +253,7 @@ export class ProsemirrorBinding {
     this._domSelectionInView = null
   }
 
-  _isCurrentCursorInView() {
+  _isLocalCursorInView() {
     if (!this.prosemirrorView.hasFocus()) return false
     if (environment.isBrowser && this._domSelectionInView === null) {
       // Calculte the domSelectionInView and clear by next tick after all events are finished
@@ -362,7 +362,7 @@ export class ProsemirrorBinding {
       let tr = this.prosemirrorView.state.tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
       restoreRelativeSelection(tr, this.beforeTransactionSelection, this)
       tr = tr.setMeta(ySyncPluginKey, { isChangeOrigin: true })
-      if (this.beforeTransactionSelection !== null && this._isCurrentCursorInView()) {
+      if (this.beforeTransactionSelection !== null && this._isLocalCursorInView()) {
         tr.scrollIntoView()
       }
       this.prosemirrorView.dispatch(tr)
