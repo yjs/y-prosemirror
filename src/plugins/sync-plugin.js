@@ -14,6 +14,7 @@ import * as Y from 'yjs'
 import { absolutePositionToRelativePosition, relativePositionToAbsolutePosition } from '../lib.js'
 import * as random from 'lib0/random.js'
 import * as environment from 'lib0/environment.js'
+import * as dom from 'lib0/dom.js'
 
 /**
  * @param {Y.Item} item
@@ -179,8 +180,8 @@ export const getRelativeSelection = (pmbinding, state) => ({
   head: absolutePositionToRelativePosition(state.selection.head, pmbinding.type, pmbinding.mapping)
 })
 
-const getElementFromNode = node => {
-  if (node instanceof Element) {
+const getElementFromTextNode = node => {
+  if (dom.checkNodeType(node, dom.ELEMENT_NODE)) {
     return node
   }
   return node.parentElement
@@ -188,9 +189,9 @@ const getElementFromNode = node => {
 
 const isDomSelectionInView = () => {
   const selection = window.getSelection()
-  const anchorElement = getElementFromNode(selection.anchorNode)
+  const anchorElement = getElementFromTextNode(selection.anchorNode)
   if (selection && isInViewport(anchorElement)) {
-    const focusElement = getElementFromNode(selection.focusNode)
+    const focusElement = getElementFromTextNode(selection.focusNode)
     if (focusElement === anchorElement
       || focusElement === selection.anchorNode
       || selection.focusNode === focusElement
@@ -206,7 +207,7 @@ const isDomSelectionInView = () => {
 
 const isInViewport = element => {
   const bounding = element.getBoundingClientRect()
-  const documentElement = document.documentElement
+  const documentElement = dom.doc.documentElement
   return bounding.top >= 0 && bounding.left >= 0
     && bounding.bottom <= (window.innerHeight || documentElement.clientHeight)
     && bounding.right <= (window.innerWidth || documentElement.clientWidth)
