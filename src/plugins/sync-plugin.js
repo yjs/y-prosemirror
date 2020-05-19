@@ -187,24 +187,6 @@ const getElementFromTextNode = node => {
   return node.parentElement
 }
 
-const isDomSelectionInView = () => {
-  const selection = window.getSelection()
-  const anchorElement = getElementFromTextNode(selection.anchorNode)
-  if (selection && isInViewport(anchorElement)) {
-    const focusElement = getElementFromTextNode(selection.focusNode)
-    if (focusElement === anchorElement ||
-      focusElement === selection.anchorNode ||
-      selection.focusNode === focusElement ||
-      selection.focusNode === selection.anchorNode ||
-      isInViewport(focusElement)
-    ) {
-      return true
-    }
-  }
-
-  return false
-}
-
 const isInViewport = element => {
   const bounding = element.getBoundingClientRect()
   const documentElement = dom.doc.documentElement
@@ -261,9 +243,27 @@ export class ProsemirrorBinding {
       setTimeout(() => {
         this._domSelectionInView = null
       }, 0)
-      this._domSelectionInView = isDomSelectionInView()
+      this._domSelectionInView = this._isDomSelectionInView()
     }
     return this._domSelectionInView
+  }
+
+  _isDomSelectionInView () {
+    const selection = this.prosemirrorView._root.getSelection()
+    const anchorElement = getElementFromTextNode(selection.anchorNode)
+    if (selection && isInViewport(anchorElement)) {
+      const focusElement = getElementFromTextNode(selection.focusNode)
+      if (focusElement === anchorElement ||
+        focusElement === selection.anchorNode ||
+        selection.focusNode === focusElement ||
+        selection.focusNode === selection.anchorNode ||
+        isInViewport(focusElement)
+      ) {
+        return true
+      }
+    }
+
+    return false
   }
 
   renderSnapshot (snapshot, prevSnapshot) {
