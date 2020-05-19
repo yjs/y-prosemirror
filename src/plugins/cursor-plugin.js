@@ -1,4 +1,3 @@
-
 import * as Y from 'yjs'
 import { Decoration, DecorationSet } from 'prosemirror-view' // eslint-disable-line
 import { Plugin, PluginKey } from 'prosemirror-state' // eslint-disable-line
@@ -33,14 +32,19 @@ export const defaultCursorBuilder = user => {
 }
 
 /**
+ * @param {string} cursorStateName
  * @param {any} state
  * @param {Awareness} awareness
+ * @param {Function} createCursor
  * @return {any} DecorationSet
  */
-export const createDecorations = (state, awareness, createCursor) => {
+export const createDecorations = (cursorStateName, state, awareness, createCursor) => {
   const ystate = ySyncPluginKey.getState(state)
   const y = ystate.doc
   const decorations = []
+
+  const yType = ystate.type
+
   if (ystate.snapshot != null || ystate.prevSnapshot != null || ystate.binding === null) {
     // do not render cursors while snapshot is active
     return DecorationSet.create(state.doc, [])
@@ -49,7 +53,8 @@ export const createDecorations = (state, awareness, createCursor) => {
     if (clientId === y.clientID) {
       return
     }
-    if (aw.cursor != null) {
+    const cursorInfo = aw[cursorStateName]
+    if (cursorInfo != null) {
       const user = aw.user || {}
       if (user.color == null) {
         user.color = '#ffa500'
@@ -57,8 +62,8 @@ export const createDecorations = (state, awareness, createCursor) => {
       if (user.name == null) {
         user.name = `User: ${clientId}`
       }
-      let anchor = relativePositionToAbsolutePosition(y, ystate.type, Y.createRelativePositionFromJSON(aw.cursor.anchor), ystate.binding.mapping)
-      let head = relativePositionToAbsolutePosition(y, ystate.type, Y.createRelativePositionFromJSON(aw.cursor.head), ystate.binding.mapping)
+      let anchor = relativePositionToAbsolutePosition(y, yType, Y.createRelativePositionFromJSON(cursorInfo.anchor), ystate.binding.mapping)
+      let head = relativePositionToAbsolutePosition(y, yType, Y.createRelativePositionFromJSON(cursorInfo.head), ystate.binding.mapping)
       if (anchor !== null && head !== null) {
         const maxsize = math.max(state.doc.content.size - 1, 0)
         anchor = math.min(anchor, maxsize)
@@ -66,7 +71,14 @@ export const createDecorations = (state, awareness, createCursor) => {
         decorations.push(Decoration.widget(head, () => createCursor(user), { key: clientId + '', side: 10 }))
         const from = math.min(anchor, head)
         const to = math.max(anchor, head)
-        decorations.push(Decoration.inline(from, to, { style: `background-color: ${user.color}70` }, { inclusiveEnd: true, inclusiveStart: false }))
+        decorations.push(
+          Decoration.inline(from, to, {
+            style: `background-color: ${user.color}70`
+          }, {
+            inclusiveEnd: true,
+            inclusiveStart: false
+          })
+        )
       }
     }
   })
@@ -82,19 +94,20 @@ export const createDecorations = (state, awareness, createCursor) => {
  * @param {object} [opts]
  * @param {function(any):HTMLElement} [opts.cursorBuilder]
  * @param {function(any):any} [opts.getSelection]
+ * @param {string} [opts.cursorStateName]
  * @return {any}
  */
-export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder, getSelection = state => state.selection } = {}) => new Plugin({
+export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder, getSelection = state => state.selection, cursorStateName = 'cursor' } = {}) => new Plugin({
   key: yCursorPluginKey,
   state: {
     init (_, state) {
-      return createDecorations(state, awareness, cursorBuilder)
+      return createDecorations(cursorStateName, state, awareness, cursorBuilder)
     },
     apply (tr, prevState, oldState, newState) {
       const ystate = ySyncPluginKey.getState(newState)
       const yCursorState = tr.getMeta(yCursorPluginKey)
       if ((ystate && ystate.isChangeOrigin) || (yCursorState && yCursorState.awarenessUpdated)) {
-        return createDecorations(newState, awareness, cursorBuilder)
+        return createDecorations(cursorStateName, newState, awareness, cursorBuilder)
       }
       return prevState.map(tr.mapping, tr.doc)
     }
@@ -113,25 +126,33 @@ export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder,
     }
     const updateCursorInfo = () => {
       const ystate = ySyncPluginKey.getState(view.state)
+
+      const yType = ystate.type
+
       // @note We make implicit checks when checking for the cursor property
       const current = awareness.getLocalState() || {}
+      const currentCursorInfo = current[cursorStateName]
+
       if (view.hasFocus() && ystate.binding !== null) {
         const selection = getSelection(view.state)
         /**
          * @type {Y.RelativePosition}
          */
-        const anchor = absolutePositionToRelativePosition(selection.anchor, ystate.type, ystate.binding.mapping)
+        const anchor = absolutePositionToRelativePosition(selection.anchor, yType, ystate.binding.mapping)
         /**
          * @type {Y.RelativePosition}
          */
-        const head = absolutePositionToRelativePosition(selection.head, ystate.type, ystate.binding.mapping)
-        if (current.cursor == null || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(current.cursor.anchor), anchor) || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(current.cursor.head), head)) {
-          awareness.setLocalStateField('cursor', {
+        const head = absolutePositionToRelativePosition(selection.head, yType, ystate.binding.mapping)
+        if (currentCursorInfo == null ||
+          !Y.compareRelativePositions(Y.createRelativePositionFromJSON(currentCursorInfo.head), head) ||
+          !Y.compareRelativePositions(Y.createRelativePositionFromJSON(currentCursorInfo.anchor), anchor)
+        ) {
+          awareness.setLocalStateField(cursorStateName, {
             anchor, head
           })
         }
-      } else if (current.cursor != null) {
-        awareness.setLocalStateField('cursor', null)
+      } else if (currentCursorInfo != null) {
+        awareness.setLocalStateField(cursorStateName, null)
       }
     }
     awareness.on('change', awarenessListener)
@@ -141,7 +162,7 @@ export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder,
       update: updateCursorInfo,
       destroy: () => {
         awareness.off('change', awarenessListener)
-        awareness.setLocalStateField('cursor', null)
+        awareness.setLocalStateField(cursorStateName, null)
       }
     }
   }
