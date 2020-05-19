@@ -192,11 +192,11 @@ const isDomSelectionInView = () => {
   const anchorElement = getElementFromTextNode(selection.anchorNode)
   if (selection && isInViewport(anchorElement)) {
     const focusElement = getElementFromTextNode(selection.focusNode)
-    if (focusElement === anchorElement
-      || focusElement === selection.anchorNode
-      || selection.focusNode === focusElement
-      || selection.focusNode === selection.anchorNode
-      || isInViewport(focusElement)
+    if (focusElement === anchorElement ||
+      focusElement === selection.anchorNode ||
+      selection.focusNode === focusElement ||
+      selection.focusNode === selection.anchorNode ||
+      isInViewport(focusElement)
     ) {
       return true
     }
@@ -208,9 +208,9 @@ const isDomSelectionInView = () => {
 const isInViewport = element => {
   const bounding = element.getBoundingClientRect()
   const documentElement = dom.doc.documentElement
-  return bounding.top >= 0 && bounding.left >= 0
-    && bounding.bottom <= (window.innerHeight || documentElement.clientHeight)
-    && bounding.right <= (window.innerWidth || documentElement.clientWidth)
+  return bounding.top >= 0 && bounding.left >= 0 &&
+    bounding.right <= (window.innerWidth || documentElement.clientWidth) &&
+    bounding.bottom <= (window.innerHeight || documentElement.clientHeight)
 }
 
 /**
@@ -254,11 +254,13 @@ export class ProsemirrorBinding {
     this._domSelectionInView = null
   }
 
-  _isLocalCursorInView() {
+  _isLocalCursorInView () {
     if (!this.prosemirrorView.hasFocus()) return false
     if (environment.isBrowser && this._domSelectionInView === null) {
       // Calculte the domSelectionInView and clear by next tick after all events are finished
-      setTimeout(() => this._domSelectionInView = null, 0)
+      setTimeout(() => {
+        this._domSelectionInView = null
+      }, 0)
       this._domSelectionInView = isDomSelectionInView()
     }
     return this._domSelectionInView
