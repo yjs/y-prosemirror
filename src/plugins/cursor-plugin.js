@@ -33,12 +33,13 @@ export const defaultCursorBuilder = user => {
 
 /**
  * @param {string} cursorStateName
+ * @param {string} cursorId
  * @param {any} state
  * @param {Awareness} awareness
  * @param {Function} createCursor
  * @return {any} DecorationSet
  */
-export const createDecorations = (cursorStateName, state, awareness, createCursor) => {
+export const createDecorations = (cursorStateName, cursorId, state, awareness, createCursor) => {
   const ystate = ySyncPluginKey.getState(state)
   const y = ystate.doc
   const decorations = []
@@ -54,7 +55,7 @@ export const createDecorations = (cursorStateName, state, awareness, createCurso
       return
     }
     const cursorInfo = aw[cursorStateName]
-    if (cursorInfo != null) {
+    if (cursorInfo != null && cursorInfo.cursorId === cursorId) {
       const user = aw.user || {}
       if (user.color == null) {
         user.color = '#ffa500'
@@ -95,19 +96,25 @@ export const createDecorations = (cursorStateName, state, awareness, createCurso
  * @param {function(any):HTMLElement} [opts.cursorBuilder]
  * @param {function(any):any} [opts.getSelection]
  * @param {string} [opts.cursorStateName]
+ * @param {any} [opts.cursorId]
  * @return {any}
  */
-export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder, getSelection = state => state.selection, cursorStateName = 'cursor' } = {}) => new Plugin({
+export const yCursorPlugin = (awareness, {
+  cursorBuilder = defaultCursorBuilder,
+  getSelection = state => state.selection,
+  cursorStateName = 'cursor',
+  cursorId = null
+} = {}) => new Plugin({
   key: yCursorPluginKey,
   state: {
     init (_, state) {
-      return createDecorations(cursorStateName, state, awareness, cursorBuilder)
+      return createDecorations(cursorStateName, cursorId, state, awareness, cursorBuilder)
     },
     apply (tr, prevState, oldState, newState) {
       const ystate = ySyncPluginKey.getState(newState)
       const yCursorState = tr.getMeta(yCursorPluginKey)
       if ((ystate && ystate.isChangeOrigin) || (yCursorState && yCursorState.awarenessUpdated)) {
-        return createDecorations(cursorStateName, newState, awareness, cursorBuilder)
+        return createDecorations(cursorStateName, cursorId, newState, awareness, cursorBuilder)
       }
       return prevState.map(tr.mapping, tr.doc)
     }
@@ -134,25 +141,41 @@ export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder,
       const currentCursorInfo = current[cursorStateName]
 
       if (view.hasFocus() && ystate.binding !== null) {
+        let shouldUpdateCursor = currentCursorInfo == null
+        const updateCursorInfo = {}
+
+        if (shouldUpdateCursor || currentCursorInfo.cursorId !== cursorId) {
+          updateCursorInfo.cursorId = cursorId
+          shouldUpdateCursor = true
+        }
+
         const selection = getSelection(view.state)
+
         /**
          * @type {Y.RelativePosition}
          */
         const anchor = absolutePositionToRelativePosition(selection.anchor, yType, ystate.binding.mapping)
+        if (shouldUpdateCursor || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(currentCursorInfo.anchor), anchor)) {
+          updateCursorInfo.anchor = anchor
+          shouldUpdateCursor = true
+        }
+
         /**
          * @type {Y.RelativePosition}
          */
         const head = absolutePositionToRelativePosition(selection.head, yType, ystate.binding.mapping)
-        if (currentCursorInfo == null ||
-          !Y.compareRelativePositions(Y.createRelativePositionFromJSON(currentCursorInfo.head), head) ||
-          !Y.compareRelativePositions(Y.createRelativePositionFromJSON(currentCursorInfo.anchor), anchor)
-        ) {
-          awareness.setLocalStateField(cursorStateName, {
-            anchor, head
-          })
+        if (shouldUpdateCursor || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(currentCursorInfo.head), head)) {
+          updateCursorInfo.head = head
+          shouldUpdateCursor = true
+        }
+
+        if (shouldUpdateCursor) {
+          awareness.setLocalStateField(cursorStateName, updateCursorInfo)
         }
       } else if (currentCursorInfo != null) {
-        awareness.setLocalStateField(cursorStateName, null)
+        if (currentCursorInfo.cursorId === cursorId) {
+          awareness.setLocalStateField(cursorStateName, null)
+        }
       }
     }
     awareness.on('change', awarenessListener)
