@@ -180,21 +180,6 @@ export const getRelativeSelection = (pmbinding, state) => ({
   head: absolutePositionToRelativePosition(state.selection.head, pmbinding.type, pmbinding.mapping)
 })
 
-const getElementFromTextNode = node => {
-  if (dom.checkNodeType(node, dom.ELEMENT_NODE)) {
-    return node
-  }
-  return node.parentElement
-}
-
-const isInViewport = element => {
-  const bounding = element.getBoundingClientRect()
-  const documentElement = dom.doc.documentElement
-  return bounding.top >= 0 && bounding.left >= 0 &&
-    bounding.right <= (window.innerWidth || documentElement.clientWidth) &&
-    bounding.bottom <= (window.innerHeight || documentElement.clientHeight)
-}
-
 /**
  * Binding for prosemirror.
  *
@@ -250,20 +235,17 @@ export class ProsemirrorBinding {
 
   _isDomSelectionInView () {
     const selection = this.prosemirrorView._root.getSelection()
-    const anchorElement = getElementFromTextNode(selection.anchorNode)
-    if (selection && isInViewport(anchorElement)) {
-      const focusElement = getElementFromTextNode(selection.focusNode)
-      if (focusElement === anchorElement ||
-        focusElement === selection.anchorNode ||
-        selection.focusNode === focusElement ||
-        selection.focusNode === selection.anchorNode ||
-        isInViewport(focusElement)
-      ) {
-        return true
-      }
-    }
 
-    return false
+    const range = this.prosemirrorView._root.createRange()
+    range.setStart(selection.anchorNode, selection.anchorOffset)
+    range.setEnd(selection.focusNode, selection.focusOffset)
+
+    const bounding = range.getBoundingClientRect()
+    const documentElement = dom.doc.documentElement
+
+    return bounding.top >= 0 && bounding.left >= 0 &&
+      bounding.right <= (window.innerWidth || documentElement.clientWidth) &&
+      bounding.bottom <= (window.innerHeight || documentElement.clientHeight)
   }
 
   renderSnapshot (snapshot, prevSnapshot) {
