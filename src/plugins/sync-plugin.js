@@ -13,6 +13,7 @@ import * as error from 'lib0/error.js'
 import * as Y from 'yjs'
 import { absolutePositionToRelativePosition, relativePositionToAbsolutePosition } from '../lib.js'
 import * as random from 'lib0/random.js'
+import * as environment from 'lib0/environment.js'
 
 /**
  * @param {Y.Item} item
@@ -178,6 +179,39 @@ export const getRelativeSelection = (pmbinding, state) => ({
   head: absolutePositionToRelativePosition(state.selection.head, pmbinding.type, pmbinding.mapping)
 })
 
+const getElementFromNode = node => {
+  if (node instanceof Element) {
+    return node
+  }
+  return node.parentElement
+};
+
+const isDomSelectionInView = () => {
+  const selection = window.getSelection()
+  const anchorElement = getElementFromNode(selection.anchorNode)
+  if (selection && isInViewport(anchorElement)) {
+    const focusElement = getElementFromNode(selection.focusNode)
+    if (focusElement === anchorElement
+      || focusElement === selection.anchorNode
+      || selection.focusNode === focusElement
+      || selection.focusNode === selection.anchorNode
+      || isInViewport(focusElement)
+    ) {
+      return true
+    }
+  }
+
+  return false
+};
+
+const isInViewport = element => {
+  const bounding = element.getBoundingClientRect()
+  const documentElement = document.documentElement
+  return bounding.top >= 0 && bounding.left >= 0
+    && bounding.bottom <= (window.innerHeight || documentElement.clientHeight)
+    && bounding.right <= (window.innerWidth || documentElement.clientWidth)
+};
+
 /**
  * Binding for prosemirror.
  *
@@ -215,6 +249,18 @@ export class ProsemirrorBinding {
       this.beforeTransactionSelection = null
     })
     yXmlFragment.observeDeep(this._observeFunction)
+
+    this._domSelectionInView = null
+  }
+
+  _isCurrentCursorInView() {
+    if (!this.prosemirrorView.hasFocus()) return false;
+    if (environment.isBrowser && this._domSelectionInView === null) {
+      // Calculte the domSelectionInView and clear by next tick after all events are finished
+      setTimeout(() => this._domSelectionInView = null, 0);
+      this._domSelectionInView = isDomSelectionInView();
+    }
+    return this._domSelectionInView;
   }
 
   renderSnapshot (snapshot, prevSnapshot) {
@@ -316,6 +362,9 @@ export class ProsemirrorBinding {
       let tr = this.prosemirrorView.state.tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
       restoreRelativeSelection(tr, this.beforeTransactionSelection, this)
       tr = tr.setMeta(ySyncPluginKey, { isChangeOrigin: true })
+      if (this.beforeTransactionSelection !== null && this._isCurrentCursorInView()) {
+        tr.scrollIntoView()
+      }
       this.prosemirrorView.dispatch(tr)
     })
   }
