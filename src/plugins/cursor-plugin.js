@@ -185,7 +185,15 @@ export const yCursorPlugin = (awareness, {
       update: updateCursorInfo,
       destroy: () => {
         awareness.off('change', awarenessListener)
-        awareness.setLocalStateField(cursorStateName, null)
+        view.dom.removeEventListener('focusin', updateCursorInfo)
+        view.dom.removeEventListener('focusout', updateCursorInfo)
+
+        const current = awareness.getLocalState() || {}
+        const currentCursorInfo = current[cursorStateName]
+
+        if (currentCursorInfo.cursorId === cursorId) {
+          awareness.setLocalStateField(cursorStateName, null)
+        }
       }
     }
   }
