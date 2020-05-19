@@ -184,7 +184,7 @@ const getElementFromNode = node => {
     return node
   }
   return node.parentElement
-};
+}
 
 const isDomSelectionInView = () => {
   const selection = window.getSelection()
@@ -202,7 +202,7 @@ const isDomSelectionInView = () => {
   }
 
   return false
-};
+}
 
 const isInViewport = element => {
   const bounding = element.getBoundingClientRect()
@@ -210,7 +210,7 @@ const isInViewport = element => {
   return bounding.top >= 0 && bounding.left >= 0
     && bounding.bottom <= (window.innerHeight || documentElement.clientHeight)
     && bounding.right <= (window.innerWidth || documentElement.clientWidth)
-};
+}
 
 /**
  * Binding for prosemirror.
@@ -254,13 +254,13 @@ export class ProsemirrorBinding {
   }
 
   _isCurrentCursorInView() {
-    if (!this.prosemirrorView.hasFocus()) return false;
+    if (!this.prosemirrorView.hasFocus()) return false
     if (environment.isBrowser && this._domSelectionInView === null) {
       // Calculte the domSelectionInView and clear by next tick after all events are finished
-      setTimeout(() => this._domSelectionInView = null, 0);
-      this._domSelectionInView = isDomSelectionInView();
+      setTimeout(() => this._domSelectionInView = null, 0)
+      this._domSelectionInView = isDomSelectionInView()
     }
-    return this._domSelectionInView;
+    return this._domSelectionInView
   }
 
   renderSnapshot (snapshot, prevSnapshot) {
