@@ -44,8 +44,6 @@ export const createDecorations = (cursorStateName, cursorId, state, awareness, c
   const y = ystate.doc
   const decorations = []
 
-  const yType = ystate.type
-
   if (ystate.snapshot != null || ystate.prevSnapshot != null || ystate.binding === null) {
     // do not render cursors while snapshot is active
     return DecorationSet.create(state.doc, [])
@@ -63,8 +61,8 @@ export const createDecorations = (cursorStateName, cursorId, state, awareness, c
       if (user.name == null) {
         user.name = `User: ${clientId}`
       }
-      let anchor = relativePositionToAbsolutePosition(y, yType, Y.createRelativePositionFromJSON(cursorInfo.anchor), ystate.binding.mapping)
-      let head = relativePositionToAbsolutePosition(y, yType, Y.createRelativePositionFromJSON(cursorInfo.head), ystate.binding.mapping)
+      let anchor = relativePositionToAbsolutePosition(y, ystate.type, Y.createRelativePositionFromJSON(cursorInfo.anchor), ystate.binding.mapping)
+      let head = relativePositionToAbsolutePosition(y, ystate.type, Y.createRelativePositionFromJSON(cursorInfo.head), ystate.binding.mapping)
       if (anchor !== null && head !== null) {
         const maxsize = math.max(state.doc.content.size - 1, 0)
         anchor = math.min(anchor, maxsize)
@@ -134,8 +132,6 @@ export const yCursorPlugin = (awareness, {
     const updateCursorInfo = () => {
       const ystate = ySyncPluginKey.getState(view.state)
 
-      const yType = ystate.type
-
       // @note We make implicit checks when checking for the cursor property
       const current = awareness.getLocalState() || {}
       const currentCursorInfo = current[cursorStateName]
@@ -154,7 +150,7 @@ export const yCursorPlugin = (awareness, {
         /**
          * @type {Y.RelativePosition}
          */
-        const anchor = absolutePositionToRelativePosition(selection.anchor, yType, ystate.binding.mapping)
+        const anchor = absolutePositionToRelativePosition(selection.anchor, ystate.type, ystate.binding.mapping)
         if (shouldUpdateCursor || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(currentCursorInfo.anchor), anchor)) {
           updateCursorInfo.anchor = anchor
           shouldUpdateCursor = true
@@ -163,7 +159,7 @@ export const yCursorPlugin = (awareness, {
         /**
          * @type {Y.RelativePosition}
          */
-        const head = absolutePositionToRelativePosition(selection.head, yType, ystate.binding.mapping)
+        const head = absolutePositionToRelativePosition(selection.head, ystate.type, ystate.binding.mapping)
         if (shouldUpdateCursor || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(currentCursorInfo.head), head)) {
           updateCursorInfo.head = head
           shouldUpdateCursor = true
