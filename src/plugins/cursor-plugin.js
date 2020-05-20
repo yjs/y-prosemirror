@@ -97,100 +97,105 @@ export const createDecorations = (cursorStateName, cursorId, state, awareness, c
  * @param {any} [opts.cursorId]
  * @return {any}
  */
-export const yCursorPlugin = (awareness, {
-  cursorBuilder = defaultCursorBuilder,
-  getSelection = state => state.selection,
-  cursorStateName = 'cursor',
-  cursorId = null
-} = {}) => new Plugin({
-  key: yCursorPluginKey,
-  state: {
-    init (_, state) {
-      return createDecorations(cursorStateName, cursorId, state, awareness, cursorBuilder)
+export const yCursorPlugin = (
+  awareness,
+  {
+    cursorBuilder = defaultCursorBuilder,
+    getSelection = state => state.selection,
+    cursorStateName = 'cursor',
+    cursorId = null
+  } = {}
+) => (
+  new Plugin({
+    key: yCursorPluginKey,
+    state: {
+      init (_, state) {
+        return createDecorations(cursorStateName, cursorId, state, awareness, cursorBuilder)
+      },
+      apply (tr, prevState, oldState, newState) {
+        const ystate = ySyncPluginKey.getState(newState)
+        const yCursorState = tr.getMeta(yCursorPluginKey)
+        if ((ystate && ystate.isChangeOrigin) || (yCursorState && yCursorState.awarenessUpdated)) {
+          return createDecorations(cursorStateName, cursorId, newState, awareness, cursorBuilder)
+        }
+        return prevState.map(tr.mapping, tr.doc)
+      }
     },
-    apply (tr, prevState, oldState, newState) {
-      const ystate = ySyncPluginKey.getState(newState)
-      const yCursorState = tr.getMeta(yCursorPluginKey)
-      if ((ystate && ystate.isChangeOrigin) || (yCursorState && yCursorState.awarenessUpdated)) {
-        return createDecorations(cursorStateName, cursorId, newState, awareness, cursorBuilder)
+    props: {
+      decorations: state => {
+        return yCursorPluginKey.getState(state)
       }
-      return prevState.map(tr.mapping, tr.doc)
-    }
-  },
-  props: {
-    decorations: state => {
-      return yCursorPluginKey.getState(state)
-    }
-  },
-  view: view => {
-    const awarenessListener = () => {
-      // @ts-ignore
-      if (view.docView) {
-        setMeta(view, yCursorPluginKey, { awarenessUpdated: true })
-      }
-    }
-    const updateCursorInfo = () => {
-      const ystate = ySyncPluginKey.getState(view.state)
-
-      // @note We make implicit checks when checking for the cursor property
-      const current = awareness.getLocalState() || {}
-      const currentCursorInfo = current[cursorStateName]
-
-      if (view.hasFocus() && ystate.binding !== null) {
-        let shouldUpdateCursor = currentCursorInfo == null
-        const updateCursorInfo = {}
-
-        if (shouldUpdateCursor || currentCursorInfo.cursorId !== cursorId) {
-          updateCursorInfo.cursorId = cursorId
-          shouldUpdateCursor = true
-        }
-
-        const selection = getSelection(view.state)
-
-        /**
-         * @type {Y.RelativePosition}
-         */
-        const anchor = absolutePositionToRelativePosition(selection.anchor, ystate.type, ystate.binding.mapping)
-        if (shouldUpdateCursor || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(currentCursorInfo.anchor), anchor)) {
-          updateCursorInfo.anchor = anchor
-          shouldUpdateCursor = true
-        }
-
-        /**
-         * @type {Y.RelativePosition}
-         */
-        const head = absolutePositionToRelativePosition(selection.head, ystate.type, ystate.binding.mapping)
-        if (shouldUpdateCursor || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(currentCursorInfo.head), head)) {
-          updateCursorInfo.head = head
-          shouldUpdateCursor = true
-        }
-
-        if (shouldUpdateCursor) {
-          awareness.setLocalStateField(cursorStateName, updateCursorInfo)
-        }
-      } else if (currentCursorInfo != null) {
-        if (currentCursorInfo.cursorId === cursorId) {
-          awareness.setLocalStateField(cursorStateName, null)
+    },
+    view: view => {
+      const awarenessListener = () => {
+        // @ts-ignore
+        if (view.docView) {
+          setMeta(view, yCursorPluginKey, { awarenessUpdated: true })
         }
       }
-    }
-    awareness.on('change', awarenessListener)
-    view.dom.addEventListener('focusin', updateCursorInfo)
-    view.dom.addEventListener('focusout', updateCursorInfo)
-    return {
-      update: updateCursorInfo,
-      destroy: () => {
-        awareness.off('change', awarenessListener)
-        view.dom.removeEventListener('focusin', updateCursorInfo)
-        view.dom.removeEventListener('focusout', updateCursorInfo)
+      const updateCursorInfo = () => {
+        const ystate = ySyncPluginKey.getState(view.state)
 
+        // @note We make implicit checks when checking for the cursor property
         const current = awareness.getLocalState() || {}
         const currentCursorInfo = current[cursorStateName]
 
-        if (currentCursorInfo.cursorId === cursorId) {
-          awareness.setLocalStateField(cursorStateName, null)
+        if (view.hasFocus() && ystate.binding !== null) {
+          let shouldUpdateCursor = currentCursorInfo == null
+          const updateCursorInfo = {}
+
+          if (shouldUpdateCursor || currentCursorInfo.cursorId !== cursorId) {
+            updateCursorInfo.cursorId = cursorId
+            shouldUpdateCursor = true
+          }
+
+          const selection = getSelection(view.state)
+
+          /**
+           * @type {Y.RelativePosition}
+           */
+          const anchor = absolutePositionToRelativePosition(selection.anchor, ystate.type, ystate.binding.mapping)
+          if (shouldUpdateCursor || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(currentCursorInfo.anchor), anchor)) {
+            updateCursorInfo.anchor = anchor
+            shouldUpdateCursor = true
+          }
+
+          /**
+           * @type {Y.RelativePosition}
+           */
+          const head = absolutePositionToRelativePosition(selection.head, ystate.type, ystate.binding.mapping)
+          if (shouldUpdateCursor || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(currentCursorInfo.head), head)) {
+            updateCursorInfo.head = head
+            shouldUpdateCursor = true
+          }
+
+          if (shouldUpdateCursor) {
+            awareness.setLocalStateField(cursorStateName, updateCursorInfo)
+          }
+        } else if (currentCursorInfo != null) {
+          if (currentCursorInfo.cursorId === cursorId) {
+            awareness.setLocalStateField(cursorStateName, null)
+          }
+        }
+      }
+      awareness.on('change', awarenessListener)
+      view.dom.addEventListener('focusin', updateCursorInfo)
+      view.dom.addEventListener('focusout', updateCursorInfo)
+      return {
+        update: updateCursorInfo,
+        destroy: () => {
+          awareness.off('change', awarenessListener)
+          view.dom.removeEventListener('focusin', updateCursorInfo)
+          view.dom.removeEventListener('focusout', updateCursorInfo)
+
+          const current = awareness.getLocalState() || {}
+          const currentCursorInfo = current[cursorStateName]
+
+          if (currentCursorInfo.cursorId === cursorId) {
+            awareness.setLocalStateField(cursorStateName, null)
+          }
         }
       }
     }
-  }
-})
+  })
+)
