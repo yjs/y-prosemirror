@@ -169,7 +169,6 @@ export const yCursorPlugin = (
         if (shouldUpdateCursor) {
           awareness.setLocalStateField('cursor', updateCursorInfo)
         }
-
       } else if (currentCursorInfo != null) {
         if (currentCursorInfo.cursorId === cursorId) {
           awareness.setLocalStateField('cursor', null)
