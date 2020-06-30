@@ -151,16 +151,17 @@ export const yCursorPlugin = (
          * @type {Y.RelativePosition}
          */
         const anchor = absolutePositionToRelativePosition(selection.anchor, ystate.type, ystate.binding.mapping)
-        if (shouldUpdateCursor || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(currentCursorInfo.anchor), anchor)) {
-          updateCursorInfo.anchor = anchor
-          shouldUpdateCursor = true
-        }
 
         /**
          * @type {Y.RelativePosition}
          */
         const head = absolutePositionToRelativePosition(selection.head, ystate.type, ystate.binding.mapping)
-        if (shouldUpdateCursor || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(currentCursorInfo.head), head)) {
+
+        if (shouldUpdateCursor ||
+          !Y.compareRelativePositions(Y.createRelativePositionFromJSON(currentCursorInfo.head), head) ||
+          !Y.compareRelativePositions(Y.createRelativePositionFromJSON(currentCursorInfo.anchor), anchor)
+        ) {
+          updateCursorInfo.anchor = anchor
           updateCursorInfo.head = head
           shouldUpdateCursor = true
         }
@@ -168,6 +169,7 @@ export const yCursorPlugin = (
         if (shouldUpdateCursor) {
           awareness.setLocalStateField('cursor', updateCursorInfo)
         }
+
       } else if (currentCursorInfo != null) {
         if (currentCursorInfo.cursorId === cursorId) {
           awareness.setLocalStateField('cursor', null)
