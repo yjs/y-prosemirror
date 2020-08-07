@@ -206,12 +206,12 @@ export class ProsemirrorBinding {
      * current selection as relative positions in the Yjs model
      */
     this.beforeTransactionSelection = null
-    this.doc.on('beforeTransaction', e => {
+    this.doc.on('beforeAllTransactions', () => {
       if (this.beforeTransactionSelection === null) {
         this.beforeTransactionSelection = getRelativeSelection(this, prosemirrorView.state)
       }
     })
-    this.doc.on('afterTransaction', e => {
+    this.doc.on('afterAllTransactions', e => {
       this.beforeTransactionSelection = null
     })
     yXmlFragment.observeDeep(this._observeFunction)

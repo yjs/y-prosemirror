@@ -6,6 +6,10 @@
   "module": "./src/y-prosemirror.js",
   "types": "./dist/src/y-prosemirror.d.ts",
   "sideEffects": false,
+  "funding": {
+    "type": "GitHub Sponsors ❤",
+    "url": "https://github.com/sponsors/dmonad"
+  },
   "scripts": {
     "dist": "rm -rf dist && rollup -c && tsc",
     "test": "rollup -c && node dist/test.cjs",
@@ -42,8 +46,8 @@
     "lib0": "^0.2.15"
   },
   "peerDependencies": {
-    "yjs": "^13.0.0",
-    "y-protocols": "^0.2.0",
+    "yjs": "^13.3.1",
+    "y-protocols": "^1.0.1",
     "prosemirror-model": "^1.7.1",
     "prosemirror-state": "^1.2.3",
     "prosemirror-view": "^1.9.10"
