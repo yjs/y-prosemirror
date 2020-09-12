@@ -113,6 +113,7 @@ export const absolutePositionToRelativePosition = (pos, type, mapping) => {
  * @param {Y.XmlFragment} documentType Top level type that is bound to pView
  * @param {any} relPos Encoded Yjs based relative position
  * @param {ProsemirrorMapping} mapping
+ * @return {null|number}
  */
 export const relativePositionToAbsolutePosition = (y, documentType, relPos, mapping) => {
   const decodedPos = Y.createAbsolutePositionFromRelativePosition(relPos, y)

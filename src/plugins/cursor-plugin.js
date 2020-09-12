@@ -82,9 +82,10 @@ export const createDecorations = (state, awareness, createCursor) => {
  * @param {object} [opts]
  * @param {function(any):HTMLElement} [opts.cursorBuilder]
  * @param {function(any):any} [opts.getSelection]
+ * @param {string} [opts.cursorStateField] By default all editor bindings use the awareness 'cursor' field to propagate cursor information.
  * @return {any}
  */
-export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder, getSelection = state => state.selection } = {}) => new Plugin({
+export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder, getSelection = state => state.selection } = {}, cursorStateField = 'cursor') => new Plugin({
   key: yCursorPluginKey,
   state: {
     init (_, state) {
@@ -126,12 +127,13 @@ export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder,
          */
         const head = absolutePositionToRelativePosition(selection.head, ystate.type, ystate.binding.mapping)
         if (current.cursor == null || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(current.cursor.anchor), anchor) || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(current.cursor.head), head)) {
-          awareness.setLocalStateField('cursor', {
+          awareness.setLocalStateField(cursorStateField, {
             anchor, head
           })
         }
-      } else if (current.cursor != null) {
-        awareness.setLocalStateField('cursor', null)
+      } else if (current.cursor != null && relativePositionToAbsolutePosition(ystate.doc, ystate.type, Y.createRelativePositionFromJSON(current.cursor.anchor), ystate.binding.mapping) !== null) {
+        // delete cursor information if current cursor information is owned by this editor binding
+        awareness.setLocalStateField(cursorStateField, null)
       }
     }
     awareness.on('change', awarenessListener)
@@ -141,7 +143,7 @@ export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder,
       update: updateCursorInfo,
       destroy: () => {
         awareness.off('change', awarenessListener)
-        awareness.setLocalStateField('cursor', null)
+        awareness.setLocalStateField(cursorStateField, null)
       }
     }
   }
