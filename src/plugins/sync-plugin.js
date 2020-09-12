@@ -13,6 +13,8 @@ import * as error from 'lib0/error.js'
 import * as Y from 'yjs'
 import { absolutePositionToRelativePosition, relativePositionToAbsolutePosition } from '../lib.js'
 import * as random from 'lib0/random.js'
+import * as environment from 'lib0/environment.js'
+import * as dom from 'lib0/dom.js'
 
 /**
  * @param {Y.Item} item
@@ -215,6 +217,35 @@ export class ProsemirrorBinding {
       this.beforeTransactionSelection = null
     })
     yXmlFragment.observeDeep(this._observeFunction)
+
+    this._domSelectionInView = null
+  }
+
+  _isLocalCursorInView () {
+    if (!this.prosemirrorView.hasFocus()) return false
+    if (environment.isBrowser && this._domSelectionInView === null) {
+      // Calculte the domSelectionInView and clear by next tick after all events are finished
+      setTimeout(() => {
+        this._domSelectionInView = null
+      }, 0)
+      this._domSelectionInView = this._isDomSelectionInView()
+    }
+    return this._domSelectionInView
+  }
+
+  _isDomSelectionInView () {
+    const selection = this.prosemirrorView._root.getSelection()
+
+    const range = this.prosemirrorView._root.createRange()
+    range.setStart(selection.anchorNode, selection.anchorOffset)
+    range.setEnd(selection.focusNode, selection.focusOffset)
+
+    const bounding = range.getBoundingClientRect()
+    const documentElement = dom.doc.documentElement
+
+    return bounding.top >= 0 && bounding.left >= 0 &&
+      bounding.right <= (window.innerWidth || documentElement.clientWidth) &&
+      bounding.bottom <= (window.innerHeight || documentElement.clientHeight)
   }
 
   renderSnapshot (snapshot, prevSnapshot) {
@@ -316,7 +347,7 @@ export class ProsemirrorBinding {
       let tr = this.prosemirrorView.state.tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
       restoreRelativeSelection(tr, this.beforeTransactionSelection, this)
       tr = tr.setMeta(ySyncPluginKey, { isChangeOrigin: true })
-      if (this.beforeTransactionSelection !== null && this.prosemirrorView.hasFocus()) {
+      if (this.beforeTransactionSelection !== null && this._isLocalCursorInView()) {
         tr.scrollIntoView()
       }
       this.prosemirrorView.dispatch(tr)
