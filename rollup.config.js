@@ -69,6 +69,21 @@ export default [{
     commonjs()
   ]
 }, {
+  input: './demo/prosemirror.js',
+  output: {
+    name: 'demo',
+    file: 'demo/dist/prosemirror.js',
+    format: 'iife',
+    sourcemap: true
+  },
+  plugins: [
+    debugResolve,
+    nodeResolve({
+      mainFields: ['module', 'browser', 'main']
+    }),
+    commonjs()
+  ]
+}, {
   input: './test/index.node.js',
   output: {
     name: 'test',

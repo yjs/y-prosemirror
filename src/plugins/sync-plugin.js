@@ -243,9 +243,9 @@ export class ProsemirrorBinding {
     const bounding = range.getBoundingClientRect()
     const documentElement = dom.doc.documentElement
 
-    return bounding.top >= 0 && bounding.left >= 0 &&
-      bounding.right <= (window.innerWidth || documentElement.clientWidth) &&
-      bounding.bottom <= (window.innerHeight || documentElement.clientHeight)
+    return bounding.bottom >= 0 && bounding.right >= 0 &&
+      bounding.left <= (window.innerWidth || documentElement.clientWidth || 0) &&
+      bounding.top <= (window.innerHeight || documentElement.clientHeight || 0)
   }
 
   renderSnapshot (snapshot, prevSnapshot) {
