@@ -1,7 +1,7 @@
 // eslint-disable-next-line
 import { Node, Schema } from 'prosemirror-model'
 import flatten from 'lodash.flatten'
-import { updateYFragment } from './lib'
+import { updateYFragment } from './lib.js'
 import * as Y from 'yjs'
 
 /**
@@ -39,7 +39,7 @@ export function prosemirrorToYDoc (doc, xmlFragment = 'prosemirror') {
  */
 export function prosemirrorJSONToYDoc (schema, state, xmlFragment = 'prosemirror') {
   const doc = Node.fromJSON(schema, state)
-  return prosemirrorToYDoc(schema, doc, xmlFragment)
+  return prosemirrorToYDoc(doc, xmlFragment)
 }
 
 /**

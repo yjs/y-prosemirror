@@ -65,5 +65,5 @@ export default [{
       mainFields: ['module', 'main']
     })
   ],
-  external: id => /^(lib0|prosemirror|fs|path|jsdom|isomorphic)/.test(id)
+  external: id => /^(lib0|lodash|prosemirror|fs|path|jsdom|isomorphic)/.test(id)
 }]
