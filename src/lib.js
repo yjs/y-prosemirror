@@ -11,7 +11,7 @@ import * as eventloop from 'lib0/eventloop.js'
 import * as math from 'lib0/math.js'
 import * as object from 'lib0/object.js'
 import { simpleDiff } from 'lib0/diff.js'
-import { ySyncPluginKey } from './plugins/keys'
+import { ySyncPluginKey } from './plugins/keys.js'
 
 /**
  * @param {Y.Item} item
@@ -253,7 +253,7 @@ export const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapsh
     // an error occured while creating the node. This is probably a result of a concurrent action.
     /** @type {Y.Doc} */ (el.doc).transact(transaction => {
       /** @type {Y.Item} */ (el._item).delete(transaction)
-    }, ySyncPluginKey)
+  }, ySyncPluginKey)
     mapping.delete(el)
     return null
   }
@@ -285,7 +285,7 @@ export const createTextNodesFromYText = (text, schema, mapping, snapshot, prevSn
     // an error occured while creating the node. This is probably a result of a concurrent action.
     /** @type {Y.Doc} */ (text.doc).transact(transaction => {
       /** @type {Y.Item} */ (text._item).delete(transaction)
-    }, ySyncPluginKey)
+  }, ySyncPluginKey)
     return null
   }
   // @ts-ignore

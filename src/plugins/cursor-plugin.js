@@ -4,7 +4,7 @@ import { Decoration, DecorationSet } from 'prosemirror-view' // eslint-disable-l
 import { Plugin, PluginKey } from 'prosemirror-state' // eslint-disable-line
 import { Awareness } from 'y-protocols/awareness.js' // eslint-disable-line
 import { absolutePositionToRelativePosition, relativePositionToAbsolutePosition, setMeta } from '../lib.js'
-import { yCursorPluginKey, ySyncPluginKey } from './keys'
+import { yCursorPluginKey, ySyncPluginKey } from './keys.js'
 
 import * as math from 'lib0/math.js'
 
@@ -81,10 +81,10 @@ export const createDecorations = (state, awareness, createCursor) => {
 export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder, getSelection = state => state.selection } = {}, cursorStateField = 'cursor') => new Plugin({
   key: yCursorPluginKey,
   state: {
-    init (_, state) {
+    init(_, state) {
       return createDecorations(state, awareness, cursorBuilder)
     },
-    apply (tr, prevState, oldState, newState) {
+    apply(tr, prevState, oldState, newState) {
       const ystate = ySyncPluginKey.getState(newState)
       const yCursorState = tr.getMeta(yCursorPluginKey)
       if ((ystate && ystate.isChangeOrigin) || (yCursorState && yCursorState.awarenessUpdated)) {

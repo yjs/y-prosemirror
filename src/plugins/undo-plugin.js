@@ -3,7 +3,7 @@ import { Plugin, PluginKey } from 'prosemirror-state' // eslint-disable-line
 
 import { getRelativeSelection } from './sync-plugin.js'
 import { UndoManager, Item, ContentType, XmlElement, Text } from 'yjs'
-import { yUndoPluginKey, ySyncPluginKey } from './keys'
+import { yUndoPluginKey, ySyncPluginKey } from './keys.js'
 
 export const undo = state => {
   const undoManager = yUndoPluginKey.getState(state).undoManager
