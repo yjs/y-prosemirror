@@ -174,7 +174,7 @@ export class ProsemirrorBinding {
    * @param {Y.XmlFragment} yXmlFragment The bind source
    * @param {any} prosemirrorView The target binding
    */
-  constructor(yXmlFragment, prosemirrorView) {
+  constructor (yXmlFragment, prosemirrorView) {
     this.type = yXmlFragment
     this.prosemirrorView = prosemirrorView
     this.mux = createMutex()
@@ -205,7 +205,7 @@ export class ProsemirrorBinding {
     this._domSelectionInView = null
   }
 
-  _isLocalCursorInView() {
+  _isLocalCursorInView () {
     if (!this.prosemirrorView.hasFocus()) return false
     if (environment.isBrowser && this._domSelectionInView === null) {
       // Calculte the domSelectionInView and clear by next tick after all events are finished
@@ -217,7 +217,7 @@ export class ProsemirrorBinding {
     return this._domSelectionInView
   }
 
-  _isDomSelectionInView() {
+  _isDomSelectionInView () {
     const selection = this.prosemirrorView._root.getSelection()
 
     const range = this.prosemirrorView._root.createRange()
@@ -232,14 +232,14 @@ export class ProsemirrorBinding {
       bounding.top <= (window.innerHeight || documentElement.clientHeight || 0)
   }
 
-  renderSnapshot(snapshot, prevSnapshot) {
+  renderSnapshot (snapshot, prevSnapshot) {
     if (!prevSnapshot) {
       prevSnapshot = Y.createSnapshot(Y.createDeleteSet(), new Map())
     }
     this.prosemirrorView.dispatch(this.prosemirrorView.state.tr.setMeta(ySyncPluginKey, { snapshot, prevSnapshot }))
   }
 
-  unrenderSnapshot() {
+  unrenderSnapshot () {
     this.mapping = new Map()
     this.mux(() => {
       const fragmentContent = this.type.toArray().map(t => createNodeFromYElement(/** @type {Y.XmlElement} */(t), this.prosemirrorView.state.schema, this.mapping)).filter(n => n !== null)
@@ -250,7 +250,7 @@ export class ProsemirrorBinding {
     })
   }
 
-  _forceRerender() {
+  _forceRerender () {
     this.mapping = new Map()
     this.mux(() => {
       const fragmentContent = this.type.toArray().map(t => createNodeFromYElement(/** @type {Y.XmlElement} */(t), this.prosemirrorView.state.schema, this.mapping)).filter(n => n !== null)
@@ -265,7 +265,7 @@ export class ProsemirrorBinding {
    * @param {Y.Snapshot} prevSnapshot
    * @param {Object} pluginState
    */
-  _renderSnapshot(snapshot, prevSnapshot, pluginState) {
+  _renderSnapshot (snapshot, prevSnapshot, pluginState) {
     if (!snapshot) {
       snapshot = Y.snapshot(this.doc)
     }
@@ -310,7 +310,7 @@ export class ProsemirrorBinding {
    * @param {Array<Y.YEvent>} events
    * @param {Y.Transaction} transaction
    */
-  _typeChanged(events, transaction) {
+  _typeChanged (events, transaction) {
     const syncState = ySyncPluginKey.getState(this.prosemirrorView.state)
     if (events.length === 0 || syncState.snapshot != null || syncState.prevSnapshot != null) {
       // drop out if snapshot is active
@@ -338,7 +338,7 @@ export class ProsemirrorBinding {
     })
   }
 
-  _prosemirrorChanged(doc) {
+  _prosemirrorChanged (doc) {
     this.mux(() => {
       this.doc.transact(() => {
         updateYFragment(this.doc, this.type, doc, this.mapping)
@@ -347,7 +347,7 @@ export class ProsemirrorBinding {
     })
   }
 
-  destroy() {
+  destroy () {
     this.type.unobserveDeep(this._observeFunction)
   }
 }
@@ -402,7 +402,7 @@ export const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapsh
     // an error occured while creating the node. This is probably a result of a concurrent action.
     /** @type {Y.Doc} */ (el.doc).transact(transaction => {
       /** @type {Y.Item} */ (el._item).delete(transaction)
-  }, ySyncPluginKey)
+    }, ySyncPluginKey)
     mapping.delete(el)
     return null
   }
@@ -434,7 +434,7 @@ export const createTextNodesFromYText = (text, schema, mapping, snapshot, prevSn
     // an error occured while creating the node. This is probably a result of a concurrent action.
     /** @type {Y.Doc} */ (text.doc).transact(transaction => {
       /** @type {Y.Item} */ (text._item).delete(transaction)
-  }, ySyncPluginKey)
+    }, ySyncPluginKey)
     return null
   }
   // @ts-ignore

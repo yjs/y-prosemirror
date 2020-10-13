@@ -81,10 +81,10 @@ export const createDecorations = (state, awareness, createCursor) => {
 export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder, getSelection = state => state.selection } = {}, cursorStateField = 'cursor') => new Plugin({
   key: yCursorPluginKey,
   state: {
-    init(_, state) {
+    init (_, state) {
       return createDecorations(state, awareness, cursorBuilder)
     },
-    apply(tr, prevState, oldState, newState) {
+    apply (tr, prevState, oldState, newState) {
       const ystate = ySyncPluginKey.getState(newState)
       const yCursorState = tr.getMeta(yCursorPluginKey)
       if ((ystate && ystate.isChangeOrigin) || (yCursorState && yCursorState.awarenessUpdated)) {
