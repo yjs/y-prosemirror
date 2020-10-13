@@ -120,5 +120,8 @@ export function yDocToProsemirrorJSON (
     return response
   }
 
-  return items.map(serialize)
+  return {
+    type: 'doc',
+    content: items.map(serialize)
+  }
 }
