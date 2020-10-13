@@ -143,6 +143,19 @@ const doc = Node.fromJSON(schema, {
 const ydoc = prosemirrorToYDoc(doc)
 ```
 
+Because JSON is a common usecase there is an equivalent method that skips the need
+to create a Prosemirror Node.
+
+```js
+import { prosemirrorJSONToYDoc } from 'y-prosemirror'
+
+// Pass JSON previously output from Prosemirror
+const ydoc = prosemirrorJSONToYDoc(schema, {
+  type: "doc",
+  content: [...]
+})
+```
+
 ```js
 import { yDocToProsemirror } from 'y-prosemirror'
 
@@ -151,6 +164,19 @@ const ydoc = new Y.Doc()
 ydoc.applyUpdate(update)
 
 const node = yDocToProsemirror(schema, ydoc)
+```
+
+Because JSON is a common usecase there is an equivalent method that outputs JSON
+directly, this method does not require the Prosemirror schema.
+
+```js
+import { yDocToProsemirrorJSON } from 'y-prosemirror'
+
+// apply binary updates from elsewhere
+const ydoc = new Y.Doc()
+ydoc.applyUpdate(update)
+
+const node = yDocToProsemirrorJSON(ydoc)
 ```
 
 ### License
