@@ -493,11 +493,11 @@ const marksToAttributes = marks => {
 }
 
 /**
- * @private
  * @param {Y.Doc} y
  * @param {Y.XmlFragment} yDomFragment
  * @param {any} pNode
  * @param {ProsemirrorMapping} mapping
+ * @return {Y.Doc}
  */
 export const updateYFragment = (y, yDomFragment, pNode, mapping) => {
   if (yDomFragment instanceof Y.XmlElement && yDomFragment.nodeName !== pNode.type.name) {
@@ -612,6 +612,8 @@ export const updateYFragment = (y, yDomFragment, pNode, mapping) => {
       yDomFragment.insert(left, ins)
     }
   }, ySyncPluginKey)
+
+  return y
 }
 
 /**

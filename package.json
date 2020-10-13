@@ -46,6 +46,7 @@
     "@rollup/plugin-commonjs": "^15.0.0",
     "@rollup/plugin-node-resolve": "^9.0.0",
     "lib0": "^0.2.33",
+    "lodash.flatten": "^4.4.0",
     "rollup": "^2.26.11"
   },
   "peerDependencies": {

@@ -1,4 +1,6 @@
 export * from './plugins/cursor-plugin.js'
 export * from './plugins/sync-plugin.js'
 export * from './plugins/undo-plugin.js'
+export * from './plugins/keys.js'
+export * from './interface.js'
 export { absolutePositionToRelativePosition, relativePositionToAbsolutePosition, setMeta } from './lib.js'

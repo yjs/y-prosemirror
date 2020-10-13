@@ -122,6 +122,37 @@ const prosemirrorView = new EditorView(document.querySelector('#editor'), {
 })
 ```
 
+#### Utilities
+
+The package includes a number of utility methods for converting back and forth between
+a Y.Doc and Prosemirror compatible data structures. These can be useful for persisting
+to a datastore or for importing existing documents.
+
+> _Note_: Serializing and deserializing to JSON will not store collaboration history
+> steps and as such should not be used as the primary storage. You will still need
+> to store the Y.Doc binary update format.
+
+```js
+import { prosemirrorToYDoc } from 'y-prosemirror'
+
+// Pass JSON previously output from Prosemirror
+const doc = Node.fromJSON(schema, {
+  type: "doc",
+  content: [...]
+})
+const ydoc = prosemirrorToYDoc(doc)
+```
+
+```js
+import { yDocToProsemirror } from 'y-prosemirror'
+
+// apply binary updates from elsewhere
+const ydoc = new Y.Doc()
+ydoc.applyUpdate(update)
+
+const node = yDocToProsemirror(schema, ydoc)
+```
+
 ### License
 
 [The MIT License](./LICENSE) © Kevin Jahns
