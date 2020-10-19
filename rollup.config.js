@@ -1,6 +1,17 @@
 import nodeResolve from '@rollup/plugin-node-resolve'
 import commonjs from '@rollup/plugin-commonjs'
 
+/**
+ * in order to use Yjs' testing framework, we need to depend on the bare-bone (untransformed) Yjs bundle
+ */
+const debugResolve = {
+  resolveId (importee) {
+    if (importee === 'yjs') {
+      return `${process.cwd()}/node_modules/yjs/src/index.js`
+    }
+  }
+}
+
 export default [{
   input: './src/y-prosemirror.js',
   output: [{
@@ -28,6 +39,7 @@ export default [{
     sourcemap: true
   },
   plugins: [
+    debugResolve,
     nodeResolve({
       mainFields: ['module', 'browser', 'main']
     }),
@@ -61,6 +73,7 @@ export default [{
     }
   },
   plugins: [
+    debugResolve,
     nodeResolve({
       mainFields: ['module', 'main']
     })
