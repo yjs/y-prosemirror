@@ -4,12 +4,13 @@
 
 import { createMutex } from 'lib0/mutex.js'
 import * as PModel from 'prosemirror-model'
-import { Plugin, PluginKey, EditorState, TextSelection } from 'prosemirror-state' // eslint-disable-line
+import { Plugin, TextSelection } from 'prosemirror-state' // eslint-disable-line
 import * as math from 'lib0/math.js'
 import * as object from 'lib0/object.js'
 import * as set from 'lib0/set.js'
 import { simpleDiff } from 'lib0/diff.js'
 import * as error from 'lib0/error.js'
+import { ySyncPluginKey } from './keys.js'
 import * as Y from 'yjs'
 import { absolutePositionToRelativePosition, relativePositionToAbsolutePosition } from '../lib.js'
 import * as random from 'lib0/random.js'
@@ -26,13 +27,6 @@ export const isVisible = (item, snapshot) => snapshot === undefined ? !item.dele
  * Either a node if type is YXmlElement or an Array of text nodes if YXmlText
  * @typedef {Map<Y.AbstractType, PModel.Node | Array<PModel.Node>>} ProsemirrorMapping
  */
-
-/**
- * The unique prosemirror plugin key for prosemirrorPlugin.
- *
- * @public
- */
-export const ySyncPluginKey = new PluginKey('y-sync')
 
 /**
  * @typedef {Object} ColorDef
@@ -378,7 +372,7 @@ export class ProsemirrorBinding {
  * @param {function('removed' | 'added', Y.ID):any} [computeYChange]
  * @return {PModel.Node | null}
  */
-export const createNodeIfNotExists = (el, schema, mapping, snapshot, prevSnapshot, computeYChange) => {
+const createNodeIfNotExists = (el, schema, mapping, snapshot, prevSnapshot, computeYChange) => {
   const node = /** @type {PModel.Node} */ (mapping.get(el))
   if (node === undefined) {
     if (el instanceof Y.XmlElement) {
@@ -400,7 +394,7 @@ export const createNodeIfNotExists = (el, schema, mapping, snapshot, prevSnapsho
  * @param {function('removed' | 'added', Y.ID):any} [computeYChange]
  * @return {PModel.Node | null} Returns node if node could be created. Otherwise it deletes the yjs type and returns null
  */
-export const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapshot, computeYChange) => {
+const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapshot, computeYChange) => {
   const children = []
   const createChildren = type => {
     if (type.constructor === Y.XmlElement) {
@@ -456,7 +450,7 @@ export const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapsh
  * @param {function('removed' | 'added', Y.ID):any} [computeYChange]
  * @return {Array<PModel.Node>|null}
  */
-export const createTextNodesFromYText = (text, schema, mapping, snapshot, prevSnapshot, computeYChange) => {
+const createTextNodesFromYText = (text, schema, mapping, snapshot, prevSnapshot, computeYChange) => {
   const nodes = []
   const deltas = text.toDelta(snapshot, prevSnapshot, computeYChange)
   try {
@@ -485,7 +479,7 @@ export const createTextNodesFromYText = (text, schema, mapping, snapshot, prevSn
  * @param {ProsemirrorMapping} mapping
  * @return {Y.XmlText}
  */
-export const createTypeFromTextNodes = (nodes, mapping) => {
+const createTypeFromTextNodes = (nodes, mapping) => {
   const type = new Y.XmlText()
   const delta = nodes.map(node => ({
     // @ts-ignore
@@ -503,7 +497,7 @@ export const createTypeFromTextNodes = (nodes, mapping) => {
  * @param {ProsemirrorMapping} mapping
  * @return {Y.XmlElement}
  */
-export const createTypeFromElementNode = (node, mapping) => {
+const createTypeFromElementNode = (node, mapping) => {
   const type = new Y.XmlElement(node.type.name)
   for (const key in node.attrs) {
     const val = node.attrs[key]
@@ -522,7 +516,7 @@ export const createTypeFromElementNode = (node, mapping) => {
  * @param {ProsemirrorMapping} mapping
  * @return {Y.XmlElement|Y.XmlText}
  */
-export const createTypeFromTextOrElementNode = (node, mapping) => node instanceof Array ? createTypeFromTextNodes(node, mapping) : createTypeFromElementNode(node, mapping)
+const createTypeFromTextOrElementNode = (node, mapping) => node instanceof Array ? createTypeFromTextNodes(node, mapping) : createTypeFromElementNode(node, mapping)
 
 const equalAttrs = (pattrs, yattrs) => {
   const keys = Object.keys(pattrs).filter(key => pattrs[key] !== null)
@@ -544,7 +538,7 @@ const equalAttrs = (pattrs, yattrs) => {
  * @param {any} pnode
  * @return {NormalizedPNodeContent}
  */
-export const normalizePNodeContent = pnode => {
+const normalizePNodeContent = pnode => {
   const c = pnode.content.content
   const res = []
   for (let i = 0; i < c.length; i++) {
@@ -686,7 +680,7 @@ const marksToAttributes = marks => {
  * @param {any} pNode
  * @param {ProsemirrorMapping} mapping
  */
-const updateYFragment = (y, yDomFragment, pNode, mapping) => {
+export const updateYFragment = (y, yDomFragment, pNode, mapping) => {
   if (yDomFragment instanceof Y.XmlElement && yDomFragment.nodeName !== pNode.type.name) {
     throw new Error('node name mismatch!')
   }

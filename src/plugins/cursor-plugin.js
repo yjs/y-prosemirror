@@ -3,17 +3,10 @@ import * as Y from 'yjs'
 import { Decoration, DecorationSet } from 'prosemirror-view' // eslint-disable-line
 import { Plugin, PluginKey } from 'prosemirror-state' // eslint-disable-line
 import { Awareness } from 'y-protocols/awareness.js' // eslint-disable-line
-import { ySyncPluginKey } from './sync-plugin.js'
 import { absolutePositionToRelativePosition, relativePositionToAbsolutePosition, setMeta } from '../lib.js'
+import { yCursorPluginKey, ySyncPluginKey } from './keys.js'
 
 import * as math from 'lib0/math.js'
-
-/**
- * The unique prosemirror plugin key for cursorPlugin.type
- *
- * @public
- */
-export const yCursorPluginKey = new PluginKey('yjs-cursor')
 
 /**
  * Default generator for a cursor element

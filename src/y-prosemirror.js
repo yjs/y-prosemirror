@@ -1,4 +1,5 @@
 export * from './plugins/cursor-plugin.js'
-export * from './plugins/sync-plugin.js'
+export { ySyncPlugin, isVisible, getRelativeSelection, ProsemirrorBinding } from './plugins/sync-plugin.js'
 export * from './plugins/undo-plugin.js'
-export { absolutePositionToRelativePosition, relativePositionToAbsolutePosition, setMeta } from './lib.js'
+export * from './plugins/keys.js'
+export { absolutePositionToRelativePosition, relativePositionToAbsolutePosition, setMeta, prosemirrorJSONToYDoc, yDocToProsemirrorJSON } from './lib.js'
