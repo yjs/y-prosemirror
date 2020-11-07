@@ -5,14 +5,27 @@ import * as math from 'lib0/math.js'
 import * as Y from 'yjs'
 import { applyRandomTests } from 'yjs/tests/testHelper.js'
 
-import { ySyncPlugin } from '../src/y-prosemirror.js'
+import { ySyncPlugin, prosemirrorJSONToYDoc, yDocToProsemirrorJSON } from '../src/y-prosemirror.js'
 import { EditorState, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { schema } from 'prosemirror-schema-basic'
 import { findWrapping } from 'prosemirror-transform'
 
+/**
+ * @param {t.TestCase} tc
+ */
+export const testDocTransformation = tc => {
+  const view = createNewProsemirrorView(new Y.Doc())
+  view.dispatch(view.state.tr.insert(0, /** @type {any} */ (schema.node('paragraph', undefined, schema.text('hello world')))))
+  const stateJSON = view.state.doc.toJSON()
+  // test if transforming back and forth from Yjs doc works
+  const backandforth = yDocToProsemirrorJSON(prosemirrorJSONToYDoc(/** @type {any} */ (schema), stateJSON))
+  t.compare(stateJSON, backandforth)
+}
+
 const createNewProsemirrorView = y => {
   const view = new EditorView(null, {
+    // @ts-ignore
     state: EditorState.create({
       schema,
       plugins: [ySyncPlugin(y.get('prosemirror', Y.XmlFragment))]
