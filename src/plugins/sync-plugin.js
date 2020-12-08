@@ -139,7 +139,7 @@ export const ySyncPlugin = (yXmlFragment, { colors = defaultColors, colorMapping
         update: () => {
           const pluginState = plugin.getState(view.state)
           if (pluginState.snapshot == null && pluginState.prevSnapshot == null) {
-            if (changedInitialContent || !fun.equalityDeep(view.state.doc.type.createAndFill().content, view.state.doc)) {
+            if (changedInitialContent || !fun.equalityDeep(view.state.doc.type.createAndFill().content, view.state.doc.content)) {
               changedInitialContent = true
               binding._prosemirrorChanged(view.state.doc)
             }
