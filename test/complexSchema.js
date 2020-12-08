@@ -1,30 +1,30 @@
-import { Schema } from "prosemirror-model";
+import { Schema } from 'prosemirror-model'
 
-const brDOM = ["br"];
+const brDOM = ['br']
 
 const calcYchangeDomAttrs = (attrs, domAttrs = {}) => {
-  domAttrs = Object.assign({}, domAttrs);
+  domAttrs = Object.assign({}, domAttrs)
   if (attrs.ychange !== null) {
-    domAttrs.ychange_user = attrs.ychange.user;
-    domAttrs.ychange_state = attrs.ychange.state;
+    domAttrs.ychange_user = attrs.ychange.user
+    domAttrs.ychange_state = attrs.ychange.state
   }
-  return domAttrs;
-};
+  return domAttrs
+}
 
 // :: Object
 // [Specs](#model.NodeSpec) for the nodes defined in this schema.
 export const nodes = {
   // :: NodeSpec The top level document node.
   doc: {
-    content: "custom paragraph"
+    content: 'custom paragraph'
   },
 
   custom: {
     atom: true,
     attrs: { checked: { default: false } },
-    parseDOM: [{ tag: "div" }],
-    toDOM() {
-      return ["div"];
+    parseDOM: [{ tag: 'div' }],
+    toDOM () {
+      return ['div']
     }
   },
 
@@ -32,33 +32,33 @@ export const nodes = {
   // as a `<p>` element.
   paragraph: {
     attrs: { ychange: { default: null } },
-    content: "inline*",
-    group: "block",
-    parseDOM: [{ tag: "p" }],
-    toDOM(node) {
-      return ["p", calcYchangeDomAttrs(node.attrs), 0];
+    content: 'inline*',
+    group: 'block',
+    parseDOM: [{ tag: 'p' }],
+    toDOM (node) {
+      return ['p', calcYchangeDomAttrs(node.attrs), 0]
     }
   },
 
   // :: NodeSpec A blockquote (`<blockquote>`) wrapping one or more blocks.
   blockquote: {
     attrs: { ychange: { default: null } },
-    content: "block+",
-    group: "block",
+    content: 'block+',
+    group: 'block',
     defining: true,
-    parseDOM: [{ tag: "blockquote" }],
-    toDOM(node) {
-      return ["blockquote", calcYchangeDomAttrs(node.attrs), 0];
+    parseDOM: [{ tag: 'blockquote' }],
+    toDOM (node) {
+      return ['blockquote', calcYchangeDomAttrs(node.attrs), 0]
     }
   },
 
   // :: NodeSpec A horizontal rule (`<hr>`).
   horizontal_rule: {
     attrs: { ychange: { default: null } },
-    group: "block",
-    parseDOM: [{ tag: "hr" }],
-    toDOM(node) {
-      return ["hr", calcYchangeDomAttrs(node.attrs)];
+    group: 'block',
+    parseDOM: [{ tag: 'hr' }],
+    toDOM (node) {
+      return ['hr', calcYchangeDomAttrs(node.attrs)]
     }
   },
 
@@ -70,19 +70,19 @@ export const nodes = {
       level: { default: 1 },
       ychange: { default: null }
     },
-    content: "inline*",
-    group: "block",
+    content: 'inline*',
+    group: 'block',
     defining: true,
     parseDOM: [
-      { tag: "h1", attrs: { level: 1 } },
-      { tag: "h2", attrs: { level: 2 } },
-      { tag: "h3", attrs: { level: 3 } },
-      { tag: "h4", attrs: { level: 4 } },
-      { tag: "h5", attrs: { level: 5 } },
-      { tag: "h6", attrs: { level: 6 } }
+      { tag: 'h1', attrs: { level: 1 } },
+      { tag: 'h2', attrs: { level: 2 } },
+      { tag: 'h3', attrs: { level: 3 } },
+      { tag: 'h4', attrs: { level: 4 } },
+      { tag: 'h5', attrs: { level: 5 } },
+      { tag: 'h6', attrs: { level: 6 } }
     ],
-    toDOM(node) {
-      return ["h" + node.attrs.level, calcYchangeDomAttrs(node.attrs), 0];
+    toDOM (node) {
+      return ['h' + node.attrs.level, calcYchangeDomAttrs(node.attrs), 0]
     }
   },
 
@@ -91,20 +91,20 @@ export const nodes = {
   // `<code>` element inside of it.
   code_block: {
     attrs: { ychange: { default: null } },
-    content: "text*",
-    marks: "",
-    group: "block",
+    content: 'text*',
+    marks: '',
+    group: 'block',
     code: true,
     defining: true,
-    parseDOM: [{ tag: "pre", preserveWhitespace: "full" }],
-    toDOM(node) {
-      return ["pre", calcYchangeDomAttrs(node.attrs), ["code", 0]];
+    parseDOM: [{ tag: 'pre', preserveWhitespace: 'full' }],
+    toDOM (node) {
+      return ['pre', calcYchangeDomAttrs(node.attrs), ['code', 0]]
     }
   },
 
   // :: NodeSpec The text node.
   text: {
-    group: "inline"
+    group: 'inline'
   },
 
   // :: NodeSpec An inline image (`<img>`) node. Supports `src`,
@@ -118,45 +118,45 @@ export const nodes = {
       alt: { default: null },
       title: { default: null }
     },
-    group: "inline",
+    group: 'inline',
     draggable: true,
     parseDOM: [
       {
-        tag: "img[src]",
-        getAttrs(dom) {
+        tag: 'img[src]',
+        getAttrs (dom) {
           return {
-            src: dom.getAttribute("src"),
-            title: dom.getAttribute("title"),
-            alt: dom.getAttribute("alt")
-          };
+            src: dom.getAttribute('src'),
+            title: dom.getAttribute('title'),
+            alt: dom.getAttribute('alt')
+          }
         }
       }
     ],
-    toDOM(node) {
+    toDOM (node) {
       const domAttrs = {
         src: node.attrs.src,
         title: node.attrs.title,
         alt: node.attrs.alt
-      };
-      return ["img", calcYchangeDomAttrs(node.attrs, domAttrs)];
+      }
+      return ['img', calcYchangeDomAttrs(node.attrs, domAttrs)]
     }
   },
 
   // :: NodeSpec A hard line break, represented in the DOM as `<br>`.
   hard_break: {
     inline: true,
-    group: "inline",
+    group: 'inline',
     selectable: false,
-    parseDOM: [{ tag: "br" }],
-    toDOM() {
-      return brDOM;
+    parseDOM: [{ tag: 'br' }],
+    toDOM () {
+      return brDOM
     }
   }
-};
+}
 
-const emDOM = ["em", 0];
-const strongDOM = ["strong", 0];
-const codeDOM = ["code", 0];
+const emDOM = ['em', 0]
+const strongDOM = ['strong', 0]
+const codeDOM = ['code', 0]
 
 // :: Object [Specs](#model.MarkSpec) for the marks in the schema.
 export const marks = {
@@ -171,26 +171,26 @@ export const marks = {
     inclusive: false,
     parseDOM: [
       {
-        tag: "a[href]",
-        getAttrs(dom) {
+        tag: 'a[href]',
+        getAttrs (dom) {
           return {
-            href: dom.getAttribute("href"),
-            title: dom.getAttribute("title")
-          };
+            href: dom.getAttribute('href'),
+            title: dom.getAttribute('title')
+          }
         }
       }
     ],
-    toDOM(node) {
-      return ["a", node.attrs, 0];
+    toDOM (node) {
+      return ['a', node.attrs, 0]
     }
   },
 
   // :: MarkSpec An emphasis mark. Rendered as an `<em>` element.
   // Has parse rules that also match `<i>` and `font-style: italic`.
   em: {
-    parseDOM: [{ tag: "i" }, { tag: "em" }, { style: "font-style=italic" }],
-    toDOM() {
-      return emDOM;
+    parseDOM: [{ tag: 'i' }, { tag: 'em' }, { style: 'font-style=italic' }],
+    toDOM () {
+      return emDOM
     }
   },
 
@@ -198,29 +198,29 @@ export const marks = {
   // also match `<b>` and `font-weight: bold`.
   strong: {
     parseDOM: [
-      { tag: "strong" },
+      { tag: 'strong' },
       // This works around a Google Docs misbehavior where
       // pasted content will be inexplicably wrapped in `<b>`
       // tags with a font-weight normal.
       {
-        tag: "b",
-        getAttrs: node => node.style.fontWeight !== "normal" && null
+        tag: 'b',
+        getAttrs: node => node.style.fontWeight !== 'normal' && null
       },
       {
-        style: "font-weight",
+        style: 'font-weight',
         getAttrs: value => /^(bold(er)?|[5-9]\d{2,})$/.test(value) && null
       }
     ],
-    toDOM() {
-      return strongDOM;
+    toDOM () {
+      return strongDOM
     }
   },
 
   // :: MarkSpec Code font mark. Represented as a `<code>` element.
   code: {
-    parseDOM: [{ tag: "code" }],
-    toDOM() {
-      return codeDOM;
+    parseDOM: [{ tag: 'code' }],
+    toDOM () {
+      return codeDOM
     }
   },
   ychange: {
@@ -229,16 +229,16 @@ export const marks = {
       state: { default: null }
     },
     inclusive: false,
-    parseDOM: [{ tag: "ychange" }],
-    toDOM(node) {
+    parseDOM: [{ tag: 'ychange' }],
+    toDOM (node) {
       return [
-        "ychange",
+        'ychange',
         { ychange_user: node.attrs.user, ychange_state: node.attrs.state },
         0
-      ];
+      ]
     }
   }
-};
+}
 
 // :: Schema
 // This schema rougly corresponds to the document schema used by
@@ -248,4 +248,4 @@ export const marks = {
 //
 // To reuse elements from this schema, extend or read from its
 // `spec.nodes` and `spec.marks` [properties](#model.Schema.spec).
-export const schema = new Schema({ nodes, marks });
+export const schema = new Schema({ nodes, marks })
