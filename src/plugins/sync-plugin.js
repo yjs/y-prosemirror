@@ -228,16 +228,24 @@ export class ProsemirrorBinding {
   }
 
   _isDomSelectionInView () {
-    // We only want to consider a dom selection that's within the editor itself
-    const documentElement = dom.doc.documentElement
-    if (!this.prosemirrorView.dom.contains(documentElement)) return false
-
     const selection = this.prosemirrorView._root.getSelection()
 
     const range = this.prosemirrorView._root.createRange()
     range.setStart(selection.anchorNode, selection.anchorOffset)
     range.setEnd(selection.focusNode, selection.focusOffset)
 
+    // This is a workaround for an edgecase where getBoundingClientRect will
+    // return zero values if the selection is collapsed at the start of a newline
+    // see reference here: https://stackoverflow.com/a/59780954
+    const rects = range.getClientRects()
+    if (!rects.length) {
+      // probably buggy newline behavior, explicitly select the node contents
+      if (range.startContainer && range.collapsed) {
+        range.selectNodeContents(range.startContainer)
+      }
+    }
+
+    const documentElement = dom.doc.documentElement
     const bounding = range.getBoundingClientRect()
 
     return bounding.bottom >= 0 && bounding.right >= 0 &&
