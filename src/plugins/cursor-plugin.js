@@ -1,7 +1,7 @@
 
 import * as Y from 'yjs'
 import { Decoration, DecorationSet } from 'prosemirror-view' // eslint-disable-line
-import { Plugin, PluginKey } from 'prosemirror-state' // eslint-disable-line
+import { Plugin } from 'prosemirror-state' // eslint-disable-line
 import { Awareness } from 'y-protocols/awareness.js' // eslint-disable-line
 import { absolutePositionToRelativePosition, relativePositionToAbsolutePosition, setMeta } from '../lib.js'
 import { yCursorPluginKey, ySyncPluginKey } from './keys.js'

@@ -101,10 +101,21 @@ export const absolutePositionToRelativePosition = (pos, type, mapping) => {
       throw error.unexpectedCase()
     }
     if (pos === 0 && n.constructor !== Y.XmlText && n !== type) { // TODO: set to <= 0
-      return new Y.RelativePosition(n._item === null ? null : n._item.id, n._item === null ? Y.findRootTypeKey(n) : null, null)
+      return createRelativePosition(n._item.parent, n._item)
     }
   }
   return Y.createRelativePositionFromTypeIndex(type, type._length)
+}
+
+const createRelativePosition = (type, item) => {
+  let typeid = null
+  let tname = null
+  if (type._item === null) {
+    tname = Y.findRootTypeKey(type)
+  } else {
+    typeid = Y.createID(type._item.id.client, type._item.id.clock)
+  }
+  return new Y.RelativePosition(typeid, tname, item.id)
 }
 
 /**
@@ -116,7 +127,7 @@ export const absolutePositionToRelativePosition = (pos, type, mapping) => {
  */
 export const relativePositionToAbsolutePosition = (y, documentType, relPos, mapping) => {
   const decodedPos = Y.createAbsolutePositionFromRelativePosition(relPos, y)
-  if (decodedPos === null || !Y.isParentOf(documentType, decodedPos.type._item)) {
+  if (decodedPos === null || (decodedPos.type !== documentType && !Y.isParentOf(documentType, decodedPos.type._item))) {
     return null
   }
   let type = decodedPos.type

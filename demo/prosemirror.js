@@ -11,7 +11,7 @@ import { keymap } from 'prosemirror-keymap'
 
 window.addEventListener('load', () => {
   const ydoc = new Y.Doc()
-  const provider = new WebrtcProvider('prosemirror-demo', ydoc)
+  const provider = new WebrtcProvider('prosemirror-debug', ydoc)
   const type = ydoc.getXmlFragment('prosemirror')
 
   const editor = document.createElement('div')
