@@ -12,7 +12,7 @@
   },
   "scripts": {
     "dist": "rm -rf dist && rollup -c && tsc",
-    "test": "rollup -c && node dist/test.cjs",
+    "test": "npm run lint && rollup -c && node dist/test.cjs",
     "lint": "standard",
     "watch": "rollup -wc",
     "debug": "concurrently 'http-server -o test.html' 'npm run watch'",
