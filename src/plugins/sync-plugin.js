@@ -218,7 +218,7 @@ export class ProsemirrorBinding {
   _isLocalCursorInView () {
     if (!this.prosemirrorView.hasFocus()) return false
     if (environment.isBrowser && this._domSelectionInView === null) {
-      // Calculte the domSelectionInView and clear by next tick after all events are finished
+      // Calculate the domSelectionInView and clear by next tick after all events are finished
       setTimeout(() => {
         this._domSelectionInView = null
       }, 0)
@@ -233,6 +233,17 @@ export class ProsemirrorBinding {
     const range = this.prosemirrorView._root.createRange()
     range.setStart(selection.anchorNode, selection.anchorOffset)
     range.setEnd(selection.focusNode, selection.focusOffset)
+
+    // This is a workaround for an edgecase where getBoundingClientRect will
+    // return zero values if the selection is collapsed at the start of a newline
+    // see reference here: https://stackoverflow.com/a/59780954
+    const rects = range.getClientRects()
+    if (rects.length === 0) {
+      // probably buggy newline behavior, explicitly select the node contents
+      if (range.startContainer && range.collapsed) {
+        range.selectNodeContents(range.startContainer)
+      }
+    }
 
     const bounding = range.getBoundingClientRect()
     const documentElement = dom.doc.documentElement

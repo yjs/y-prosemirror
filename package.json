@@ -16,7 +16,8 @@
     "lint": "standard",
     "watch": "rollup -wc",
     "debug": "concurrently 'http-server -o test.html' 'npm run watch'",
-    "preversion": "npm run lint && npm run dist && npm run test"
+    "preversion": "npm run lint && npm run dist && npm run test",
+    "start": "concurrently 'http-server -o demo/prosemirror.html' 'npm run watch'"
   },
   "files": [
     "dist/*",
