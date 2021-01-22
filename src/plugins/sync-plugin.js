@@ -711,7 +711,7 @@ export const updateYFragment = (y, yDomFragment, pNode, mapping) => {
     }
     // remove all keys that are no longer in pAttrs
     for (const key in yDomAttrs) {
-      if (pAttrs[key] === undefined) {
+      if (pAttrs.hasOwnProperties(key) && pAttrs[key] === undefined) {
         yDomFragment.removeAttribute(key)
       }
     }
