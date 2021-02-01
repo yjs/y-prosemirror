@@ -339,15 +339,22 @@ export class ProsemirrorBinding {
       return
     }
     this.mux(() => {
+      const oldNodeMapping = new Map()
       /**
        * @param {any} _
        * @param {Y.AbstractType} type
        */
-      const delType = (_, type) => this.mapping.delete(type)
+      const delType = (_, type) => {
+        const deleteNode = this.mapping.get(type)
+        if (deleteNode !== undefined) {
+          oldNodeMapping.set(type, deleteNode)
+        }
+        return this.mapping.delete(type)
+      }
       Y.iterateDeletedStructs(transaction, transaction.deleteSet, struct => struct.constructor === Y.Item && this.mapping.delete(/** @type {Y.ContentType} */ (/** @type {Y.Item} */ (struct).content).type))
       transaction.changed.forEach(delType)
       transaction.changedParentTypes.forEach(delType)
-      const fragmentContent = this.type.toArray().map(t => createNodeIfNotExists(/** @type {Y.XmlElement | Y.XmlHook} */ (t), this.prosemirrorView.state.schema, this.mapping)).filter(n => n !== null)
+      const fragmentContent = this.type.toArray().map(t => createNodeIfNotExists(/** @type {Y.XmlElement | Y.XmlHook} */ (t), this.prosemirrorView.state.schema, this.mapping, undefined, undefined, undefined, oldNodeMapping)).filter(n => n !== null)
       // @ts-ignore
       let tr = this.prosemirrorView.state.tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
       restoreRelativeSelection(tr, this.beforeTransactionSelection, this)
@@ -373,6 +380,22 @@ export class ProsemirrorBinding {
   }
 }
 
+const isPrivateAttr = (pSpec, key) => {
+  return key in pSpec.attrs && pSpec.attrs[key].yPrivate === true
+}
+
+const findPrivateAttrs = node => {
+  const privateAttrs = {}
+  if (node !== undefined) {
+    for (const i in node.attrs) {
+      if (isPrivateAttr(node.type.spec, i)) {
+        privateAttrs[i] = node.attrs[i]
+      }
+    }
+  }
+  return privateAttrs
+}
+
 /**
  * @private
  * @param {Y.XmlElement | Y.XmlHook} el
@@ -381,13 +404,14 @@ export class ProsemirrorBinding {
  * @param {Y.Snapshot} [snapshot]
  * @param {Y.Snapshot} [prevSnapshot]
  * @param {function('removed' | 'added', Y.ID):any} [computeYChange]
+ * @param {ProsemirrorMapping} [oldNodeMapping]
  * @return {PModel.Node | null}
  */
-const createNodeIfNotExists = (el, schema, mapping, snapshot, prevSnapshot, computeYChange) => {
+const createNodeIfNotExists = (el, schema, mapping, snapshot, prevSnapshot, computeYChange, oldNodeMapping) => {
   const node = /** @type {PModel.Node} */ (mapping.get(el))
   if (node === undefined) {
     if (el instanceof Y.XmlElement) {
-      return createNodeFromYElement(el, schema, mapping, snapshot, prevSnapshot, computeYChange)
+      return createNodeFromYElement(el, schema, mapping, snapshot, prevSnapshot, computeYChange, oldNodeMapping)
     } else {
       throw error.methodUnimplemented() // we are currently not handling hooks
     }
@@ -403,9 +427,10 @@ const createNodeIfNotExists = (el, schema, mapping, snapshot, prevSnapshot, comp
  * @param {Y.Snapshot} [snapshot]
  * @param {Y.Snapshot} [prevSnapshot]
  * @param {function('removed' | 'added', Y.ID):any} [computeYChange]
+ * @param {ProsemirrorMapping} [oldNodeMapping]
  * @return {PModel.Node | null} Returns node if node could be created. Otherwise it deletes the yjs type and returns null
  */
-const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapshot, computeYChange) => {
+const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapshot, computeYChange, oldNodeMapping) => {
   const children = []
   const createChildren = type => {
     if (type.constructor === Y.XmlElement) {
@@ -438,6 +463,15 @@ const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapshot, com
         attrs.ychange = computeYChange ? computeYChange('added', /** @type {Y.Item} */ (el._item).id) : { type: 'added' }
       }
     }
+
+    if (oldNodeMapping) {
+      const oldNode = oldNodeMapping.get(el)
+      const privateAttrs = findPrivateAttrs(oldNode)
+      for (const i in privateAttrs) {
+        attrs[i] = privateAttrs[i]
+      }
+    }
+
     const node = schema.node(el.nodeName, attrs, children)
     mapping.set(el, node)
     return node
@@ -512,7 +546,7 @@ const createTypeFromElementNode = (node, mapping) => {
   const type = new Y.XmlElement(node.type.name)
   for (const key in node.attrs) {
     const val = node.attrs[key]
-    if (val !== null && key !== 'ychange') {
+    if (val !== null && key !== 'ychange' && !isPrivateAttr(node.type.spec, key)) {
       type.setAttribute(key, val)
     }
   }
@@ -702,7 +736,7 @@ export const updateYFragment = (y, yDomFragment, pNode, mapping) => {
     const pAttrs = pNode.attrs
     for (const key in pAttrs) {
       if (pAttrs[key] !== null) {
-        if (yDomAttrs[key] !== pAttrs[key] && key !== 'ychange') {
+        if (yDomAttrs[key] !== pAttrs[key] && key !== 'ychange' && !isPrivateAttr(pNode.type.spec, key)) {
           yDomFragment.setAttribute(key, pAttrs[key])
         }
       } else {
