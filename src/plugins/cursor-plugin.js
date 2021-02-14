@@ -135,6 +135,8 @@ export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder,
     return {
       update: updateCursorInfo,
       destroy: () => {
+        view.dom.removeEventListener('focusin', updateCursorInfo)
+        view.dom.removeEventListener('focusout', updateCursorInfo)
         awareness.off('change', awarenessListener)
         awareness.setLocalStateField(cursorStateField, null)
       }
