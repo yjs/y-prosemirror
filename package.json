@@ -13,7 +13,7 @@
   "scripts": {
     "dist": "rm -rf dist && rollup -c && tsc",
     "test": "npm run lint && rollup -c && node dist/test.cjs",
-    "lint": "standard",
+    "lint": "standard && tsc",
     "watch": "rollup -wc",
     "debug": "concurrently 'http-server -o test.html' 'npm run watch'",
     "preversion": "npm run lint && npm run dist && npm run test",

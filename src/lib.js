@@ -1,10 +1,15 @@
-import { updateYFragment, ProsemirrorMapping } from './plugins/sync-plugin.js' // eslint-disable-line
+import { updateYFragment} from './plugins/sync-plugin.js' // eslint-disable-line
 import * as Y from 'yjs'
 import { EditorView } from 'prosemirror-view' // eslint-disable-line
 import { Node, Schema } from 'prosemirror-model' // eslint-disable-line
 import * as error from 'lib0/error.js'
 import * as map from 'lib0/map.js'
 import * as eventloop from 'lib0/eventloop.js'
+
+/**
+ * Either a node if type is YXmlElement or an Array of text nodes if YXmlText
+ * @typedef {Map<Y.AbstractType, Node | Array<Node>>} ProsemirrorMapping
+ */
 
 /**
  * Is null if no timeout is in progress.
