@@ -1,4 +1,4 @@
-import { updateYFragment, ProsemirrorMapping } from './plugins/sync-plugin.js' // eslint-disable-line
+import { updateYFragment } from './plugins/sync-plugin.js' // eslint-disable-line
 import * as Y from 'yjs'
 import { EditorView } from 'prosemirror-view' // eslint-disable-line
 import { Node, Schema } from 'prosemirror-model' // eslint-disable-line
