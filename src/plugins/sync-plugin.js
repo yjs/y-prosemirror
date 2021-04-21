@@ -16,7 +16,6 @@ import { absolutePositionToRelativePosition, relativePositionToAbsolutePosition 
 import * as random from 'lib0/random.js'
 import * as environment from 'lib0/environment.js'
 import * as dom from 'lib0/dom.js'
-import * as fun from 'lib0/function.js'
 
 /**
  * @param {Y.Item} item
@@ -139,7 +138,7 @@ export const ySyncPlugin = (yXmlFragment, { colors = defaultColors, colorMapping
         update: () => {
           const pluginState = plugin.getState(view.state)
           if (pluginState.snapshot == null && pluginState.prevSnapshot == null) {
-            if (changedInitialContent || !fun.equalityDeep(view.state.doc.type.createAndFill().content.toJSON(), view.state.doc.content.toJSON())) {
+            if (changedInitialContent || view.state.doc.content.findDiffStart(view.state.doc.type.createAndFill().content) !== null) {
               changedInitialContent = true
               binding._prosemirrorChanged(view.state.doc)
             }
