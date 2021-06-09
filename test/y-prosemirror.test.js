@@ -47,7 +47,7 @@ export const testDuplicateMarks = tc => {
 
   // test if transforming back and forth from Yjs doc works
   const backandforth = yDocToProsemirrorJSON(prosemirrorJSONToYDoc(/** @type {any} */ (complexSchema), stateJSON))
-  
+
   // TODO: I think the duplicate marks work, but I think this fails because
   // there is a yChange on stateJSON.content[1] (and not on backandforth)
   t.compare(stateJSON, backandforth)
