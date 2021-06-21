@@ -1,5 +1,5 @@
 {
-  "name": "y-prosemirror",
+  "name": "@collaborne/y-prosemirror",
   "version": "1.0.9",
   "description": "Prosemirror bindings for Yjs",
   "main": "./dist/y-prosemirror.cjs",
