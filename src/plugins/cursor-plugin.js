@@ -114,11 +114,11 @@ export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder,
         /**
          * @type {Y.RelativePosition}
          */
-        const anchor = absolutePositionToRelativePosition(selection.anchor, ystate.type, ystate.binding.mapping)
+        const anchor = absolutePositionToRelativePosition(view.state.doc, selection.anchor, ystate.type, ystate.binding.mapping)
         /**
          * @type {Y.RelativePosition}
          */
-        const head = absolutePositionToRelativePosition(selection.head, ystate.type, ystate.binding.mapping)
+        const head = absolutePositionToRelativePosition(view.state.doc, selection.head, ystate.type, ystate.binding.mapping)
         if (current.cursor == null || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(current.cursor.anchor), anchor) || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(current.cursor.head), head)) {
           awareness.setLocalStateField(cursorStateField, {
             anchor, head

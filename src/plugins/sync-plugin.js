@@ -169,8 +169,8 @@ const restoreRelativeSelection = (tr, relSel, binding) => {
 }
 
 export const getRelativeSelection = (pmbinding, state) => ({
-  anchor: absolutePositionToRelativePosition(state.selection.anchor, pmbinding.type, pmbinding.mapping),
-  head: absolutePositionToRelativePosition(state.selection.head, pmbinding.type, pmbinding.mapping)
+  anchor: absolutePositionToRelativePosition(state.doc, state.selection.anchor, pmbinding.type, pmbinding.mapping),
+  head: absolutePositionToRelativePosition(state.doc, state.selection.head, pmbinding.type, pmbinding.mapping)
 })
 
 /**
