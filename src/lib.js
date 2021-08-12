@@ -2,6 +2,7 @@ import { updateYFragment} from './plugins/sync-plugin.js' // eslint-disable-line
 import * as Y from 'yjs'
 import { EditorView } from 'prosemirror-view' // eslint-disable-line
 import { Node, Schema } from 'prosemirror-model' // eslint-disable-line
+import { Selection } from 'prosemirror-state' // eslint-disable-line
 import * as error from 'lib0/error.js'
 import * as map from 'lib0/map.js'
 import * as eventloop from 'lib0/eventloop.js'
@@ -47,9 +48,9 @@ export const setMeta = (view, key, value) => {
  * @param {ProsemirrorMapping} mapping
  * @return {any} relative position
  */
-export const absolutePositionToRelativePosition = (pos, type, mapping) => {
-  if (pos === 0) {
-    return Y.createRelativePositionFromTypeIndex(type, 0)
+export const absolutePositionToRelativePosition = (doc, pos, type, mapping) => {
+  if (pos <= Selection.atStart(doc).from) {
+    return Y.createRelativePositionFromTypeIndex(type, 0, -1)
   }
   let n = type._first === null ? null : /** @type {Y.ContentType} */ (type._first.content).type
   while (n !== null && type !== n) {
