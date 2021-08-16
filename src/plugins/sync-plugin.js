@@ -528,11 +528,9 @@ const createTypeFromElementNode = (node, mapping) => {
       type.setAttribute(key, val)
     }
   }
-  const markAttrs = marksToAttributes(node.marks)
-  for (const key in markAttrs) {
-    const val = markAttrs[key]
-    if (val !== null) {
-      type.setAttribute(key, val)
+  for (const mark in node.marks) {
+    if (mark.type.name !== 'ychange') {
+      type.setAttribute(mark.type.name, mark.attrs)
     }
   }
   type.insert(0, normalizePNodeContent(node).map(n => createTypeFromTextOrElementNode(n, mapping)))
