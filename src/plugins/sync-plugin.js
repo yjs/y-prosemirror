@@ -442,7 +442,15 @@ const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapshot, com
         attrs.ychange = computeYChange ? computeYChange('added', /** @type {Y.Item} */ (el._item).id) : { type: 'added' }
       }
     }
-    const node = schema.node(el.nodeName, attrs, children)
+    const marks = []
+    for (const key in attrs) {
+      let markName = schema.marks[key] && key
+      if (markName) {
+        marks.push(schema.mark(markName, attrs[markName]))
+        delete attrs[markName]
+      }
+    }
+    const node = schema.node(el.nodeName, attrs, children, marks)
     mapping.set(el, node)
     return node
   } catch (e) {
@@ -517,6 +525,13 @@ const createTypeFromElementNode = (node, mapping) => {
   for (const key in node.attrs) {
     const val = node.attrs[key]
     if (val !== null && key !== 'ychange') {
+      type.setAttribute(key, val)
+    }
+  }
+  const markAttrs = marksToAttributes(node.marks)
+  for (const key in markAttrs) {
+    const val = markAttrs[key]
+    if (val !== null) {
       type.setAttribute(key, val)
     }
   }
