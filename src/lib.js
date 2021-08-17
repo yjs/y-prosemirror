@@ -238,7 +238,6 @@ export function yDocToProsemirror (schema, ydoc) {
 /**
  * Utility method to convert a Y.Doc to Prosemirror compatible JSON.
  *
- * @param {Schema} schema
  * @param {Y.Doc} ydoc
  * @param {string} xmlFragment
  * @return {Record<string, any>}
@@ -252,7 +251,7 @@ export function yDocToProsemirrorJSON (ydoc, xmlFragment = 'prosemirror') {
 }
 
 /**
- * @typedef {Object} YXmlTextProsemirrorJSON 
+ * @typedef {Object} YXmlTextProsemirrorJSON
  * @property {string} YXmlTextProsemirrorJSON.type
  * @property {string} YXmlTextProsemirrorJSON.text
  * @property {Array<{type: string, attrs: string}>=} YXmlTextProsemirrorJSON.marks
@@ -295,11 +294,11 @@ export function YXmlTextToProsemirrorJSON (type) {
     const delta = deltas[i]
     const marks = []
     for (const markName in delta.attributes) {
-      marks.push({type: markName, attrs: delta.attributes[markName]})
+      marks.push({ type: markName, attrs: delta.attributes[markName] })
     }
-    const text = {type: 'text', text: delta.insert}
-    if (marks.length) { 
-      text.marks = marks 
+    const text = { type: 'text', text: delta.insert }
+    if (marks.length) {
+      text.marks = marks
     }
     nodes.push(text)
   }
@@ -309,11 +308,11 @@ export function YXmlTextToProsemirrorJSON (type) {
 /**
  * Utility method to convert a Y.XmlElement to Prosemirror compatible JSON.
  *
- * @param {Y.XmlElement} type 
+ * @param {Y.XmlElement} type
  * @return {YXmlElementProsemirrorJSON}
  */
 export function YXmlElementToProsemirrorJSON (type) {
-  const node = {type: type.nodeName}
+  const node = { type: type.nodeName }
   let attrs = type.getAttributes()
   let marks = attrs.marks
   if (marks) {
