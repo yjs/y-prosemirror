@@ -244,10 +244,10 @@ export function yDocToProsemirror (schema, ydoc) {
  * @return {Record<string, any>}
  */
 export function yDocToProsemirrorJSON (ydoc, xmlFragment = 'prosemirror') {
-  const items = ydoc.getXmlFragment(xmlFragment).toArray()
+  const type = ydoc.getXmlFragment(xmlFragment)
   return {
     type: 'doc',
-    content: flatten(items.map(typeToProseMirrorJSON))
+    content: YXmlFragmentToProsemirrorJSON(type)
   }
 }
 
@@ -270,7 +270,17 @@ export function yDocToProsemirrorJSON (ydoc, xmlFragment = 'prosemirror') {
  * @param {Y.XmlElement|Y.XmlText} type
  * @return {Array<YXmlTextProsemirrorJSON>|YXmlElementProsemirrorJSON}
  */
- export const typeToProseMirrorJSON = (type) => type.constructor === Y.XmlText ? YXmlTextToProsemirrorJSON(type) : YXmlElementToProsemirrorJSON(type)
+export const typeToProseMirrorJSON = (type) => type.constructor === Y.XmlText ? YXmlTextToProsemirrorJSON(type) : YXmlElementToProsemirrorJSON(type)
+
+/**
+ * Utility method to convert Y.XmlFragment to Prosemirror compatible JSON.
+ *
+ * @param {Y.XMLFragment} type
+ * @return {Array<YXmlTextProsemirrorJSON|YXmlElementProsemirrorJSON>}
+ */
+export function YXmlFragmentToProsemirrorJSON (type) {
+  return flatten(type.toArray().map(typeToProseMirrorJSON))
+}
 
 /**
  * Utility method to convert Y.XmlText to Prosemirror compatible JSON.
