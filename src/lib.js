@@ -280,12 +280,12 @@ export function yDocToProsemirrorJSON (ydoc, xmlFragment = 'prosemirror') {
 export function YXmlTextToProsemirrorJSON (type) {
   const nodes = []
   const deltas = type.toDelta()
-  for (const delta in deltas) {
+  for (const delta of deltas) {
     const marks = []
     for (const markName in delta.attributes) {
       marks.push({type: markName, attrs: delta.attributes[markName]})
     }
-    const text = {type: 'text', text: d.insert}
+    const text = {type: 'text', text: delta.insert}
     if (marks.length) { 
       text.marks = marks 
     }
