@@ -551,6 +551,17 @@ const equalAttrs = (pattrs, yattrs) => {
 }
 
 /**
+ * Compares Prosemirror marks using their serialized `toJSON()` forms.
+ * https://github.com/ProseMirror/prosemirror-model/blob/master/src/mark.js
+ */
+const equalMarks = (pmarks, ymarks) => {
+  if (pmarks.length != ymarks.length) return false
+  for (let i = 0; i < pmarks.length; i++)
+    if (pmarks[i].type != y.marks[i].type || !equalAttrs(pmarks[i].attrs, ymarks[i].attrs)) return false
+  return true
+}
+
+/**
  * @typedef {Array<Array<PModel.Node>|PModel.Node>} NormalizedPNodeContent
  */
 
@@ -587,13 +598,15 @@ const equalYTextPText = (ytext, ptexts) => {
 }
 
 /**
+ * Compares ytype with pnode (Prosemirror node) by looking at normalized content, attrs, marks, and children.
+ * 
  * @param {Y.XmlElement|Y.XmlText|Y.XmlHook} ytype
  * @param {any|Array<any>} pnode
  */
 const equalYTypePNode = (ytype, pnode) => {
   if (ytype instanceof Y.XmlElement && !(pnode instanceof Array) && matchNodeName(ytype, pnode)) {
     const normalizedContent = normalizePNodeContent(pnode)
-    return ytype._length === normalizedContent.length && equalAttrs(ytype.getAttributes(), pnode.attrs) && ytype.toArray().every((ychild, i) => equalYTypePNode(ychild, normalizedContent[i]))
+    return ytype._length === normalizedContent.length && equalAttrs(ytype.getAttributes(), pnode.attrs) && equalMarks(ytype.getAttributes().marks || [], pnode.marks) && ytype.toArray().every((ychild, i) => equalYTypePNode(ychild, normalizedContent[i]))
   }
   return ytype instanceof Y.XmlText && pnode instanceof Array && equalYTextPText(ytype, pnode)
 }
@@ -705,7 +718,7 @@ export const updateYFragment = (y, yDomFragment, pNode, mapping) => {
     throw new Error('node name mismatch!')
   }
   mapping.set(yDomFragment, pNode)
-  // update attributes
+  // update attributes and marks
   if (yDomFragment instanceof Y.XmlElement) {
     const yDomAttrs = yDomFragment.getAttributes()
     const pAttrs = pNode.attrs
@@ -723,6 +736,9 @@ export const updateYFragment = (y, yDomFragment, pNode, mapping) => {
       if (pAttrs[key] === undefined) {
         yDomFragment.removeAttribute(key)
       }
+    }
+    if (pNode.marks.length) {
+      yDomFragment.setAttribute('marks', pNode.marks.map(mark => mark.toJSON()))
     }
   }
   // update children
