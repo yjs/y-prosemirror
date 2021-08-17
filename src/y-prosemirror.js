@@ -1,5 +1,5 @@
 export * from './plugins/cursor-plugin.js'
-export { ySyncPlugin, isVisible, getRelativeSelection, ProsemirrorBinding } from './plugins/sync-plugin.js'
+export { ySyncPlugin, isVisible, getRelativeSelection, updateYFragment, ProsemirrorBinding } from './plugins/sync-plugin.js'
 export * from './plugins/undo-plugin.js'
 export * from './plugins/keys.js'
-export { absolutePositionToRelativePosition, relativePositionToAbsolutePosition, setMeta, prosemirrorJSONToYDoc, yDocToProsemirrorJSON, yDocToProsemirror, prosemirrorToYDoc, updateYXmlFragmentFromProsemirror, yXmlFragmentToProsemirrorJSON } from './lib.js'
+export { absolutePositionToRelativePosition, relativePositionToAbsolutePosition, setMeta, prosemirrorJSONToYDoc, yDocToProsemirrorJSON, yDocToProsemirror, prosemirrorToYDoc, yXmlFragmentToProsemirrorJSON } from './lib.js'
