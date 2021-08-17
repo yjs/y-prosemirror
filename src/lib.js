@@ -191,17 +191,17 @@ export const relativePositionToAbsolutePosition = (y, documentType, relPos, mapp
  * note that this should not be used to rehydrate a Y.Doc from a database once
  * collaboration has begun as all history will be lost
  *
- * @param {Node} node
+ * @param {Node} doc
  * @param {string} xmlFragment
  * @return {Y.Doc}
  */
-export function prosemirrorToYDoc (node, xmlFragment = 'prosemirror') {
+export function prosemirrorToYDoc (doc, xmlFragment = 'prosemirror') {
   const ydoc = new Y.Doc()
   const type = ydoc.get(xmlFragment, Y.XmlFragment)
   if (!type.doc) {
     return ydoc
   }
-  updateYFragment(type.doc, type, node, new Map())
+  updateYFragment(type.doc, type, doc, new Map())
   return type.doc
 }
 
@@ -213,25 +213,25 @@ export function prosemirrorToYDoc (node, xmlFragment = 'prosemirror') {
  * collaboration has begun as all history will be lost
  *
  * @param {Schema} schema
- * @param {any} json
+ * @param {any} state
  * @param {string} xmlFragment
  * @return {Y.Doc}
  */
-export function prosemirrorJSONToYDoc (schema, json, xmlFragment = 'prosemirror') {
-  const node = Node.fromJSON(schema, json)
-  return prosemirrorToYDoc(node, xmlFragment)
+export function prosemirrorJSONToYDoc (schema, state, xmlFragment = 'prosemirror') {
+  const doc = Node.fromJSON(schema, state)
+  return prosemirrorToYDoc(doc, xmlFragment)
 }
 
 /**
- * Utility method to convert a Y.Doc to a Prosemirror node.
+ * Utility method to convert a Y.Doc to a Prosemirror Doc node.
  *
  * @param {Schema} schema
  * @param {Y.Doc} ydoc
  * @return {Node}
  */
 export function yDocToProsemirror (schema, ydoc) {
-  const json = yDocToProsemirrorJSON(ydoc)
-  return Node.fromJSON(schema, json)
+  const state = yDocToProsemirrorJSON(ydoc)
+  return Node.fromJSON(schema, state)
 }
 
 /**
