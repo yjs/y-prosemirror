@@ -5,6 +5,7 @@ import { Node, Schema } from 'prosemirror-model' // eslint-disable-line
 import * as error from 'lib0/error.js'
 import * as map from 'lib0/map.js'
 import * as eventloop from 'lib0/eventloop.js'
+import { flatten } from 'lib0/array.js'
 
 /**
  * Either a node if type is YXmlElement or an Array of text nodes if YXmlText
@@ -246,7 +247,7 @@ export function yDocToProsemirrorJSON (ydoc, xmlFragment = 'prosemirror') {
   const items = ydoc.getXmlFragment(xmlFragment).toArray()
   return {
     type: 'doc',
-    content: items.map(typeToProseMirrorJSON).flat()
+    content: flatten(items.map(typeToProseMirrorJSON))
   }
 }
 
@@ -280,7 +281,8 @@ export function yDocToProsemirrorJSON (ydoc, xmlFragment = 'prosemirror') {
 export function YXmlTextToProsemirrorJSON (type) {
   const nodes = []
   const deltas = type.toDelta()
-  for (const delta of deltas) {
+  for (let i = 0; i < deltas.length; i++) {
+    const delta = deltas[i]
     const marks = []
     for (const markName in delta.attributes) {
       marks.push({type: markName, attrs: delta.attributes[markName]})
@@ -313,7 +315,7 @@ export function YXmlElementToProsemirrorJSON (type) {
   }
   const children = type.toArray()
   if (children.length) {
-    node.content = children.map(typeToProseMirrorJSON).flat()
+    node.content = flatten(children.map(typeToProseMirrorJSON))
   }
   return node
 }
