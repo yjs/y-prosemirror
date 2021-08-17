@@ -191,18 +191,17 @@ export const relativePositionToAbsolutePosition = (y, documentType, relPos, mapp
  * note that this should not be used to rehydrate a Y.Doc from a database once
  * collaboration has begun as all history will be lost
  *
- * @param {Node} doc
+ * @param {Node} node
  * @param {string} xmlFragment
  * @return {Y.Doc}
  */
-export function prosemirrorToYDoc (doc, xmlFragment = 'prosemirror') {
+export function prosemirrorToYDoc (node, xmlFragment = 'prosemirror') {
   const ydoc = new Y.Doc()
   const type = ydoc.get(xmlFragment, Y.XmlFragment)
   if (!type.doc) {
     return ydoc
   }
-
-  updateYFragment(type.doc, type, doc, new Map())
+  updateYFragment(type.doc, type, node, new Map())
   return type.doc
 }
 
@@ -214,95 +213,107 @@ export function prosemirrorToYDoc (doc, xmlFragment = 'prosemirror') {
  * collaboration has begun as all history will be lost
  *
  * @param {Schema} schema
- * @param {any} state
+ * @param {any} json
  * @param {string} xmlFragment
  * @return {Y.Doc}
  */
-export function prosemirrorJSONToYDoc (schema, state, xmlFragment = 'prosemirror') {
-  const doc = Node.fromJSON(schema, state)
-  return prosemirrorToYDoc(doc, xmlFragment)
+export function prosemirrorJSONToYDoc (schema, json, xmlFragment = 'prosemirror') {
+  const node = Node.fromJSON(schema, json)
+  return prosemirrorToYDoc(node, xmlFragment)
 }
 
 /**
- * Utility method to convert a Y.Doc to a Prosemirror Doc node.
+ * Utility method to convert a Y.Doc to a Prosemirror node.
  *
  * @param {Schema} schema
  * @param {Y.Doc} ydoc
  * @return {Node}
  */
 export function yDocToProsemirror (schema, ydoc) {
-  const state = yDocToProsemirrorJSON(ydoc)
-  return Node.fromJSON(schema, state)
+  const json = yDocToProsemirrorJSON(ydoc)
+  return Node.fromJSON(schema, json)
 }
 
 /**
  * Utility method to convert a Y.Doc to Prosemirror compatible JSON.
  *
+ * @param {Schema} schema
  * @param {Y.Doc} ydoc
  * @param {string} xmlFragment
  * @return {Record<string, any>}
  */
-export function yDocToProsemirrorJSON (
-  ydoc,
-  xmlFragment = 'prosemirror'
-) {
+export function yDocToProsemirrorJSON (ydoc, xmlFragment = 'prosemirror') {
   const items = ydoc.getXmlFragment(xmlFragment).toArray()
-
-  function serialize (item) {
-    /**
-     * @type {Object} NodeObject
-     * @property {string} NodeObject.type
-     * @property {Record<string, string>=} NodeObject.attrs
-     * @property {Array<NodeObject>=} NodeObject.content
-     */
-    let response
-
-    // TODO: Must be a better way to detect text nodes than this
-    if (!item.nodeName) {
-      const delta = item.toDelta()
-      response = delta.map((d) => {
-        const text = {
-          type: 'text',
-          text: d.insert
-        }
-
-        if (d.attributes) {
-          text.marks = Object.keys(d.attributes).map((type) => {
-            const attrs = d.attributes[type]
-            const mark = {
-              type
-            }
-
-            if (Object.keys(attrs)) {
-              mark.attrs = attrs
-            }
-
-            return mark
-          })
-        }
-        return text
-      })
-    } else {
-      response = {
-        type: item.nodeName
-      }
-
-      const attrs = item.getAttributes()
-      if (Object.keys(attrs).length) {
-        response.attrs = attrs
-      }
-
-      const children = item.toArray()
-      if (children.length) {
-        response.content = children.map(serialize).flat()
-      }
-    }
-
-    return response
-  }
-
   return {
     type: 'doc',
-    content: items.map(serialize)
+    content: items.map(typeToProseMirrorJSON).flat()
   }
+}
+
+/**
+ * @typedef {Object} YXmlTextProsemirrorJSON 
+ * @property {string} YXmlTextProsemirrorJSON.type
+ * @property {string} YXmlTextProsemirrorJSON.text
+ * @property {Array<{type: string, attrs: string}>=} YXmlTextProsemirrorJSON.marks
+ */
+
+/**
+ * @typedef {Object} YXmlElementProsemirrorJSON
+ * @property {string} YXmlElementProsemirrorJSON.type
+ * @property {Record<string, string>=} YXmlElementProsemirrorJSON.attrs
+ * @property {Array<{type: string, attrs: string}>=} YXmlElementProsemirrorJSON.marks
+ * @property {Array<YXmlTextProsemirrorJSON|YXmlElementProsemirrorJSON>=} YXmlElementProsemirrorJSON.content
+ */
+
+/**
+ * @param {Y.XmlElement|Y.XmlText} type
+ * @return {Array<YXmlTextProsemirrorJSON>|YXmlElementProsemirrorJSON}
+ */
+ export const typeToProseMirrorJSON = (type) => type.constructor === Y.XmlText ? YXmlTextToProsemirrorJSON(type) : YXmlElementToProsemirrorJSON(type)
+
+/**
+ * Utility method to convert Y.XmlText to Prosemirror compatible JSON.
+ *
+ * @param {Y.XmlText} type
+ * @return {Array<YXmlTextProsemirrorJSON>}
+ */
+export function YXmlTextToProsemirrorJSON (type) {
+  const nodes = []
+  const deltas = type.toDelta()
+  for (const delta in deltas) {
+    const marks = []
+    for (const markName in delta.attributes) {
+      marks.push({type: markName, attrs: delta.attributes[markName]})
+    }
+    const text = {type: 'text', text: d.insert}
+    if (marks.length) { 
+      text.marks = marks 
+    }
+    nodes.push(text)
+  }
+  return nodes
+}
+
+/**
+ * Utility method to convert a Y.XmlElement to Prosemirror compatible JSON.
+ *
+ * @param {Y.XmlElement} type 
+ * @return {YXmlElementProsemirrorJSON}
+ */
+export function YXmlElementToProsemirrorJSON (type) {
+  const node = {type: type.nodeName}
+  let attrs = type.getAttributes()
+  let marks = attrs.marks
+  if (marks) {
+    node.marks = marks
+    delete attrs.marks
+  }
+  if (Object.keys(attrs).length) {
+    node.attrs = attrs
+  }
+  const children = type.toArray()
+  if (children.length) {
+    node.content = children.map(typeToProseMirrorJSON).flat()
+  }
+  return node
 }

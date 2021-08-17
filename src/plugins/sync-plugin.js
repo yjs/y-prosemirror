@@ -469,8 +469,7 @@ const createTextNodesFromYText = (text, schema, mapping, snapshot, prevSnapshot,
   const nodes = []
   const deltas = text.toDelta(snapshot, prevSnapshot, computeYChange)
   try {
-    for (let i = 0; i < deltas.length; i++) {
-      const delta = deltas[i]
+    for (const delta in deltas) {
       const marks = []
       for (const markName in delta.attributes) {
         marks.push(schema.mark(markName, delta.attributes[markName]))
