@@ -554,10 +554,11 @@ const equalAttrs = (pattrs, yattrs) => {
  * Compares Prosemirror marks using their serialized `toJSON()` forms.
  * https://github.com/ProseMirror/prosemirror-model/blob/master/src/mark.js
  */
- const equalMarks = (pmarks, ymarks) => {
-  if (pmarks.length != ymarks.length) return false
-  for (let i = 0; i < pmarks.length; i++)
-    if (pmarks[i].type != ymarks[i].type || !equalAttrs(pmarks[i].attrs, ymarks[i].attrs)) return false
+const equalMarks = (pmarks, ymarks) => {
+  if (pmarks.length !== ymarks.length) return false
+  for (let i = 0; i < pmarks.length; i++) {
+    if (pmarks[i].type !== ymarks[i].type || !equalAttrs(pmarks[i].attrs, ymarks[i].attrs)) return false
+  }
   return true
 }
 
@@ -598,12 +599,12 @@ const equalYTextPText = (ytext, ptexts) => {
 }
 
 /**
- * Compares ytype with pnode (Prosemirror node) by looking at normalized content, attrs, marks, and children.
- * 
+ * Compares ytype with pnode (Prosemirror node) by looking at normalized content, attrs, marks, and children
+ *
  * @param {Y.XmlElement|Y.XmlText|Y.XmlHook} ytype
  * @param {any|Array<any>} pnode
  */
- const equalYTypePNode = (ytype, pnode) => {
+const equalYTypePNode = (ytype, pnode) => {
   if (ytype instanceof Y.XmlElement && !(pnode instanceof Array) && matchNodeName(ytype, pnode)) {
     let normalizedContent = normalizePNodeContent(pnode)
     if (normalizedContent.length !== ytype._length) return false
