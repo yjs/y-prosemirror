@@ -390,7 +390,7 @@ export class ProsemirrorBinding {
 const createNodeIfNotExists = (el, schema, mapping, snapshot, prevSnapshot, computeYChange) => {
   const node = /** @type {PModel.Node} */ (mapping.get(el))
   if (node === undefined) {
-    if (el instanceof Y.XmlElement) {
+    if (el.constructor.name === Y.XmlElement.name) {
       return createNodeFromYElement(el, schema, mapping, snapshot, prevSnapshot, computeYChange)
     } else {
       throw error.methodUnimplemented() // we are currently not handling hooks
