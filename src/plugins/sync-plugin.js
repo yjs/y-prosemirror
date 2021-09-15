@@ -93,8 +93,13 @@ class YSyncPluginState {
     this.binding = null
   }
 
-  apply (tr, pluginState) {
+  apply (tr) {
     const change = tr.getMeta(ySyncPluginKey)
+    if (change !== undefined) {
+      for (const key in change) {
+        this[key] = change[key]
+      }
+    }
     this.isChangeOrigin = change !== undefined && !!change.isChangeOrigin
     if (this.binding !== null) {
       if (change !== undefined && (change.snapshot != null || change.prevSnapshot != null)) {
@@ -141,7 +146,7 @@ export const ySyncPlugin = (yXmlFragment, { colors = defaultColors, colorMapping
         return pluginState
       },
       apply: (tr, pluginState) => {
-        return pluginState.apply(tr, pluginState)
+        return pluginState.apply(tr)
       }
     },
     view: view => {
