@@ -110,16 +110,16 @@ export const ySyncPlugin = (yXmlFragment, { colors = defaultColors, colorMapping
         // always set isChangeOrigin. If undefined, this is not change origin.
         pluginState.isChangeOrigin = change !== undefined && !!change.isChangeOrigin
         if (pluginState.binding !== null) {
-          if (change !== undefined && (change.snapshot != null || change.prevSnapshot != null)) {
+          if (change !== undefined && (pluginState.snapshot != null || pluginState.prevSnapshot != null)) {
             // snapshot changed, rerender next
             eventloop.timeout(0, () => {
               if (pluginState.binding == null || pluginState.binding.isDestroyed) {
                 return
               }
               if (change.restore == null) {
-                pluginState.binding._renderSnapshot(change.snapshot, change.prevSnapshot, pluginState)
+                pluginState.binding._renderSnapshot(pluginState.snapshot, pluginState.prevSnapshot, pluginState)
               } else {
-                pluginState.binding._renderSnapshot(change.snapshot, change.snapshot, pluginState)
+                pluginState.binding._renderSnapshot(pluginState.snapshot, pluginState.snapshot, pluginState)
                 // reset to current prosemirror state
                 delete pluginState.restore
                 delete pluginState.snapshot
