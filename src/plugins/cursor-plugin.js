@@ -78,68 +78,72 @@ export const createDecorations = (state, awareness, createCursor) => {
  * @param {string} [opts.cursorStateField] By default all editor bindings use the awareness 'cursor' field to propagate cursor information.
  * @return {any}
  */
-export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder, getSelection = state => state.selection } = {}, cursorStateField = 'cursor') => new Plugin({
-  key: yCursorPluginKey,
-  state: {
-    init (_, state) {
-      return createDecorations(state, awareness, cursorBuilder)
-    },
-    apply (tr, prevState, oldState, newState) {
-      const ystate = ySyncPluginKey.getState(newState)
-      const yCursorState = tr.getMeta(yCursorPluginKey)
-      if ((ystate && ystate.isChangeOrigin) || (yCursorState && yCursorState.awarenessUpdated)) {
-        return createDecorations(newState, awareness, cursorBuilder)
-      }
-      return prevState.map(tr.mapping, tr.doc)
-    }
-  },
-  props: {
-    decorations: state => {
-      return yCursorPluginKey.getState(state)
-    }
-  },
-  view: view => {
-    const awarenessListener = () => {
-      // @ts-ignore
-      if (view.docView) {
-        setMeta(view, yCursorPluginKey, { awarenessUpdated: true })
-      }
-    }
-    const updateCursorInfo = () => {
-      const ystate = ySyncPluginKey.getState(view.state)
-      // @note We make implicit checks when checking for the cursor property
-      const current = awareness.getLocalState() || {}
-      if (view.hasFocus() && ystate.binding !== null) {
-        const selection = getSelection(view.state)
-        /**
-         * @type {Y.RelativePosition}
-         */
-        const anchor = absolutePositionToRelativePosition(selection.anchor, ystate.type, ystate.binding.mapping)
-        /**
-         * @type {Y.RelativePosition}
-         */
-        const head = absolutePositionToRelativePosition(selection.head, ystate.type, ystate.binding.mapping)
-        if (current.cursor == null || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(current.cursor.anchor), anchor) || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(current.cursor.head), head)) {
-          awareness.setLocalStateField(cursorStateField, {
-            anchor, head
-          })
+export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder, getSelection = state => state.selection } = {}, cursorStateField = 'cursor') => {
+  let setMetaTimeout;
+  return new Plugin({
+    key: yCursorPluginKey,
+    state: {
+      init (_, state) {
+        return createDecorations(state, awareness, cursorBuilder)
+      },
+      apply (tr, prevState, oldState, newState) {
+        const ystate = ySyncPluginKey.getState(newState)
+        const yCursorState = tr.getMeta(yCursorPluginKey)
+        if ((ystate && ystate.isChangeOrigin) || (yCursorState && yCursorState.awarenessUpdated)) {
+          return createDecorations(newState, awareness, cursorBuilder)
         }
-      } else if (current.cursor != null && relativePositionToAbsolutePosition(ystate.doc, ystate.type, Y.createRelativePositionFromJSON(current.cursor.anchor), ystate.binding.mapping) !== null) {
-        // delete cursor information if current cursor information is owned by this editor binding
-        awareness.setLocalStateField(cursorStateField, null)
+        return prevState.map(tr.mapping, tr.doc)
+      }
+    },
+    props: {
+      decorations: state => {
+        return yCursorPluginKey.getState(state)
+      }
+    },
+    view: view => {
+      const awarenessListener = () => {
+        // @ts-ignore
+        if (view.docView) {
+          setMetaTimeout = setMeta(view, yCursorPluginKey, { awarenessUpdated: true })
+        }
+      }
+      const updateCursorInfo = () => {
+        const ystate = ySyncPluginKey.getState(view.state)
+        // @note We make implicit checks when checking for the cursor property
+        const current = awareness.getLocalState() || {}
+        if (view.hasFocus() && ystate.binding !== null) {
+          const selection = getSelection(view.state)
+          /**
+           * @type {Y.RelativePosition}
+           */
+          const anchor = absolutePositionToRelativePosition(selection.anchor, ystate.type, ystate.binding.mapping)
+          /**
+           * @type {Y.RelativePosition}
+           */
+          const head = absolutePositionToRelativePosition(selection.head, ystate.type, ystate.binding.mapping)
+          if (current.cursor == null || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(current.cursor.anchor), anchor) || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(current.cursor.head), head)) {
+            awareness.setLocalStateField(cursorStateField, {
+              anchor, head
+            })
+          }
+        } else if (current.cursor != null && relativePositionToAbsolutePosition(ystate.doc, ystate.type, Y.createRelativePositionFromJSON(current.cursor.anchor), ystate.binding.mapping) !== null) {
+          // delete cursor information if current cursor information is owned by this editor binding
+          awareness.setLocalStateField(cursorStateField, null)
+        }
+      }
+      awareness.on('change', awarenessListener)
+      view.dom.addEventListener('focusin', updateCursorInfo)
+      view.dom.addEventListener('focusout', updateCursorInfo)
+      return {
+        update: updateCursorInfo,
+        destroy: () => {
+          setMetaTimeout?.destroy();
+          view.dom.removeEventListener('focusin', updateCursorInfo)
+          view.dom.removeEventListener('focusout', updateCursorInfo)
+          awareness.off('change', awarenessListener)
+          awareness.setLocalStateField(cursorStateField, null)
+        }
       }
     }
-    awareness.on('change', awarenessListener)
-    view.dom.addEventListener('focusin', updateCursorInfo)
-    view.dom.addEventListener('focusout', updateCursorInfo)
-    return {
-      update: updateCursorInfo,
-      destroy: () => {
-        view.dom.removeEventListener('focusin', updateCursorInfo)
-        view.dom.removeEventListener('focusout', updateCursorInfo)
-        awareness.off('change', awarenessListener)
-        awareness.setLocalStateField(cursorStateField, null)
-      }
-    }
-  }
-})
+  })
+}

@@ -31,12 +31,17 @@ const updateMetas = () => {
   })
 }
 
+/**
+ * @return TimeoutObject | null
+ */
 export const setMeta = (view, key, value) => {
+  let timeout = null;
   if (!viewsToUpdate) {
     viewsToUpdate = new Map()
-    eventloop.timeout(0, updateMetas)
+    timeout = eventloop.timeout(0, updateMetas)
   }
   map.setIfUndefined(viewsToUpdate, view, map.create).set(key, value)
+  return timeout;
 }
 
 /**

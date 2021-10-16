@@ -75,6 +75,7 @@ const getUserColor = (colorMapping, colors, user) => {
  */
 export const ySyncPlugin = (yXmlFragment, { colors = defaultColors, colorMapping = new Map(), permanentUserData = null } = {}) => {
   let changedInitialContent = false
+  let forceRenderTimeout;
   const plugin = new Plugin({
     props: {
       editable: (state) => {
@@ -129,8 +130,12 @@ export const ySyncPlugin = (yXmlFragment, { colors = defaultColors, colorMapping
     },
     view: view => {
       const binding = new ProsemirrorBinding(yXmlFragment, view)
+      if (forceRenderTimeout) {
+        // Make sure we don't render twice
+        clearTimeout(forceRenderTimeout);
+      }
       // Make sure this is called in a separate context
-      setTimeout(() => {
+      forceRenderTimeout = setTimeout(() => {
         binding._forceRerender()
         view.dispatch(view.state.tr.setMeta(ySyncPluginKey, { binding }))
       }, 0)
@@ -145,6 +150,10 @@ export const ySyncPlugin = (yXmlFragment, { colors = defaultColors, colorMapping
           }
         },
         destroy: () => {
+          // Make sure to stop scheduled rendering on destruction
+          if (forceRenderTimeout) {
+            clearTimeout(forceRenderTimeout);
+          }
           binding.destroy()
         }
       }
