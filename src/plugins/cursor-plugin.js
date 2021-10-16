@@ -79,7 +79,7 @@ export const createDecorations = (state, awareness, createCursor) => {
  * @return {any}
  */
 export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder, getSelection = state => state.selection } = {}, cursorStateField = 'cursor') => {
-  let setMetaTimeout;
+  let setMetaTimeout
   return new Plugin({
     key: yCursorPluginKey,
     state: {
@@ -137,7 +137,9 @@ export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder,
       return {
         update: updateCursorInfo,
         destroy: () => {
-          setMetaTimeout?.destroy();
+          if (setMetaTimeout) {
+            setMetaTimeout.destroy()
+          }
           view.dom.removeEventListener('focusin', updateCursorInfo)
           view.dom.removeEventListener('focusout', updateCursorInfo)
           awareness.off('change', awarenessListener)
