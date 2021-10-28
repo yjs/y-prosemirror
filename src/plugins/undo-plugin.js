@@ -1,5 +1,5 @@
 
-import { Plugin, PluginKey } from 'prosemirror-state' // eslint-disable-line
+import { Plugin } from 'prosemirror-state' // eslint-disable-line
 
 import { getRelativeSelection } from './sync-plugin.js'
 import { UndoManager, Item, ContentType, XmlElement, Text } from 'yjs'
@@ -21,25 +21,29 @@ export const redo = state => {
   }
 }
 
-export const yUndoPlugin = ({ protectedNodes = new Set(['paragraph']), trackedOrigins = [] } = {}) => new Plugin({
+export const defaultProtectedNodes = new Set(['paragraph'])
+
+export const defaultDeleteFilter = (item, protectedNodes) => !(item instanceof Item) ||
+!(item.content instanceof ContentType) ||
+!(item.content.type instanceof Text ||
+  (item.content.type instanceof XmlElement && protectedNodes.has(item.content.type.nodeName))) ||
+item.content.type._length === 0
+
+export const yUndoPlugin = ({ protectedNodes = defaultProtectedNodes, trackedOrigins = [], undoManager = null } = {}) => new Plugin({
   key: yUndoPluginKey,
   state: {
     init: (initargs, state) => {
       // TODO: check if plugin order matches and fix
       const ystate = ySyncPluginKey.getState(state)
-      const undoManager = new UndoManager(ystate.type, {
+      const _undoManager = undoManager || new UndoManager(ystate.type, {
         trackedOrigins: new Set([ySyncPluginKey].concat(trackedOrigins)),
-        deleteFilter: item => !(item instanceof Item) ||
-          !(item.content instanceof ContentType) ||
-          !(item.content.type instanceof Text ||
-            (item.content.type instanceof XmlElement && protectedNodes.has(item.content.type.nodeName))) ||
-          item.content.type._length === 0
+        deleteFilter: (item) => defaultDeleteFilter(item, protectedNodes)
       })
       return {
-        undoManager,
+        undoManager: _undoManager,
         prevSel: null,
-        hasUndoOps: undoManager.undoStack.length > 0,
-        hasRedoOps: undoManager.redoStack.length > 0
+        hasUndoOps: _undoManager.undoStack.length > 0,
+        hasRedoOps: _undoManager.redoStack.length > 0
       }
     },
     apply: (tr, val, oldState, state) => {

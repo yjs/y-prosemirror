@@ -30,9 +30,11 @@ const rxValidColor = /^#[0-9a-fA-F]{6}$/
 /**
  * @param {any} state
  * @param {Awareness} awareness
+ * @param {string|undefined} selfID
+ * @param {string} stateField
  * @return {any} DecorationSet
  */
-export const createDecorations = (state, awareness, createCursor) => {
+export const createDecorations = (state, awareness, createCursor, selfID, stateField) => {
   const ystate = ySyncPluginKey.getState(state)
   const y = ystate.doc
   const decorations = []
@@ -44,7 +46,16 @@ export const createDecorations = (state, awareness, createCursor) => {
     if (clientId === y.clientID) {
       return
     }
-    if (aw.cursor != null) {
+    const meta = aw.meta || {}
+    if (meta.length > 0) {
+      for (const item of meta) {
+        if (item.selfID === selfID) {
+          return
+        }
+      }
+    }
+    if (aw[stateField] != null) {
+      if (aw[stateField].guid !== ystate.binding.doc.guid) return
       const user = aw.user || {}
       if (user.color == null) {
         user.color = '#ffa500'
@@ -55,8 +66,8 @@ export const createDecorations = (state, awareness, createCursor) => {
       if (user.name == null) {
         user.name = `User: ${clientId}`
       }
-      let anchor = relativePositionToAbsolutePosition(y, ystate.type, Y.createRelativePositionFromJSON(aw.cursor.anchor), ystate.binding.mapping)
-      let head = relativePositionToAbsolutePosition(y, ystate.type, Y.createRelativePositionFromJSON(aw.cursor.head), ystate.binding.mapping)
+      let anchor = relativePositionToAbsolutePosition(y, ystate.type, Y.createRelativePositionFromJSON(aw[stateField].anchor), ystate.binding.mapping)
+      let head = relativePositionToAbsolutePosition(y, ystate.type, Y.createRelativePositionFromJSON(aw[stateField].head), ystate.binding.mapping)
       if (anchor !== null && head !== null) {
         const maxsize = math.max(state.doc.content.size - 1, 0)
         anchor = math.min(anchor, maxsize)
@@ -81,19 +92,20 @@ export const createDecorations = (state, awareness, createCursor) => {
  * @param {function(any):HTMLElement} [opts.cursorBuilder]
  * @param {function(any):any} [opts.getSelection]
  * @param {string} [opts.cursorStateField] By default all editor bindings use the awareness 'cursor' field to propagate cursor information.
+ * @param {string?} [opts.selfID]
  * @return {any}
  */
-export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder, getSelection = state => state.selection } = {}, cursorStateField = 'cursor') => new Plugin({
+export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder, getSelection = state => state.selection } = {}, cursorStateField = 'cursor', selfID = null) => new Plugin({
   key: yCursorPluginKey,
   state: {
     init (_, state) {
-      return createDecorations(state, awareness, cursorBuilder)
+      return createDecorations(state, awareness, cursorBuilder, selfID, cursorStateField)
     },
     apply (tr, prevState, oldState, newState) {
       const ystate = ySyncPluginKey.getState(newState)
       const yCursorState = tr.getMeta(yCursorPluginKey)
       if ((ystate && ystate.isChangeOrigin) || (yCursorState && yCursorState.awarenessUpdated)) {
-        return createDecorations(newState, awareness, cursorBuilder)
+        return createDecorations(newState, awareness, cursorBuilder, selfID, cursorStateField)
       }
       return prevState.map(tr.mapping, tr.doc)
     }
@@ -112,9 +124,15 @@ export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder,
     }
     const updateCursorInfo = () => {
       const ystate = ySyncPluginKey.getState(view.state)
+      // This is a hack to fix the race that happens when a subdoc is created
+      if (ystate.binding === null) {
+        return
+      }
       // @note We make implicit checks when checking for the cursor property
       const current = awareness.getLocalState() || {}
       if (view.hasFocus() && ystate.binding !== null) {
+        const guid = ystate.binding.doc.guid
+
         const selection = getSelection(view.state)
         /**
          * @type {Y.RelativePosition}
@@ -124,12 +142,14 @@ export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder,
          * @type {Y.RelativePosition}
          */
         const head = absolutePositionToRelativePosition(selection.head, ystate.type, ystate.binding.mapping)
-        if (current.cursor == null || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(current.cursor.anchor), anchor) || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(current.cursor.head), head)) {
-          awareness.setLocalStateField(cursorStateField, {
-            anchor, head
-          })
+        if (head.type !== null) {
+          if (current[cursorStateField] == null || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(current[cursorStateField].anchor), anchor) || !Y.compareRelativePositions(Y.createRelativePositionFromJSON(current[cursorStateField].head), head)) {
+            awareness.setLocalStateField(cursorStateField, {
+              anchor, head, guid
+            })
+          }
         }
-      } else if (current.cursor != null && relativePositionToAbsolutePosition(ystate.doc, ystate.type, Y.createRelativePositionFromJSON(current.cursor.anchor), ystate.binding.mapping) !== null) {
+      } else if (current[cursorStateField] != null && relativePositionToAbsolutePosition(ystate.doc, ystate.type, Y.createRelativePositionFromJSON(current[cursorStateField].anchor), ystate.binding.mapping) !== null) {
         // delete cursor information if current cursor information is owned by this editor binding
         awareness.setLocalStateField(cursorStateField, null)
       }
