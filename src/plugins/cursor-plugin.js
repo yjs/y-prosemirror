@@ -59,7 +59,8 @@ export const createDecorations = (state, awareness, createCursor) => {
         decorations.push(Decoration.widget(head, () => createCursor(user), { key: clientId + '', side: 10 }))
         const from = math.min(anchor, head)
         const to = math.max(anchor, head)
-        decorations.push(Decoration.inline(from, to, { style: `background-color: ${user.color}70` }, { inclusiveEnd: true, inclusiveStart: false }))
+        const colorNoTransparency = user.color.substring(0, 7) // #RRGGBBAA -> #RRGGBB
+        decorations.push(Decoration.inline(from, to, { style: `background-color: ${colorNoTransparency}70` }, { inclusiveEnd: true, inclusiveStart: false }))
       }
     }
   })
