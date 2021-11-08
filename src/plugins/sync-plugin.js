@@ -279,7 +279,7 @@ export class ProsemirrorBinding {
       const fragmentContent = this.type.toArray().map(t => createNodeFromYElement(/** @type {Y.XmlElement} */ (t), this.prosemirrorView.state.schema, this.mapping)).filter(n => n !== null)
       // @ts-ignore
       const tr = this.prosemirrorView.state.tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
-      this.prosemirrorView.dispatch(tr)
+      this.prosemirrorView.dispatch(tr.setMeta(ySyncPluginKey, { isChangeOrigin: true }))
     })
   }
 
@@ -324,7 +324,7 @@ export class ProsemirrorBinding {
         }).filter(n => n !== null)
         // @ts-ignore
         const tr = this.prosemirrorView.state.tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
-        this.prosemirrorView.dispatch(tr)
+        this.prosemirrorView.dispatch(tr.setMeta(ySyncPluginKey, { isChangeOrigin: true }))
       }, ySyncPluginKey)
     })
   }
