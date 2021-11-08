@@ -2,20 +2,20 @@
  * @module bindings/prosemirror
  */
 
-import { createMutex } from 'lib0/mutex.js'
+import { createMutex } from 'lib0/mutex'
 import * as PModel from 'prosemirror-model'
 import { Plugin, TextSelection } from 'prosemirror-state' // eslint-disable-line
-import * as math from 'lib0/math.js'
-import * as object from 'lib0/object.js'
-import * as set from 'lib0/set.js'
-import { simpleDiff } from 'lib0/diff.js'
-import * as error from 'lib0/error.js'
+import * as math from 'lib0/math'
+import * as object from 'lib0/object'
+import * as set from 'lib0/set'
+import { simpleDiff } from 'lib0/diff'
+import * as error from 'lib0/error'
 import { ySyncPluginKey } from './keys.js'
 import * as Y from 'yjs'
 import { absolutePositionToRelativePosition, relativePositionToAbsolutePosition } from '../lib.js'
-import * as random from 'lib0/random.js'
-import * as environment from 'lib0/environment.js'
-import * as dom from 'lib0/dom.js'
+import * as random from 'lib0/random'
+import * as environment from 'lib0/environment'
+import * as dom from 'lib0/dom'
 
 /**
  * @param {Y.Item} item

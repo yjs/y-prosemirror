@@ -5,9 +5,9 @@ import jsdom from 'jsdom'
 
 import * as prosemirror from './y-prosemirror.test.js'
 
-import { runTests } from 'lib0/testing.js'
-import { isBrowser, isNode } from 'lib0/environment.js'
-import * as log from 'lib0/logging.js'
+import { runTests } from 'lib0/testing'
+import { isBrowser, isNode } from 'lib0/environment'
+import * as log from 'lib0/logging'
 
 const documentContent = fs.readFileSync(path.join(__dirname, '../test.html'))
 const { window } = new jsdom.JSDOM(documentContent)

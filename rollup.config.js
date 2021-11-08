@@ -21,10 +21,10 @@ export default [{
     sourcemap: true,
     paths: path => {
       if (/^lib0\//.test(path)) {
-        return `lib0/dist/${path.slice(5, -3)}.cjs`
+        return `lib0/dist/${path.slice(5)}.cjs`
       }
       if (/^y-protocols\//.test(path)) {
-        return `y-protocols/dist/${path.slice(12, -3)}.cjs`
+        return `y-protocols/dist/${path.slice(12)}.cjs`
       }
       return path
     }
@@ -68,7 +68,7 @@ export default [{
     sourcemap: true,
     paths: path => {
       if (/^lib0\//.test(path)) {
-        return `lib0/dist/${path.slice(5, -3)}.cjs`
+        return `lib0/dist/${path.slice(5)}.cjs`
       }
     }
   },

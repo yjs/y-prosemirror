@@ -1,7 +1,7 @@
 
-import * as t from 'lib0/testing.js'
-import * as prng from 'lib0/prng.js'
-import * as math from 'lib0/math.js'
+import * as t from 'lib0/testing'
+import * as prng from 'lib0/prng'
+import * as math from 'lib0/math'
 import * as Y from 'yjs'
 import { applyRandomTests } from 'yjs/tests/testHelper.js'
 

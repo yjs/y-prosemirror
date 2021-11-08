@@ -1,8 +1,8 @@
 
 import * as prosemirror from './y-prosemirror.test.js'
 
-import { runTests } from 'lib0/testing.js'
-import { isBrowser, isNode } from 'lib0/environment.js'
+import { runTests } from 'lib0/testing'
+import { isBrowser, isNode } from 'lib0/environment'
 import * as log from 'lib0/logging.js'
 
 if (isBrowser) {

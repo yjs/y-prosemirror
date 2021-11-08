@@ -2,9 +2,9 @@ import { updateYFragment} from './plugins/sync-plugin.js' // eslint-disable-line
 import * as Y from 'yjs'
 import { EditorView } from 'prosemirror-view' // eslint-disable-line
 import { Node, Schema } from 'prosemirror-model' // eslint-disable-line
-import * as error from 'lib0/error.js'
-import * as map from 'lib0/map.js'
-import * as eventloop from 'lib0/eventloop.js'
+import * as error from 'lib0/error'
+import * as map from 'lib0/map'
+import * as eventloop from 'lib0/eventloop'
 
 /**
  * Either a node if type is YXmlElement or an Array of text nodes if YXmlText
