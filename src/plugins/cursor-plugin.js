@@ -25,6 +25,9 @@ export const defaultCursorBuilder = user => {
   return cursor
 }
 
+let colorErrorEmitted = false
+const rxValidColor = /^#[0-9a-fA-F]{6}$/
+
 /**
  * @param {any} state
  * @param {Awareness} awareness
@@ -46,6 +49,11 @@ export const createDecorations = (state, awareness, createCursor) => {
       const user = aw.user || {}
       if (user.color == null) {
         user.color = '#ffa500'
+      } else if (!colorErrorEmitted) {
+        if (!rxValidColor.test(user.color)) {
+          console.warn('A user context used an unsupported color format', user)
+          colorErrorEmitted = true
+        }
       }
       if (user.name == null) {
         user.name = `User: ${clientId}`
