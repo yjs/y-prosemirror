@@ -21,7 +21,7 @@
   },
   "exports": {
     ".": {
-      "import": "./dist/y-prosemirror.mjs",
+      "import": "./src/y-prosemirror.js",
       "require": "./dist/y-prosemirror.cjs"
     }
   },
