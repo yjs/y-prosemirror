@@ -4,6 +4,7 @@
   "description": "Prosemirror bindings for Yjs",
   "main": "./dist/y-prosemirror.cjs",
   "module": "./src/y-prosemirror.js",
+  "type": "module",
   "types": "./dist/src/y-prosemirror.d.ts",
   "sideEffects": false,
   "funding": {
