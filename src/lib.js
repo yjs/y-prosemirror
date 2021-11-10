@@ -51,9 +51,12 @@ export const absolutePositionToRelativePosition = (pos, type, mapping) => {
   if (pos === 0) {
     return Y.createRelativePositionFromTypeIndex(type, 0)
   }
+  /**
+   * @type {any}
+   */
   let n = type._first === null ? null : /** @type {Y.ContentType} */ (type._first.content).type
   while (n !== null && type !== n) {
-    if (n.constructor === Y.XmlText) {
+    if (n instanceof Y.XmlText) {
       if (n._length >= pos) {
         return Y.createRelativePositionFromTypeIndex(n, pos)
       } else {
@@ -146,7 +149,7 @@ export const relativePositionToAbsolutePosition = (y, documentType, relPos, mapp
       if (!n.deleted) {
         const t = /** @type {Y.ContentType} */ (n.content).type
         i++
-        if (t.constructor === Y.XmlText) {
+        if (t instanceof Y.XmlText) {
           pos += t._length
         } else {
           pos += /** @type {any} */ (mapping.get(t)).nodeSize
@@ -162,7 +165,7 @@ export const relativePositionToAbsolutePosition = (y, documentType, relPos, mapp
     // @ts-ignore
     if (parent._item === null || !parent._item.deleted) {
       pos += 1 // the start tag
-      let n = parent._first
+      let n = /** @type {Y.AbstractType} */ (parent)._first
       // now iterate until we found type
       while (n !== null) {
         const contentType = /** @type {Y.ContentType} */ (n.content).type
@@ -170,7 +173,7 @@ export const relativePositionToAbsolutePosition = (y, documentType, relPos, mapp
           break
         }
         if (!n.deleted) {
-          if (contentType.constructor === Y.XmlText) {
+          if (contentType instanceof Y.XmlText) {
             pos += contentType._length
           } else {
             pos += /** @type {any} */ (mapping.get(contentType)).nodeSize
@@ -179,7 +182,7 @@ export const relativePositionToAbsolutePosition = (y, documentType, relPos, mapp
         n = n.right
       }
     }
-    type = parent
+    type = /** @type {Y.AbstractType} */ (parent)
   }
   return pos - 1 // we don't count the most outer tag, because it is a fragment
 }
@@ -197,7 +200,7 @@ export const relativePositionToAbsolutePosition = (y, documentType, relPos, mapp
  */
 export function prosemirrorToYDoc (doc, xmlFragment = 'prosemirror') {
   const ydoc = new Y.Doc()
-  const type = ydoc.get(xmlFragment, Y.XmlFragment)
+  const type = /** @type {Y.XmlFragment} */ (ydoc.get(xmlFragment, Y.XmlFragment))
   if (!type.doc) {
     return ydoc
   }

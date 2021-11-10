@@ -4,6 +4,7 @@ import commonjs from '@rollup/plugin-commonjs'
 /**
  * in order to use Yjs' testing framework, we need to depend on the bare-bone (untransformed) Yjs bundle
  */
+/*
 const debugResolve = {
   resolveId (importee) {
     if (importee === 'yjs') {
@@ -11,6 +12,7 @@ const debugResolve = {
     }
   }
 }
+*/
 
 export default [{
   input: './src/y-prosemirror.js',
@@ -18,16 +20,7 @@ export default [{
     name: 'Y',
     file: 'dist/y-prosemirror.cjs',
     format: 'cjs',
-    sourcemap: true,
-    paths: path => {
-      if (/^lib0\//.test(path)) {
-        return `lib0/dist/${path.slice(5)}.cjs`
-      }
-      if (/^y-protocols\//.test(path)) {
-        return `y-protocols/dist/${path.slice(12)}.cjs`
-      }
-      return path
-    }
+    sourcemap: true
   }],
   external: id => /^(lib0|y-protocols|prosemirror|yjs)/.test(id)
 }, {
@@ -39,7 +32,7 @@ export default [{
     sourcemap: true
   },
   plugins: [
-    debugResolve,
+    // debugResolve,
     nodeResolve({
       mainFields: ['module', 'browser', 'main']
     }),
@@ -65,18 +58,14 @@ export default [{
     name: 'test',
     file: 'dist/test.cjs',
     format: 'cjs',
-    sourcemap: true,
-    paths: path => {
-      if (/^lib0\//.test(path)) {
-        return `lib0/dist/${path.slice(5)}.cjs`
-      }
-    }
+    sourcemap: true
   },
   plugins: [
-    debugResolve,
+    // debugResolve,
     nodeResolve({
       mainFields: ['module', 'main']
-    })
+    }),
+    commonjs()
   ],
   external: id => /^(lib0|prosemirror|fs|path|jsdom|isomorphic)/.test(id)
 }]

@@ -3,7 +3,8 @@ import * as t from 'lib0/testing'
 import * as prng from 'lib0/prng'
 import * as math from 'lib0/math'
 import * as Y from 'yjs'
-import { applyRandomTests } from 'yjs/tests/testHelper.js'
+// @ts-ignore
+import { applyRandomTests } from 'yjs/testHelper'
 
 import { ySyncPlugin, prosemirrorJSONToYDoc, yDocToProsemirrorJSON } from '../src/y-prosemirror.js'
 import { EditorState, TextSelection } from 'prosemirror-state'
