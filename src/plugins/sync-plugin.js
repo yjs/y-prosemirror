@@ -533,6 +533,8 @@ const createTypeFromElementNode = (node, mapping) => {
  */
 const createTypeFromTextOrElementNode = (node, mapping) => node instanceof Array ? createTypeFromTextNodes(node, mapping) : createTypeFromElementNode(node, mapping)
 
+const isObject = (val) => typeof val === 'object' && val !== null
+
 const equalAttrs = (pattrs, yattrs) => {
   const keys = Object.keys(pattrs).filter(key => pattrs[key] !== null)
   let eq = keys.length === Object.keys(yattrs).filter(key => yattrs[key] !== null).length
@@ -540,7 +542,7 @@ const equalAttrs = (pattrs, yattrs) => {
     const key = keys[i]
     const l = pattrs[key]
     const r = yattrs[key]
-    eq = key === 'ychange' || l === r || (typeof l === 'object' && typeof r === 'object' && equalAttrs(l, r))
+    eq = key === 'ychange' || l === r || (isObject(l) && isObject(r) && equalAttrs(l, r))
   }
   return eq
 }
