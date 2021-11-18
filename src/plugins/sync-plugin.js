@@ -390,7 +390,7 @@ export class ProsemirrorBinding {
 const createNodeIfNotExists = (el, schema, mapping, snapshot, prevSnapshot, computeYChange) => {
   const node = /** @type {PModel.Node} */ (mapping.get(el))
   if (node === undefined) {
-    if (el instanceof Y.XmlElement) {
+    if (el instanceof Y.XmlElement || el instanceof Y.XmlHook) {
       return createNodeFromYElement(el, schema, mapping, snapshot, prevSnapshot, computeYChange)
     } else {
       throw error.methodUnimplemented() // we are currently not handling hooks
@@ -401,7 +401,7 @@ const createNodeIfNotExists = (el, schema, mapping, snapshot, prevSnapshot, comp
 
 /**
  * @private
- * @param {Y.XmlElement} el
+ * @param {Y.XmlElement | Y.XmlHook} el
  * @param {any} schema
  * @param {ProsemirrorMapping} mapping
  * @param {Y.Snapshot} [snapshot]
@@ -410,31 +410,34 @@ const createNodeIfNotExists = (el, schema, mapping, snapshot, prevSnapshot, comp
  * @return {PModel.Node | null} Returns node if node could be created. Otherwise it deletes the yjs type and returns null
  */
 const createNodeFromYElement = (el, schema, mapping, snapshot, prevSnapshot, computeYChange) => {
+  const isHook = el.constructor === Y.XmlHook
   const children = []
-  const createChildren = type => {
-    if (type.constructor === Y.XmlElement) {
-      const n = createNodeIfNotExists(type, schema, mapping, snapshot, prevSnapshot, computeYChange)
-      if (n !== null) {
-        children.push(n)
-      }
-    } else {
-      const ns = createTextNodesFromYText(type, schema, mapping, snapshot, prevSnapshot, computeYChange)
-      if (ns !== null) {
-        ns.forEach(textchild => {
-          if (textchild !== null) {
-            children.push(textchild)
-          }
-        })
+  if (!isHook) {
+    const createChildren = type => {
+      if (type.constructor === Y.XmlElement || type.constructor === Y.XmlHook) {
+        const n = createNodeIfNotExists(type, schema, mapping, snapshot, prevSnapshot, computeYChange)
+        if (n !== null) {
+          children.push(n)
+        }
+      } else {
+        const ns = createTextNodesFromYText(type, schema, mapping, snapshot, prevSnapshot, computeYChange)
+        if (ns !== null) {
+          ns.forEach(textchild => {
+            if (textchild !== null) {
+              children.push(textchild)
+            }
+          })
+        }
       }
     }
-  }
-  if (snapshot === undefined || prevSnapshot === undefined) {
-    el.toArray().forEach(createChildren)
-  } else {
-    Y.typeListToArraySnapshot(el, new Y.Snapshot(prevSnapshot.ds, snapshot.sv)).forEach(createChildren)
+    if (snapshot === undefined || prevSnapshot === undefined) {
+      el.toArray().forEach(createChildren)
+    } else {
+      Y.typeListToArraySnapshot(el, new Y.Snapshot(prevSnapshot.ds, snapshot.sv)).forEach(createChildren)
+    }
   }
   try {
-    const attrs = el.getAttributes(snapshot)
+    const attrs = isHook ? { yhook: JSON.stringify(el._item.id) } : el.getAttributes(snapshot)
     if (snapshot !== undefined) {
       if (!isVisible(/** @type {Y.Item} */ (el._item), snapshot)) {
         attrs.ychange = computeYChange ? computeYChange('removed', /** @type {Y.Item} */ (el._item).id) : { type: 'removed' }
@@ -513,11 +516,14 @@ const createTypeFromTextNodes = (nodes, mapping) => {
  * @return {Y.XmlElement}
  */
 const createTypeFromElementNode = (node, mapping) => {
-  const type = new Y.XmlElement(node.type.name)
-  for (const key in node.attrs) {
-    const val = node.attrs[key]
-    if (val !== null && key !== 'ychange') {
-      type.setAttribute(key, val)
+  const isHook = 'yhook' in node.attrs
+  const type = isHook ? node.attrs.yhook.clone() : new Y.XmlElement(node.type.name)
+  if (isHook) {
+    for (const key in node.attrs) {
+      const val = node.attrs[key]
+      if (val !== null && key !== 'ychange') {
+        type.setAttribute(key, val)
+      }
     }
   }
   type.insert(0, normalizePNodeContent(node).map(n => createTypeFromTextOrElementNode(n, mapping)))
@@ -589,6 +595,8 @@ const equalYTypePNode = (ytype, pnode) => {
   if (ytype instanceof Y.XmlElement && !(pnode instanceof Array) && matchNodeName(ytype, pnode)) {
     const normalizedContent = normalizePNodeContent(pnode)
     return ytype._length === normalizedContent.length && equalAttrs(ytype.getAttributes(), pnode.attrs) && ytype.toArray().every((ychild, i) => equalYTypePNode(ychild, normalizedContent[i]))
+  } else if (ytype instanceof Y.XmlHook && !(pnode instanceof Array)) {
+    return ytype === pnode.attrs.yhook
   }
   return ytype instanceof Y.XmlText && pnode instanceof Array && equalYTextPText(ytype, pnode)
 }
