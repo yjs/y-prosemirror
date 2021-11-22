@@ -42,7 +42,7 @@ Also look [here](https://github.com/yjs/yjs-demos/tree/master/prosemirror) for a
 
 #### Remote Cursors
 
-The shared cursors depend on the Awareness instance that is exported by most providers. The Awareness protocol handles non-permanent data like the number of users, their user names, their cursor location, and their colors. You can change the name and color of the user like this:
+The shared cursors depend on the Awareness instance that is exported by most providers. The [Awareness protocol](https://github.com/yjs/y-protocols#awareness-protocol) handles non-permanent data like the number of users, their user names, their cursor location, and their colors. You can change the name and color of the user like this:
 
 ```js
 example.binding.awareness.setLocalStateField('user', { color: '#008833', name: 'My real name' })
