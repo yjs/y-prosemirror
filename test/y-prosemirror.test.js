@@ -6,7 +6,7 @@ import * as Y from 'yjs'
 // @ts-ignore
 import { applyRandomTests } from 'yjs/testHelper'
 
-import { ySyncPlugin, prosemirrorJSONToYDoc, yDocToProsemirrorJSON } from '../src/y-prosemirror.js'
+import { ySyncPlugin, prosemirrorJSONToYDoc, yDocToProsemirrorJSON, prosemirrorJSONToYXmlFragment, yXmlFragmentToProsemirrorJSON } from '../src/y-prosemirror.js'
 import { EditorState, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import * as basicSchema from 'prosemirror-schema-basic'
@@ -24,6 +24,21 @@ export const testDocTransformation = tc => {
   const stateJSON = view.state.doc.toJSON()
   // test if transforming back and forth from Yjs doc works
   const backandforth = yDocToProsemirrorJSON(prosemirrorJSONToYDoc(/** @type {any} */ (schema), stateJSON))
+  t.compare(stateJSON, backandforth)
+}
+
+export const testXmlFragmentTransformation = tc => {
+  const view = createNewProsemirrorView(new Y.Doc())
+  view.dispatch(view.state.tr.insert(0, /** @type {any} */ (schema.node('paragraph', undefined, schema.text('hello world')))))
+  const stateJSON = view.state.doc.toJSON()
+  console.log(JSON.stringify(stateJSON))
+  // test if transforming back and forth from yXmlFragment works
+  const xml = new Y.XmlFragment()
+  prosemirrorJSONToYXmlFragment(/** @type {any} */ (schema), stateJSON, xml)
+  const doc = new Y.Doc()
+  doc.getMap('root').set('firstDoc', xml)
+  const backandforth = yXmlFragmentToProsemirrorJSON(xml)
+  console.log(JSON.stringify(backandforth))
   t.compare(stateJSON, backandforth)
 }
 
