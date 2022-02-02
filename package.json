@@ -21,6 +21,7 @@
   },
   "files": [
     "dist/*",
+    "!dist/test.*",
     "src/*"
   ],
   "repository": {
