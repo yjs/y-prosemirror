@@ -232,6 +232,15 @@ export class ProsemirrorBinding {
     this._domSelectionInView = null
   }
 
+  /**
+   * Create a transaction for changing the prosemirror state.
+   *
+   * @returns
+   */
+  get _tr () {
+    return this.prosemirrorView.state.tr.setMeta('addToHistory', false)
+  }
+
   _isLocalCursorInView () {
     if (!this.prosemirrorView.hasFocus()) return false
     if (environment.isBrowser && this._domSelectionInView === null) {
@@ -274,7 +283,7 @@ export class ProsemirrorBinding {
     if (!prevSnapshot) {
       prevSnapshot = Y.createSnapshot(Y.createDeleteSet(), new Map())
     }
-    this.prosemirrorView.dispatch(this.prosemirrorView.state.tr.setMeta(ySyncPluginKey, { snapshot, prevSnapshot }))
+    this.prosemirrorView.dispatch(this._tr.setMeta(ySyncPluginKey, { snapshot, prevSnapshot }))
   }
 
   unrenderSnapshot () {
@@ -282,7 +291,7 @@ export class ProsemirrorBinding {
     this.mux(() => {
       const fragmentContent = this.type.toArray().map(t => createNodeFromYElement(/** @type {Y.XmlElement} */ (t), this.prosemirrorView.state.schema, this.mapping)).filter(n => n !== null)
       // @ts-ignore
-      const tr = this.prosemirrorView.state.tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
+      const tr = this._tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
       tr.setMeta(ySyncPluginKey, { snapshot: null, prevSnapshot: null })
       this.prosemirrorView.dispatch(tr)
     })
@@ -293,7 +302,7 @@ export class ProsemirrorBinding {
     this.mux(() => {
       const fragmentContent = this.type.toArray().map(t => createNodeFromYElement(/** @type {Y.XmlElement} */ (t), this.prosemirrorView.state.schema, this.mapping)).filter(n => n !== null)
       // @ts-ignore
-      const tr = this.prosemirrorView.state.tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
+      const tr = this._tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
       this.prosemirrorView.dispatch(tr)
     })
   }
@@ -338,7 +347,7 @@ export class ProsemirrorBinding {
           }
         }).filter(n => n !== null)
         // @ts-ignore
-        const tr = this.prosemirrorView.state.tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
+        const tr = this._tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
         this.prosemirrorView.dispatch(tr)
       }, ySyncPluginKey)
     })
@@ -366,9 +375,9 @@ export class ProsemirrorBinding {
       transaction.changedParentTypes.forEach(delType)
       const fragmentContent = this.type.toArray().map(t => createNodeIfNotExists(/** @type {Y.XmlElement | Y.XmlHook} */ (t), this.prosemirrorView.state.schema, this.mapping)).filter(n => n !== null)
       // @ts-ignore
-      let tr = this.prosemirrorView.state.tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
+      let tr = this._tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
       restoreRelativeSelection(tr, this.beforeTransactionSelection, this)
-      tr = tr.setMeta(ySyncPluginKey, { isChangeOrigin: true }).setMeta('addToHistory', false)
+      tr = tr.setMeta(ySyncPluginKey, { isChangeOrigin: true })
       if (this.beforeTransactionSelection !== null && this._isLocalCursorInView()) {
         tr.scrollIntoView()
       }
