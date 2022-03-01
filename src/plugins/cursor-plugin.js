@@ -12,7 +12,7 @@ import * as math from 'lib0/math'
  * Default generator for a cursor element
  *
  * @param {any} user user data
- * @return HTMLElement
+ * @return {HTMLElement}
  */
 export const defaultCursorBuilder = user => {
   const cursor = document.createElement('span')
