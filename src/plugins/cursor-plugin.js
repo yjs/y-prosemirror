@@ -25,6 +25,19 @@ export const defaultCursorBuilder = user => {
   return cursor
 }
 
+/**
+ * Default generator for the selection attributes
+ *
+ * @param {any} user user data
+ * @return {import('prosemirror-view').DecorationAttrs}
+ */
+export const defaultSelectionBuilder = user => {
+  return {
+    style: `background-color: ${user.color}70`,
+    class: `ProseMirror-yjs-selection`
+  }
+}
+
 const rxValidColor = /^#[0-9a-fA-F]{6}$/
 
 /**
@@ -32,7 +45,7 @@ const rxValidColor = /^#[0-9a-fA-F]{6}$/
  * @param {Awareness} awareness
  * @return {any} DecorationSet
  */
-export const createDecorations = (state, awareness, createCursor) => {
+export const createDecorations = (state, awareness, createCursor, createSelection) => {
   const ystate = ySyncPluginKey.getState(state)
   const y = ystate.doc
   const decorations = []
@@ -64,7 +77,7 @@ export const createDecorations = (state, awareness, createCursor) => {
         decorations.push(Decoration.widget(head, () => createCursor(user), { key: clientId + '', side: 10 }))
         const from = math.min(anchor, head)
         const to = math.max(anchor, head)
-        decorations.push(Decoration.inline(from, to, { style: `background-color: ${user.color}70` }, { inclusiveEnd: true, inclusiveStart: false }))
+        decorations.push(Decoration.inline(from, to, createSelection(user), { inclusiveEnd: true, inclusiveStart: false }))
       }
     }
   })
@@ -79,21 +92,22 @@ export const createDecorations = (state, awareness, createCursor) => {
  * @param {Awareness} awareness
  * @param {object} [opts]
  * @param {function(any):HTMLElement} [opts.cursorBuilder]
+ * @param {function(any):import('prosemirror-view').DecorationAttrs} [opts.selectionBuilder]
  * @param {function(any):any} [opts.getSelection]
  * @param {string} [cursorStateField] By default all editor bindings use the awareness 'cursor' field to propagate cursor information.
  * @return {any}
  */
-export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder, getSelection = state => state.selection } = {}, cursorStateField = 'cursor') => new Plugin({
+export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder, selectionBuilder = defaultSelectionBuilder, getSelection = state => state.selection } = {}, cursorStateField = 'cursor') => new Plugin({
   key: yCursorPluginKey,
   state: {
     init (_, state) {
-      return createDecorations(state, awareness, cursorBuilder)
+      return createDecorations(state, awareness, cursorBuilder, selectionBuilder)
     },
     apply (tr, prevState, oldState, newState) {
       const ystate = ySyncPluginKey.getState(newState)
       const yCursorState = tr.getMeta(yCursorPluginKey)
       if ((ystate && ystate.isChangeOrigin) || (yCursorState && yCursorState.awarenessUpdated)) {
-        return createDecorations(newState, awareness, cursorBuilder)
+        return createDecorations(newState, awareness, cursorBuilder, selectionBuilder)
       }
       return prevState.map(tr.mapping, tr.doc)
     }
