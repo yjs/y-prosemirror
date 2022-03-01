@@ -12,7 +12,7 @@ import * as math from 'lib0/math'
  * Default generator for a cursor element
  *
  * @param {any} user user data
- * @return HTMLElement
+ * @return {HTMLElement}
  */
 export const defaultCursorBuilder = user => {
   const cursor = document.createElement('span')
@@ -80,7 +80,7 @@ export const createDecorations = (state, awareness, createCursor) => {
  * @param {object} [opts]
  * @param {function(any):HTMLElement} [opts.cursorBuilder]
  * @param {function(any):any} [opts.getSelection]
- * @param {string} [opts.cursorStateField] By default all editor bindings use the awareness 'cursor' field to propagate cursor information.
+ * @param {string} [cursorStateField] By default all editor bindings use the awareness 'cursor' field to propagate cursor information.
  * @return {any}
  */
 export const yCursorPlugin = (awareness, { cursorBuilder = defaultCursorBuilder, getSelection = state => state.selection } = {}, cursorStateField = 'cursor') => new Plugin({
