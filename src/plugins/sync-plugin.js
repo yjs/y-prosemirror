@@ -112,6 +112,9 @@ export const ySyncPlugin = (yXmlFragment, { colors = defaultColors, colorMapping
           if (change !== undefined && (change.snapshot != null || change.prevSnapshot != null)) {
             // snapshot changed, rerender next
             setTimeout(() => {
+              if (pluginState.binding == null || pluginState.binding.isDestroyed) {
+                return
+              }
               if (change.restore == null) {
                 pluginState.binding._renderSnapshot(change.snapshot, change.prevSnapshot, pluginState)
               } else {
@@ -192,6 +195,7 @@ export class ProsemirrorBinding {
     this.type = yXmlFragment
     this.prosemirrorView = prosemirrorView
     this.mux = createMutex()
+    this.isDestroyed = false
     /**
      * @type {ProsemirrorMapping}
      */
@@ -385,6 +389,7 @@ export class ProsemirrorBinding {
   }
 
   destroy () {
+    this.isDestroyed = true
     this.type.unobserveDeep(this._observeFunction)
     this.doc.off('beforeAllTransactions', this.beforeAllTransactions)
     this.doc.off('afterAllTransactions', this.afterAllTransactions)

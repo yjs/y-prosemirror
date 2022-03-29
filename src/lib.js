@@ -1,4 +1,5 @@
-import { updateYFragment} from './plugins/sync-plugin.js' // eslint-disable-line
+import { updateYFragment } from './plugins/sync-plugin.js' // eslint-disable-line
+import { ySyncPluginKey } from './plugins/keys.js'
 import * as Y from 'yjs'
 import { EditorView } from 'prosemirror-view' // eslint-disable-line
 import { Node, Schema } from 'prosemirror-model' // eslint-disable-line
@@ -24,10 +25,14 @@ const updateMetas = () => {
   viewsToUpdate = null
   ups.forEach((metas, view) => {
     const tr = view.state.tr
-    metas.forEach((val, key) => {
-      tr.setMeta(key, val)
-    })
-    view.dispatch(tr)
+    const syncState = ySyncPluginKey.getState(view.state)
+    console.log('testing what I wanted to test. lol', syncState)
+    if (syncState.binding && !syncState.binding.isDestroyed) {
+      metas.forEach((val, key) => {
+        tr.setMeta(key, val)
+      })
+      view.dispatch(tr)
+    }
   })
 }
 
