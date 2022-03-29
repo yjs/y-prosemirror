@@ -16,6 +16,7 @@ import { absolutePositionToRelativePosition, relativePositionToAbsolutePosition 
 import * as random from 'lib0/random'
 import * as environment from 'lib0/environment'
 import * as dom from 'lib0/dom'
+import * as eventloop from 'lib0/eventloop'
 
 /**
  * @param {Y.Item} item
@@ -111,7 +112,7 @@ export const ySyncPlugin = (yXmlFragment, { colors = defaultColors, colorMapping
         if (pluginState.binding !== null) {
           if (change !== undefined && (change.snapshot != null || change.prevSnapshot != null)) {
             // snapshot changed, rerender next
-            setTimeout(() => {
+            eventloop.timeout(0, () => {
               if (pluginState.binding == null || pluginState.binding.isDestroyed) {
                 return
               }
@@ -125,7 +126,7 @@ export const ySyncPlugin = (yXmlFragment, { colors = defaultColors, colorMapping
                 delete pluginState.prevSnapshot
                 pluginState.binding._prosemirrorChanged(pluginState.binding.prosemirrorView.state.doc)
               }
-            }, 0)
+            })
           }
         }
         return pluginState
@@ -137,10 +138,10 @@ export const ySyncPlugin = (yXmlFragment, { colors = defaultColors, colorMapping
         clearTimeout(rerenderTimeoutId)
       }
       // Make sure this is called in a separate context
-      rerenderTimeoutId = setTimeout(() => {
+      rerenderTimeoutId = eventloop.timeout(0, () => {
         binding._forceRerender()
         view.dispatch(view.state.tr.setMeta(ySyncPluginKey, { binding }))
-      }, 0)
+      })
       return {
         update: () => {
           const pluginState = plugin.getState(view.state)
@@ -239,9 +240,9 @@ export class ProsemirrorBinding {
     if (!this.prosemirrorView.hasFocus()) return false
     if (environment.isBrowser && this._domSelectionInView === null) {
       // Calculate the domSelectionInView and clear by next tick after all events are finished
-      setTimeout(() => {
+      eventloop.timeout(0, () => {
         this._domSelectionInView = null
-      }, 0)
+      })
       this._domSelectionInView = this._isDomSelectionInView()
     }
     return this._domSelectionInView
