@@ -25,7 +25,7 @@ export const isVisible = (item, snapshot) => snapshot === undefined ? !item.dele
 
 /**
  * Either a node if type is YXmlElement or an Array of text nodes if YXmlText
- * @typedef {Map<Y.AbstractType, PModel.Node | Array<PModel.Node>>} ProsemirrorMapping
+ * @typedef {Map<Y.AbstractType<any>, PModel.Node | Array<PModel.Node>>} ProsemirrorMapping
  */
 
 /**
@@ -344,7 +344,7 @@ export class ProsemirrorBinding {
   }
 
   /**
-   * @param {Array<Y.YEvent>} events
+   * @param {Array<Y.YEvent<any>>} events
    * @param {Y.Transaction} transaction
    */
   _typeChanged (events, transaction) {
@@ -357,7 +357,7 @@ export class ProsemirrorBinding {
     this.mux(() => {
       /**
        * @param {any} _
-       * @param {Y.AbstractType} type
+       * @param {Y.AbstractType<any>} type
        */
       const delType = (_, type) => this.mapping.delete(type)
       Y.iterateDeletedStructs(transaction, transaction.deleteSet, struct => struct.constructor === Y.Item && this.mapping.delete(/** @type {Y.ContentType} */ (/** @type {Y.Item} */ (struct).content).type))
