@@ -201,14 +201,15 @@ export const testRepeatGenerateProsemirrorChanges70 = tc => {
 
 /**
  * @param {t.TestCase} tc
- */
+ *
 export const testRepeatGenerateProsemirrorChanges100 = tc => {
   checkResult(applyRandomTests(tc, pmChanges, 100, createNewProsemirrorView))
 }
 
 /**
  * @param {t.TestCase} tc
- */
+ *
 export const testRepeatGenerateProsemirrorChanges300 = tc => {
   checkResult(applyRandomTests(tc, pmChanges, 300, createNewProsemirrorView))
 }
+*/
