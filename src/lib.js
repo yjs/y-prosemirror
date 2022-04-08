@@ -26,7 +26,7 @@ const updateMetas = () => {
   ups.forEach((metas, view) => {
     const tr = view.state.tr
     const syncState = ySyncPluginKey.getState(view.state)
-    if (syncState.binding && !syncState.binding.isDestroyed) {
+    if (syncState && syncState.binding && !syncState.binding.isDestroyed) {
       metas.forEach((val, key) => {
         tr.setMeta(key, val)
       })
