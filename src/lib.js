@@ -200,16 +200,17 @@ export const relativePositionToAbsolutePosition = (y, documentType, relPos, mapp
  *
  * @param {Node} doc
  * @param {string} xmlFragment
+ * @param {ProsemirrorMapping} mapping
  * @return {Y.Doc}
  */
-export function prosemirrorToYDoc (doc, xmlFragment = 'prosemirror') {
+export function prosemirrorToYDoc (doc, xmlFragment = 'prosemirror', mapping = new Map()) {
   const ydoc = new Y.Doc()
   const type = /** @type {Y.XmlFragment} */ (ydoc.get(xmlFragment, Y.XmlFragment))
   if (!type.doc) {
     return ydoc
   }
 
-  updateYFragment(type.doc, type, doc, new Map())
+  updateYFragment(type.doc, type, doc, mapping)
   return type.doc
 }
 
@@ -223,11 +224,12 @@ export function prosemirrorToYDoc (doc, xmlFragment = 'prosemirror') {
  * @param {Schema} schema
  * @param {any} state
  * @param {string} xmlFragment
+ * @param {ProsemirrorMapping} mapping
  * @return {Y.Doc}
  */
-export function prosemirrorJSONToYDoc (schema, state, xmlFragment = 'prosemirror') {
+export function prosemirrorJSONToYDoc (schema, state, xmlFragment = 'prosemirror', mapping = new Map()) {
   const doc = Node.fromJSON(schema, state)
-  return prosemirrorToYDoc(doc, xmlFragment)
+  return prosemirrorToYDoc(doc, xmlFragment, mapping)
 }
 
 /**
