@@ -253,8 +253,20 @@ export function yDocToProsemirrorJSON (
   ydoc,
   xmlFragment = 'prosemirror'
 ) {
-  const items = ydoc.getXmlFragment(xmlFragment).toArray()
+  const yXmlFragment = ydoc.getXmlFragment(xmlFragment)
+  return {
+    type: 'doc',
+    content: yXmlFragmentToProsemirrorJSON(yXmlFragment)
+  }
+}
 
+/**
+ * Utility method to convert a Y.Doc to Prosemirror compatible JSON.
+ *
+ * @param {Y.XMLFragment} yXmlFragment
+ * @return {Record<string, any>}
+ */
+export function yXmlFragmentToProsemirrorJSON (yXmlFragment) {
   function serialize (item) {
     /**
      * @type {Object} NodeObject
@@ -308,8 +320,5 @@ export function yDocToProsemirrorJSON (
     return response
   }
 
-  return {
-    type: 'doc',
-    content: items.map(serialize)
-  }
+  return yXmlFragment.toArray().map(serialize)
 }
