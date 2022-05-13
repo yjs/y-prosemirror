@@ -59,6 +59,19 @@ export const testEmptyNotSync = tc => {
   t.compareStrings(type.toString(), '<custom checked="true"></custom><paragraph></paragraph>')
 }
 
+/**
+ * @param {t.TestCase} tc
+ */
+export const testEmptyParagraph = tc => {
+  const ydoc = new Y.Doc()
+  const view = createNewProsemirrorView(ydoc)
+  view.dispatch(view.state.tr.insert(0, /** @type {any} */ (schema.node('paragraph', undefined, schema.text('123')))))
+  const yxml = ydoc.get('prosemirror')
+  t.assert(yxml.length === 2 && yxml.get(0).length === 1, 'contains one paragraph containing a ytext')
+  view.dispatch(view.state.tr.delete(1, 4)) // delete characters 123
+  t.assert(yxml.length === 2 && yxml.get(0).length === 1, 'doesn\'t delete the ytext')
+}
+
 const createNewComplexProsemirrorView = y => {
   const view = new EditorView(null, {
     // @ts-ignore

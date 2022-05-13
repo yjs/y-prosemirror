@@ -826,7 +826,11 @@ export const updateYFragment = (y, yDomFragment, pNode, mapping) => {
       }
     }
     const yDelLen = yChildCnt - left - right
-    if (yDelLen > 0) {
+    if (yChildCnt === 1 && pChildCnt === 0 && yChildren[0] instanceof Y.XmlText) {
+      // Edge case handling https://github.com/yjs/y-prosemirror/issues/108
+      // Only delete the content of the Y.Text to retain remote changes on the same Y.Text object
+      yChildren[0].delete(0, yChildren[0].length)
+    } else if (yDelLen > 0) {
       yDomFragment.delete(left, yDelLen)
     }
     if (left + right < pChildCnt) {
