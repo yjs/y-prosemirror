@@ -40,7 +40,7 @@ export const isVisible = (item, snapshot) => snapshot === undefined ? !item.dele
  * @property {Array<ColorDef>} [YSyncOpts.colors]
  * @property {Map<string,ColorDef>} [YSyncOpts.colorMapping]
  * @property {Y.PermanentUserData|null} [YSyncOpts.permanentUserData]
- * @property {() => void} [YSyncOpts.onInitialApply]
+ * @property {function} [YSyncOpts.onFirstRender] Fired when the content from Yjs is initially rendered to ProseMirror
  */
 
 /**
@@ -75,7 +75,12 @@ const getUserColor = (colorMapping, colors, user) => {
  * @param {YSyncOpts} opts
  * @return {any} Returns a prosemirror plugin that binds to this type
  */
-export const ySyncPlugin = (yXmlFragment, { colors = defaultColors, colorMapping = new Map(), permanentUserData = null, onInitialApply = () => {} } = {}) => {
+export const ySyncPlugin = (yXmlFragment, {
+  colors = defaultColors,
+  colorMapping = new Map(),
+  permanentUserData = null,
+  onFirstRender = () => {}
+} = {}) => {
   let changedInitialContent = false
   let rerenderTimeoutId
   const plugin = new Plugin({
@@ -142,7 +147,7 @@ export const ySyncPlugin = (yXmlFragment, { colors = defaultColors, colorMapping
       rerenderTimeoutId = eventloop.timeout(0, () => {
         binding._forceRerender()
         view.dispatch(view.state.tr.setMeta(ySyncPluginKey, { binding }))
-        onInitialApply()
+        onFirstRender()
       })
       return {
         update: () => {
