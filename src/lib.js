@@ -209,8 +209,30 @@ export function prosemirrorToYDoc (doc, xmlFragment = 'prosemirror') {
     return ydoc
   }
 
-  updateYFragment(type.doc, type, doc, new Map())
+  prosemirrorToYXmlFragment(doc, type)
   return type.doc
+}
+
+/**
+ * Utility method to update an empty Y.XmlFragment with content from a Prosemirror Doc Node.
+ *
+ * This can be used when importing existing content to Y.Doc for the first time,
+ * note that this should not be used to rehydrate a Y.Doc from a database once
+ * collaboration has begun as all history will be lost
+ *
+ * Note: The Y.XmlFragment does not need to be part of a Y.Doc document at the time that this
+ * method is called, but it must be added before any other operations are performed on it.
+ *
+ * @param {Node} doc prosemirror document.
+ * @param {Y.XmlFragment} [xmlFragment] If supplied, an xml fragment to be
+ *   populated from the prosemirror state; otherwise a new XmlFragment will be created.
+ * @return {Y.XmlFragment}
+ */
+export function prosemirrorToYXmlFragment (doc, xmlFragment) {
+  const type = xmlFragment || new Y.XmlFragment()
+  const ydoc = type.doc ? type.doc : { transact: (transaction) => transaction(undefined) }
+  updateYFragment(ydoc, type, doc, new Map())
+  return type
 }
 
 /**
@@ -231,6 +253,24 @@ export function prosemirrorJSONToYDoc (schema, state, xmlFragment = 'prosemirror
 }
 
 /**
+ * Utility method to convert Prosemirror compatible JSON to a Y.XmlFragment
+ *
+ * This can be used when importing existing content to Y.Doc for the first time,
+ * note that this should not be used to rehydrate a Y.Doc from a database once
+ * collaboration has begun as all history will be lost
+ *
+ * @param {Schema} schema
+ * @param {any} state
+ * @param {Y.XmlFragment} [xmlFragment] If supplied, an xml fragment to be
+ *   populated from the prosemirror state; otherwise a new XmlFragment will be created.
+ * @return {Y.XmlFragment}
+ */
+export function prosemirrorJSONToYXmlFragment (schema, state, xmlFragment) {
+  const doc = Node.fromJSON(schema, state)
+  return prosemirrorToYXmlFragment(doc, xmlFragment)
+}
+
+/**
  * Utility method to convert a Y.Doc to a Prosemirror Doc node.
  *
  * @param {Schema} schema
@@ -239,6 +279,18 @@ export function prosemirrorJSONToYDoc (schema, state, xmlFragment = 'prosemirror
  */
 export function yDocToProsemirror (schema, ydoc) {
   const state = yDocToProsemirrorJSON(ydoc)
+  return Node.fromJSON(schema, state)
+}
+
+/**
+ * Utility method to convert a Y.XmlFragment to a Prosemirror Doc node.
+ *
+ * @param {Schema} schema
+ * @param {Y.XmlFragment} xmlFragment
+ * @return {Node}
+ */
+export function yXmlFragmentToProsemirror (schema, xmlFragment) {
+  const state = yXmlFragmentToProsemirrorJSON(xmlFragment)
   return Node.fromJSON(schema, state)
 }
 
@@ -253,7 +305,17 @@ export function yDocToProsemirrorJSON (
   ydoc,
   xmlFragment = 'prosemirror'
 ) {
-  const items = ydoc.getXmlFragment(xmlFragment).toArray()
+  return yXmlFragmentToProsemirrorJSON(ydoc.getXmlFragment(xmlFragment))
+}
+
+/**
+ * Utility method to convert a Y.Doc to Prosemirror compatible JSON.
+ *
+ * @param {Y.XmlFragment} xmlFragment The fragment, which must be part of a Y.Doc.
+ * @return {Record<string, any>}
+ */
+export function yXmlFragmentToProsemirrorJSON (xmlFragment) {
+  const items = xmlFragment.toArray()
 
   function serialize (item) {
     /**

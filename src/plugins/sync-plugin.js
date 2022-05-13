@@ -712,7 +712,7 @@ const marksToAttributes = marks => {
 
 /**
  * @private
- * @param {Y.Doc} y
+ * @param {{transact: Function}} y
  * @param {Y.XmlFragment} yDomFragment
  * @param {any} pNode
  * @param {ProsemirrorMapping} mapping
