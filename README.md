@@ -179,6 +179,25 @@ ydoc.applyUpdate(update)
 const node = yDocToProsemirrorJSON(ydoc)
 ```
 
+### Undo/Redo
+
+The package exports `undo` and `redo` commands which can be used in place of
+[prosemirror-history](https://prosemirror.net/docs/ref/#history) by mapping the
+mod-Z/Y keys - see [ProseMirror](https://github.com/yjs/yjs-demos/blob/main/prosemirror/prosemirror.js#L29)
+and [Tiptap](https://github.com/ueberdosis/tiptap/blob/main/packages/extension-collaboration/src/collaboration.ts)
+examples.
+
+Undo and redo are be scoped to the local client, so one peer won't undo another's
+changes. See [Y.UndoManager](https://docs.yjs.dev/api/undo-manager) for more details.
+
+Just like prosemirror-history, you can set a transaction's `addToHistory` meta property
+to false to prevent that transaction from being rolled back by undo. This can be helpful for programmatic
+document changes that aren't initiated by the user.
+
+```js
+tr.setMeta("addToHistory", false);
+```
+
 ### License
 
 [The MIT License](./LICENSE) © Kevin Jahns
