@@ -6,7 +6,7 @@ import * as Y from 'yjs'
 // @ts-ignore
 import { applyRandomTests } from 'yjs/testHelper'
 
-import { ySyncPlugin, prosemirrorJSONToYDoc, yDocToProsemirrorJSON, prosemirrorJSONToYXmlFragment, yXmlFragmentToProsemirrorJSON } from '../src/y-prosemirror.js'
+import { ySyncPlugin, yUndoPlugin, undo, prosemirrorJSONToYDoc, yDocToProsemirrorJSON, prosemirrorJSONToYXmlFragment, yXmlFragmentToProsemirrorJSON } from '../src/y-prosemirror.js'
 import { EditorState, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import * as basicSchema from 'prosemirror-schema-basic'
@@ -72,27 +72,40 @@ export const testEmptyParagraph = tc => {
   t.assert(yxml.length === 2 && yxml.get(0).length === 1, 'doesn\'t delete the ytext')
 }
 
-const createNewComplexProsemirrorView = y => {
+/**
+ * @param {t.TestCase} tc
+ */
+export const testAddToHistory = tc => {
+  const ydoc = new Y.Doc()
+  const view = createNewProsemirrorViewWithUndoManager(ydoc)
+  view.dispatch(view.state.tr.insert(0, /** @type {any} */ (schema.node('paragraph', undefined, schema.text('123')))))
+  const yxml = ydoc.get('prosemirror')
+  t.assert(yxml.length === 2 && yxml.get(0).length === 1, 'contains inserted content')
+  undo(view.state)
+  t.assert(yxml.length === 0, 'insertion was undone')
+  // now insert content again, but with `'addToHistory': false`
+  view.dispatch(view.state.tr.insert(0, /** @type {any} */ (schema.node('paragraph', undefined, schema.text('123')))).setMeta('addToHistory', false))
+  t.assert(yxml.length === 2 && yxml.get(0).length === 1, 'contains inserted content')
+  undo(view.state)
+  t.assert(yxml.length === 2 && yxml.get(0).length === 1, 'insertion was *not* undone')
+}
+
+const createNewProsemirrorViewWithSchema = (y, schema, undoManager = false) => {
   const view = new EditorView(null, {
     // @ts-ignore
     state: EditorState.create({
-      schema: complexSchema,
-      plugins: [ySyncPlugin(y.get('prosemirror', Y.XmlFragment))]
+      schema,
+      plugins: [ySyncPlugin(y.get('prosemirror', Y.XmlFragment))].concat(undoManager ? [yUndoPlugin()] : [])
     })
   })
   return view
 }
 
-const createNewProsemirrorView = y => {
-  const view = new EditorView(null, {
-    // @ts-ignore
-    state: EditorState.create({
-      schema,
-      plugins: [ySyncPlugin(y.get('prosemirror', Y.XmlFragment))]
-    })
-  })
-  return view
-}
+const createNewComplexProsemirrorView = (y, undoManager = false) => createNewProsemirrorViewWithSchema(y, complexSchema, undoManager)
+
+const createNewProsemirrorView = y => createNewProsemirrorViewWithSchema(y, schema, false)
+
+const createNewProsemirrorViewWithUndoManager = y => createNewProsemirrorViewWithSchema(y, schema, true)
 
 let charCounter = 0
 

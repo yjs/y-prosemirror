@@ -100,6 +100,7 @@ export const ySyncPlugin = (yXmlFragment, {
           snapshot: null,
           prevSnapshot: null,
           isChangeOrigin: false,
+          addToHistory: true,
           colors,
           colorMapping,
           permanentUserData
@@ -113,6 +114,7 @@ export const ySyncPlugin = (yXmlFragment, {
             pluginState[key] = change[key]
           }
         }
+        pluginState.addToHistory = tr.getMeta('addToHistory') !== false
         // always set isChangeOrigin. If undefined, this is not change origin.
         pluginState.isChangeOrigin = change !== undefined && !!change.isChangeOrigin
         if (pluginState.binding !== null) {
@@ -155,7 +157,10 @@ export const ySyncPlugin = (yXmlFragment, {
           if (pluginState.snapshot == null && pluginState.prevSnapshot == null) {
             if (changedInitialContent || view.state.doc.content.findDiffStart(view.state.doc.type.createAndFill().content) !== null) {
               changedInitialContent = true
-              binding._prosemirrorChanged(view.state.doc)
+              pluginState.doc.transact(tr => {
+                tr.meta.set('addToHistory', pluginState.addToHistory)
+                binding._prosemirrorChanged(view.state.doc)
+              }, ySyncPluginKey)
             }
           }
         },

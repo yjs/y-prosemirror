@@ -55,7 +55,7 @@
     "lib0": "^0.2.42"
   },
   "peerDependencies": {
-    "yjs": "^13.3.2",
+    "yjs": "^13.5.38",
     "y-protocols": "^1.0.1",
     "prosemirror-model": "^1.7.1",
     "prosemirror-state": "^1.2.3",
@@ -78,6 +78,6 @@
     "typescript": "^3.9.10",
     "y-protocols": "^1.0.5",
     "y-webrtc": "^10.2.0",
-    "yjs": "^13.5.32"
+    "yjs": "^13.5.38"
   }
 }
