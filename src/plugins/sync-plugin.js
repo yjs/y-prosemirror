@@ -82,7 +82,7 @@ export const ySyncPlugin = (yXmlFragment, {
   onFirstRender = () => {}
 } = {}) => {
   let changedInitialContent = false
-  let rerenderTimeoutId
+  let rerenderTimeout
   const plugin = new Plugin({
     props: {
       editable: (state) => {
@@ -140,11 +140,11 @@ export const ySyncPlugin = (yXmlFragment, {
     },
     view: view => {
       const binding = new ProsemirrorBinding(yXmlFragment, view)
-      if (rerenderTimeoutId != null) {
-        clearTimeout(rerenderTimeoutId)
+      if (rerenderTimeout != null) {
+        rerenderTimeout.destroy()
       }
       // Make sure this is called in a separate context
-      rerenderTimeoutId = eventloop.timeout(0, () => {
+      rerenderTimeout = eventloop.timeout(0, () => {
         binding._forceRerender()
         view.dispatch(view.state.tr.setMeta(ySyncPluginKey, { binding }))
         onFirstRender()
@@ -160,7 +160,7 @@ export const ySyncPlugin = (yXmlFragment, {
           }
         },
         destroy: () => {
-          clearTimeout(rerenderTimeoutId)
+          rerenderTimeout.destroy()
           binding.destroy()
         }
       }
