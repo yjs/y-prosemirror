@@ -6,7 +6,7 @@ import * as Y from 'yjs'
 // @ts-ignore
 import { applyRandomTests } from 'yjs/testHelper'
 
-import { ySyncPlugin, yUndoPlugin, undo, prosemirrorJSONToYDoc, yDocToProsemirrorJSON, prosemirrorJSONToYXmlFragment, yXmlFragmentToProsemirrorJSON } from '../src/y-prosemirror.js'
+import { ySyncPlugin, yUndoPlugin, undo, redo, prosemirrorJSONToYDoc, yDocToProsemirrorJSON, prosemirrorJSONToYXmlFragment, yXmlFragmentToProsemirrorJSON } from '../src/y-prosemirror.js'
 import { EditorState, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import * as basicSchema from 'prosemirror-schema-basic'
@@ -72,14 +72,15 @@ export const testEmptyParagraph = tc => {
   t.assert(yxml.length === 2 && yxml.get(0).length === 1, 'doesn\'t delete the ytext')
 }
 
-/**
- * @param {t.TestCase} tc
- */
 export const testAddToHistory = tc => {
   const ydoc = new Y.Doc()
   const view = createNewProsemirrorViewWithUndoManager(ydoc)
   view.dispatch(view.state.tr.insert(0, /** @type {any} */ (schema.node('paragraph', undefined, schema.text('123')))))
   const yxml = ydoc.get('prosemirror')
+  t.assert(yxml.length === 2 && yxml.get(0).length === 1, 'contains inserted content')
+  undo(view.state)
+  t.assert(yxml.length === 0, 'insertion was undone')
+  redo(view.state)
   t.assert(yxml.length === 2 && yxml.get(0).length === 1, 'contains inserted content')
   undo(view.state)
   t.assert(yxml.length === 0, 'insertion was undone')

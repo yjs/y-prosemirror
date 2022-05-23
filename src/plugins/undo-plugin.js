@@ -38,7 +38,7 @@ export const yUndoPlugin = ({ protectedNodes = defaultProtectedNodes, trackedOri
       const _undoManager = undoManager || new UndoManager(ystate.type, {
         trackedOrigins: new Set([ySyncPluginKey].concat(trackedOrigins)),
         deleteFilter: (item) => defaultDeleteFilter(item, protectedNodes),
-        captureTransaction: tr => !!tr.meta.get('addToHistory')
+        captureTransaction: tr => tr.meta.get('addToHistory') !== false
       })
       return {
         undoManager: _undoManager,
