@@ -91,6 +91,25 @@ export const testAddToHistory = tc => {
   t.assert(yxml.length === 2 && yxml.get(0).length === 1, 'insertion was *not* undone')
 }
 
+export const testAddToHistoryIgnore = tc => {
+  const ydoc = new Y.Doc()
+  const view = createNewProsemirrorViewWithUndoManager(ydoc)
+  // perform two changes that are tracked by um - supposed to be merged into a single undo-manager item
+  view.dispatch(view.state.tr.insert(0, /** @type {any} */ (schema.node('paragraph', undefined, schema.text('123')))))
+  view.dispatch(view.state.tr.insert(0, /** @type {any} */ (schema.node('paragraph', undefined, schema.text('456')))))
+  const yxml = ydoc.get('prosemirror')
+  t.assert(yxml.length === 3 && yxml.get(0).length === 1, 'contains inserted content (1)')
+  view.dispatch(view.state.tr.insert(0, /** @type {any} */ (schema.node('paragraph', undefined, schema.text('abc')))).setMeta('addToHistory', false))
+  t.assert(yxml.length === 4 && yxml.get(0).length === 1, 'contains inserted content (2)')
+  view.dispatch(view.state.tr.insert(0, /** @type {any} */ (schema.node('paragraph', undefined, schema.text('xyz')))))
+  t.assert(yxml.length === 5 && yxml.get(0).length === 1, 'contains inserted content (3)')
+  undo(view.state)
+  t.assert(yxml.length === 4, 'insertion (3) was undone')
+  undo(view.state)
+  console.log(yxml.toString())
+  t.assert(yxml.length === 1 && yxml.get(0).toString() === '<paragraph>abc</paragraph>', 'insertion (1) was undone')
+}
+
 const createNewProsemirrorViewWithSchema = (y, schema, undoManager = false) => {
   const view = new EditorView(null, {
     // @ts-ignore

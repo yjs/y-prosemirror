@@ -10,7 +10,7 @@ import * as object from 'lib0/object'
 import * as set from 'lib0/set'
 import { simpleDiff } from 'lib0/diff'
 import * as error from 'lib0/error'
-import { ySyncPluginKey } from './keys.js'
+import { ySyncPluginKey, yUndoPluginKey } from './keys.js'
 import * as Y from 'yjs'
 import { absolutePositionToRelativePosition, relativePositionToAbsolutePosition } from '../lib.js'
 import * as random from 'lib0/random'
@@ -157,6 +157,16 @@ export const ySyncPlugin = (yXmlFragment, {
           if (pluginState.snapshot == null && pluginState.prevSnapshot == null) {
             if (changedInitialContent || view.state.doc.content.findDiffStart(view.state.doc.type.createAndFill().content) !== null) {
               changedInitialContent = true
+              if (pluginState.addToHistory === false && !pluginState.isChangeOrigin) {
+                const yUndoPluginState = yUndoPluginKey.getState(view.state)
+                /**
+                 * @type {Y.UndoManager}
+                 */
+                const um = yUndoPluginState && yUndoPluginState.undoManager
+                if (um) {
+                  um.stopCapturing()
+                }
+              }
               pluginState.doc.transact(tr => {
                 tr.meta.set('addToHistory', pluginState.addToHistory)
                 binding._prosemirrorChanged(view.state.doc)
@@ -394,7 +404,7 @@ export class ProsemirrorBinding {
 
   _prosemirrorChanged (doc) {
     this.mux(() => {
-      this.doc.transact(() => {
+      this.doc.transact(tr => {
         updateYFragment(this.doc, this.type, doc, this.mapping)
         this.beforeTransactionSelection = getRelativeSelection(this, this.prosemirrorView.state)
       }, ySyncPluginKey)
