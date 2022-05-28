@@ -156,6 +156,10 @@ export const ySyncPlugin = (yXmlFragment, {
           const pluginState = plugin.getState(view.state)
           if (pluginState.snapshot == null && pluginState.prevSnapshot == null) {
             if (changedInitialContent || view.state.doc.content.findDiffStart(view.state.doc.type.createAndFill().content) !== null) {
+              // if the dom is composing, don't sync
+              if (pluginState.binding && pluginState.binding.prosemirrorView.composing) {
+                return
+              }
               changedInitialContent = true
               if (pluginState.addToHistory === false && !pluginState.isChangeOrigin) {
                 const yUndoPluginState = yUndoPluginKey.getState(view.state)
@@ -217,6 +221,13 @@ export class ProsemirrorBinding {
   constructor (yXmlFragment, prosemirrorView) {
     this.type = yXmlFragment
     this.prosemirrorView = prosemirrorView
+
+    // When composition finished, no transaction will be committed.
+    // So we need to hook the event to commit the changes.
+    prosemirrorView.dom.addEventListener('compositionend', () => {
+      this._prosemirrorChanged(prosemirrorView.state.doc)
+    })
+
     this.mux = createMutex()
     this.isDestroyed = false
     /**
