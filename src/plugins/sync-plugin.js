@@ -194,7 +194,7 @@ const restoreRelativeSelection = (tr, relSel, binding) => {
     const anchor = relativePositionToAbsolutePosition(binding.doc, binding.type, relSel.anchor, binding.mapping)
     const head = relativePositionToAbsolutePosition(binding.doc, binding.type, relSel.head, binding.mapping)
     if (anchor !== null && head !== null) {
-      const selection = relSel.type === 'NodeSelection'
+      const selection = relSel.type === 'node'
         ? NodeSelection.create(tr.doc, Math.min(anchor, head))
         : TextSelection.create(tr.doc, anchor, head)
       tr = tr.setSelection(selection)
@@ -206,9 +206,9 @@ export const getRelativeSelection = (pmbinding, state) => ({
   anchor: absolutePositionToRelativePosition(state.selection.anchor, pmbinding.type, pmbinding.mapping),
   head: absolutePositionToRelativePosition(state.selection.head, pmbinding.type, pmbinding.mapping),
   /**
-   * @type {string} 'NodeSelection' | 'TextSelection' - The type of the selection
+   * @type {string} The Prosemirror jsonID of the selection - https://prosemirror.net/docs/ref/#state.Selection^jsonID
    */
-  type: state.selection instanceof NodeSelection ? 'NodeSelection' : 'TextSelection'
+  type: state.selection.jsonID
 })
 
 /**
