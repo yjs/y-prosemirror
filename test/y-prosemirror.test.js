@@ -7,7 +7,7 @@ import * as Y from 'yjs'
 import { applyRandomTests } from 'yjs/testHelper'
 
 import { ySyncPlugin, yUndoPlugin, undo, redo, prosemirrorJSONToYDoc, yDocToProsemirrorJSON, prosemirrorJSONToYXmlFragment, yXmlFragmentToProsemirrorJSON } from '../src/y-prosemirror.js'
-import { EditorState, TextSelection } from 'prosemirror-state'
+import { EditorState, NodeSelection, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import * as basicSchema from 'prosemirror-schema-basic'
 import { findWrapping } from 'prosemirror-transform'
@@ -70,6 +70,22 @@ export const testEmptyParagraph = tc => {
   t.assert(yxml.length === 2 && yxml.get(0).length === 1, 'contains one paragraph containing a ytext')
   view.dispatch(view.state.tr.delete(1, 4)) // delete characters 123
   t.assert(yxml.length === 2 && yxml.get(0).length === 1, 'doesn\'t delete the ytext')
+}
+
+/**
+ * @param {t.TestCase} tc
+ */
+export const testRestoreRelativePositionRetainsNodeSelection = tc => {
+  const ydoc = new Y.Doc()
+  const view = createNewProsemirrorView(ydoc)
+  view.dispatch(view.state.tr.insert(0, /** @type {any} */ (schema.node('image', { src: '/cool-img' }))))
+  view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, 1)))
+  t.assert(view.state.selection instanceof NodeSelection, 'node selection exists')
+
+  view.dispatch(view.state.tr.insert(0, /** @type {any} */ (schema.node('paragraph', undefined, schema.text('123')))))
+  const yxml = ydoc.get('prosemirror')
+  t.assert(yxml.length === 3 && yxml.get(0).length === 1, 'contains one paragraph and one image')
+  t.assert(view.state.selection instanceof NodeSelection, 'node selection is retained')
 }
 
 export const testAddToHistory = tc => {
