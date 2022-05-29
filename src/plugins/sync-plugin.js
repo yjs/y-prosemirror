@@ -194,7 +194,7 @@ const restoreRelativeSelection = (tr, relSel, binding) => {
     const anchor = relativePositionToAbsolutePosition(binding.doc, binding.type, relSel.anchor, binding.mapping)
     const head = relativePositionToAbsolutePosition(binding.doc, binding.type, relSel.head, binding.mapping)
     if (anchor !== null && head !== null) {
-      const selection = relSel.isNodeSelection
+      const selection = relSel.type === 'NodeSelection'
         ? NodeSelection.create(tr.doc, Math.min(anchor, head))
         : TextSelection.create(tr.doc, anchor, head)
       tr = tr.setSelection(selection)
@@ -205,7 +205,10 @@ const restoreRelativeSelection = (tr, relSel, binding) => {
 export const getRelativeSelection = (pmbinding, state) => ({
   anchor: absolutePositionToRelativePosition(state.selection.anchor, pmbinding.type, pmbinding.mapping),
   head: absolutePositionToRelativePosition(state.selection.head, pmbinding.type, pmbinding.mapping),
-  isNodeSelection: state.selection instanceof NodeSelection,
+  /**
+   * @type {string} 'NodeSelection' | 'TextSelection' - The type of the selection
+   */
+  type: state.selection instanceof NodeSelection ? 'NodeSelection' : 'TextSelection'
 })
 
 /**
