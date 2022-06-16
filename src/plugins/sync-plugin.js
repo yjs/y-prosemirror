@@ -628,7 +628,8 @@ const countYTextMarks = (yattrs) => {
  */
 const equalYTextPText = (ytext, ptexts) => {
   const delta = ytext.toDelta()
-  return delta.length === ptexts.length && delta.every((d, i) => d.insert === /** @type {any} */ (ptexts[i]).text && countYTextMarks(d.attributes || {}) === ptexts[i].marks.length && ptexts[i].marks.every(mark => containsEqualMark(d.attributes[mark.type.name] || {}, mark.attrs)))}
+  return delta.length === ptexts.length && delta.every((d, i) => d.insert === /** @type {any} */ (ptexts[i]).text && countYTextMarks(d.attributes || {}) === ptexts[i].marks.length && ptexts[i].marks.every(mark => containsEqualMark(d.attributes[mark.type.name] || {}, mark.attrs)))
+}
 
 /**
  * @param {Y.XmlElement|Y.XmlText|Y.XmlHook} ytype
