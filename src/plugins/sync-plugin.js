@@ -167,10 +167,10 @@ export const ySyncPlugin = (yXmlFragment, {
                   um.stopCapturing()
                 }
               }
-              pluginState.doc.transact(tr => {
-                tr.meta.set('addToHistory', pluginState.addToHistory)
-                binding._prosemirrorChanged(view.state.doc)
-              }, ySyncPluginKey)
+              // pluginState.doc.transact(tr => {
+              // tr.meta.set('addToHistory', pluginState.addToHistory)
+              binding._prosemirrorChanged(view.state.doc)
+              // }, ySyncPluginKey)
             }
           }
         },
