@@ -25666,7 +25666,7 @@
         let {anchor, head} = tr.selection;
 
         anchor = Math.min(anchor, fragment.size);
-        head = Math.min(anchor, fragment.size);
+        head = Math.min(head, fragment.size);
 
         // @ts-ignore
         tr.replace(0, this.prosemirrorView.state.doc.content.size, new Slice(fragment, 0, 0));
