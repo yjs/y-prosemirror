@@ -318,8 +318,21 @@ export class ProsemirrorBinding {
     this.mapping = new Map()
     this.mux(() => {
       const fragmentContent = this.type.toArray().map(t => createNodeFromYElement(/** @type {Y.XmlElement} */ (t), this.prosemirrorView.state.schema, this.mapping)).filter(n => n !== null)
+
+      const fragment = PModel.Fragment.from(fragmentContent)
+      const tr = this._tr
+
+      let {anchor, head} = tr.selection
+
+      anchor = Math.min(anchor, fragment.size)
+      head = Math.min(anchor, fragment.size)
+
       // @ts-ignore
-      const tr = this._tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(new PModel.Fragment(fragmentContent), 0, 0))
+      tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel.Slice(fragment, 0, 0))
+
+      // Restore selection
+      tr.setSelection(TextSelection.between(tr.doc.resolve(anchor), tr.doc.resolve(head)))
+
       this.prosemirrorView.dispatch(tr.setMeta(ySyncPluginKey, { isChangeOrigin: true }))
     })
   }
