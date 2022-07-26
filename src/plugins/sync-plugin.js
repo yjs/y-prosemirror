@@ -4,7 +4,7 @@
 
 import { createMutex } from 'lib0/mutex'
 import * as PModel from 'prosemirror-model'
-import { Plugin, TextSelection } from 'prosemirror-state' // eslint-disable-line
+import { Plugin, TextSelection, NodeSelection } from 'prosemirror-state' // eslint-disable-line
 import * as math from 'lib0/math'
 import * as object from 'lib0/object'
 import * as set from 'lib0/set'
@@ -194,7 +194,11 @@ const restoreRelativeSelection = (tr, relSel, binding) => {
     const anchor = relativePositionToAbsolutePosition(binding.doc, binding.type, relSel.anchor, binding.mapping)
     const head = relativePositionToAbsolutePosition(binding.doc, binding.type, relSel.head, binding.mapping)
     if (anchor !== null && head !== null) {
-      tr = tr.setSelection(TextSelection.create(tr.doc, anchor, head))
+      if (binding.prosemirrorView.state.selection instanceof NodeSelection) {
+        tr = tr.setSelection(NodeSelection.create(tr.doc, anchor))
+      } else {
+        tr = tr.setSelection(TextSelection.create(tr.doc, anchor, head))
+      }
     }
   }
 }
