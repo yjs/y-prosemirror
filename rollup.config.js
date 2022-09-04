@@ -24,7 +24,7 @@ export default [{
   }],
   external: id => /^(lib0|y-protocols|prosemirror|yjs)/.test(id)
 }, {
-  input: './test/index.js',
+  input: './tests/index.js',
   output: {
     name: 'test',
     file: 'dist/test.js',
@@ -53,7 +53,7 @@ export default [{
     commonjs()
   ]
 }, {
-  input: './test/index.node.js',
+  input: './tests/index.node.js',
   output: {
     name: 'test',
     file: 'dist/test.cjs',
