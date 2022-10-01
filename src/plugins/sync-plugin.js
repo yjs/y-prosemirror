@@ -100,6 +100,9 @@ export const ySyncPlugin = (yXmlFragment, {
     },
     key: ySyncPluginKey,
     state: {
+      /**
+       * @returns {any}
+       */
       init: (_initargs, _state) => {
         return {
           type: yXmlFragment,

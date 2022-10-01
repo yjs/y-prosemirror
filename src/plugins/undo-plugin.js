@@ -47,6 +47,9 @@ export const yUndoPlugin = ({ protectedNodes = defaultProtectedNodes, trackedOri
         hasRedoOps: _undoManager.redoStack.length > 0
       }
     },
+    /**
+     * @returns {any}
+     */
     apply: (tr, val, oldState, state) => {
       const binding = ySyncPluginKey.getState(state).binding
       const undoManager = val.undoManager
