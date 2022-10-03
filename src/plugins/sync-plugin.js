@@ -111,6 +111,7 @@ export const ySyncPlugin = (yXmlFragment, {
           snapshot: null,
           prevSnapshot: null,
           isChangeOrigin: false,
+          isUndoRedoOperation: false,
           addToHistory: true,
           colors,
           colorMapping,
@@ -129,6 +130,7 @@ export const ySyncPlugin = (yXmlFragment, {
         // always set isChangeOrigin. If undefined, this is not change origin.
         pluginState.isChangeOrigin = change !== undefined &&
           !!change.isChangeOrigin
+        pluginState.isUndoRedoOperation = change !== undefined && !!change.isChangeOrigin && !!change.isUndoRedoOperation
         if (pluginState.binding !== null) {
           if (
             change !== undefined &&
@@ -536,7 +538,7 @@ export class ProsemirrorBinding {
         new PModel.Slice(PModel.Fragment.from(fragmentContent), 0, 0)
       )
       restoreRelativeSelection(tr, this.beforeTransactionSelection, this)
-      tr = tr.setMeta(ySyncPluginKey, { isChangeOrigin: true })
+      tr = tr.setMeta(ySyncPluginKey, { isChangeOrigin: true, isUndoRedoOperation: transaction.origin instanceof Y.UndoManager })
       if (
         this.beforeTransactionSelection !== null && this._isLocalCursorInView()
       ) {
