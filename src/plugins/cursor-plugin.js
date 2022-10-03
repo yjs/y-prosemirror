@@ -127,7 +127,7 @@ export const createDecorations = (
  *
  * @public
  * @param {Awareness} awareness
- * @param {object} [opts]
+ * @param {object} opts
  * @param {function(any):HTMLElement} [opts.cursorBuilder]
  * @param {function(any):import('prosemirror-view').DecorationAttrs} [opts.selectionBuilder]
  * @param {function(any):any} [opts.getSelection]

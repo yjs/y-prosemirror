@@ -52,7 +52,8 @@
   },
   "homepage": "https://github.com/yjs/y-prosemirror#readme",
   "dependencies": {
-    "lib0": "^0.2.42"
+    "lib0": "^0.2.42",
+    "typescript": "^4.8.4"
   },
   "peerDependencies": {
     "prosemirror-model": "^1.7.1",
@@ -75,7 +76,6 @@
     "prosemirror-view": "^1.26.2",
     "rollup": "^2.59.0",
     "standard": "^17.0.0",
-    "typescript": "^3.9.10",
     "y-protocols": "^1.0.5",
     "y-webrtc": "^10.2.0",
     "yjs": "^13.5.38"

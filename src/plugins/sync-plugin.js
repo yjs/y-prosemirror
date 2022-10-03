@@ -207,7 +207,7 @@ export const ySyncPlugin = (yXmlFragment, {
                 }
               }
               binding.mux(() => {
-                pluginState.doc.transact((tr) => {
+                /** @type {Y.Doc} */ (pluginState.doc).transact((tr) => {
                   tr.meta.set('addToHistory', pluginState.addToHistory)
                   binding._prosemirrorChanged(view.state.doc)
                 }, ySyncPluginKey)
@@ -359,6 +359,10 @@ export class ProsemirrorBinding {
       bounding.top <= (window.innerHeight || documentElement.clientHeight || 0)
   }
 
+  /**
+   * @param {Y.Snapshot} snapshot
+   * @param {Y.Snapshot} prevSnapshot
+   */
   renderSnapshot (snapshot, prevSnapshot) {
     if (!prevSnapshot) {
       prevSnapshot = Y.createSnapshot(Y.createDeleteSet(), new Map())
@@ -543,7 +547,7 @@ export class ProsemirrorBinding {
   }
 
   _prosemirrorChanged (doc) {
-    this.doc.transact((tr) => {
+    this.doc.transact(() => {
       updateYFragment(this.doc, this.type, doc, this.mapping)
       this.beforeTransactionSelection = getRelativeSelection(
         this,
@@ -682,7 +686,7 @@ const createNodeFromYElement = (
  * @private
  * @param {Y.XmlText} text
  * @param {any} schema
- * @param {ProsemirrorMapping} mapping
+ * @param {ProsemirrorMapping} _mapping
  * @param {Y.Snapshot} [snapshot]
  * @param {Y.Snapshot} [prevSnapshot]
  * @param {function('removed' | 'added', Y.ID):any} [computeYChange]
@@ -691,7 +695,7 @@ const createNodeFromYElement = (
 const createTextNodesFromYText = (
   text,
   schema,
-  mapping,
+  _mapping,
   snapshot,
   prevSnapshot,
   computeYChange
