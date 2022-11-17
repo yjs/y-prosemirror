@@ -251,8 +251,14 @@ const restoreRelativeSelection = (tr, relSel, binding) => {
         }
       }
 
-      selection = selection || TextSelection.create(tr.doc, anchor, head)
-      tr = tr.setSelection(selection)
+      if (selection) {
+        tr.setSelection(selection)
+      } else {
+        const $anchor = tr.doc.resolve(anchor)
+        const $head = tr.doc.resolve(head)
+        const sel = TextSelection.between($anchor, $head)
+        tr.setSelection(sel)
+      }
     }
   }
 }
