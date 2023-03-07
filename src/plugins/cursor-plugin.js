@@ -190,8 +190,8 @@ export const yCursorPlugin = (
         if (ystate.binding == null) {
           return
         }
-        if (view.hasFocus()) {
-          const selection = getSelection(view.state)
+        const selection = getSelection(view.state)
+        if (selection) {
           /**
            * @type {Y.RelativePosition}
            */
