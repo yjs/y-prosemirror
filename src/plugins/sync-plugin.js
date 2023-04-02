@@ -515,12 +515,12 @@ export class ProsemirrorBinding {
       Y.iterateDeletedStructs(
         transaction,
         transaction.deleteSet,
-        (struct) =>
-          struct.constructor === Y.Item &&
-          this.mapping.delete(
-            /** @type {Y.ContentType} */ (/** @type {Y.Item} */ (struct)
-              .content).type
-          )
+        (struct) => {
+          if (struct.constructor === Y.Item) {
+            const type = /** @type {Y.ContentType} */ (/** @type {Y.Item} */ (struct).content).type
+            type && this.mapping.delete(type)
+          }
+        }
       )
       transaction.changed.forEach(delType)
       transaction.changedParentTypes.forEach(delType)
@@ -1096,6 +1096,7 @@ export const updateYFragment = (y, yDomFragment, pNode, mapping) => {
           )
           right += 1
         } else {
+          mapping.delete(yDomFragment.get(left))
           yDomFragment.delete(left, 1)
           yDomFragment.insert(left, [
             createTypeFromTextOrElementNode(leftP, mapping)
@@ -1108,10 +1109,12 @@ export const updateYFragment = (y, yDomFragment, pNode, mapping) => {
     if (
       yChildCnt === 1 && pChildCnt === 0 && yChildren[0] instanceof Y.XmlText
     ) {
+      mapping.delete(yChildren[0])
       // Edge case handling https://github.com/yjs/y-prosemirror/issues/108
       // Only delete the content of the Y.Text to retain remote changes on the same Y.Text object
       yChildren[0].delete(0, yChildren[0].length)
     } else if (yDelLen > 0) {
+      yDomFragment.slice(left, left + yDelLen).forEach(type => mapping.delete(type))
       yDomFragment.delete(left, yDelLen)
     }
     if (left + right < pChildCnt) {
