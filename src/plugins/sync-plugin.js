@@ -671,7 +671,19 @@ const createNodeFromYElement = (
           : { type: 'added' }
       }
     }
-    const node = schema.node(el.nodeName, attrs, children)
+    const nodeAttrs = {};
+    const nodeMarks = [];
+
+    for (const key in attrs) {
+      if (key.includes('yelement_mark_')) {
+        const markName = key.replace('yelement_mark_','');
+        let markValue = JSON.parse(attrs[key]);
+        nodeMarks.push(schema.mark(markName, markValue))
+      } else {
+        nodeAttrs[key] = attrs[key]
+      }
+    }
+    const node = schema.node(el.nodeName, nodeAttrs, children, nodeMarks);
     mapping.set(el, node)
     return node
   } catch (e) {
@@ -750,11 +762,15 @@ const createTypeFromTextNodes = (nodes, mapping) => {
  */
 const createTypeFromElementNode = (node, mapping) => {
   const type = new Y.XmlElement(node.type.name)
+  const nodeMarksAttr = nodeMarksToAttributes(node.marks);
   for (const key in node.attrs) {
     const val = node.attrs[key]
     if (val !== null && key !== 'ychange') {
       type.setAttribute(key, val)
     }
+  }
+  for (const key in nodeMarksAttr) {
+    type.setAttribute(key, nodeMarksAttr[key])
   }
   type.insert(
     0,
@@ -965,6 +981,17 @@ const marksToAttributes = (marks) => {
   return pattrs
 }
 
+const nodeMarksToAttributes = (marks) => {
+  const pattrs = {}
+  const prefix = 'yelement_mark_'
+  marks.forEach((mark) => {
+    if (mark.type.name !== 'ychange') {
+      pattrs[`${prefix}${mark.type.name}`] = JSON.stringify(mark.attrs || {})
+    }
+  })
+  return pattrs
+}
+
 /**
  * @private
  * @param {{transact: Function}} y
@@ -984,10 +1011,13 @@ export const updateYFragment = (y, yDomFragment, pNode, mapping) => {
   if (yDomFragment instanceof Y.XmlElement) {
     const yDomAttrs = yDomFragment.getAttributes()
     const pAttrs = pNode.attrs
-    for (const key in pAttrs) {
-      if (pAttrs[key] !== null) {
-        if (yDomAttrs[key] !== pAttrs[key] && key !== 'ychange') {
-          yDomFragment.setAttribute(key, pAttrs[key])
+    const pNodeMarksAttr = nodeMarksToAttributes(pNode.marks)
+    const attrs = { ...pAttrs, ...pNodeMarksAttr }
+
+    for (const key in attrs) {
+      if (attrs[key] !== null) {
+        if (yDomAttrs[key] !== attrs[key] && key !== 'ychange') {
+          yDomFragment.setAttribute(key, attrs[key])
         }
       } else {
         yDomFragment.removeAttribute(key)
@@ -995,7 +1025,7 @@ export const updateYFragment = (y, yDomFragment, pNode, mapping) => {
     }
     // remove all keys that are no longer in pAttrs
     for (const key in yDomAttrs) {
-      if (pAttrs[key] === undefined) {
+      if (attrs[key] === undefined) {
         yDomFragment.removeAttribute(key)
       }
     }
