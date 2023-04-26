@@ -796,7 +796,7 @@ const createTypeFromTextOrElementNode = (node, mapping) =>
 const isObject = (val) => typeof val === 'object' && val !== null
 
 const equalAttrs = (pattrs, yattrs) => {
-  const keys = Object.keys(pattrs).filter((key) => pattrs[key] !== null)
+  const keys = Object.keys(pattrs).filter((key) => pattrs[key] !== null && !key.includes('yelement_mark_'))
   let eq =
     keys.length ===
       Object.keys(yattrs).filter((key) => yattrs[key] !== null).length
@@ -806,6 +806,25 @@ const equalAttrs = (pattrs, yattrs) => {
     const r = yattrs[key]
     eq = key === 'ychange' || l === r ||
       (isObject(l) && isObject(r) && equalAttrs(l, r))
+  }
+  return eq
+}
+
+const equalMarks = (yattrs, pmarks) => {
+  const keys = Object.keys(yattrs).filter((key) => key.includes('yelement_mark_'));
+
+  let eq =
+    keys.length === pmarks.length;
+
+  let pMarkAttr = nodeMarksToAttributes(pmarks);
+
+  console.log('yattrs:',yattrs , 'pMarkAttr',pMarkAttr);
+
+  for (let i = 0; i < keys.length && eq; i++) {
+    const key = keys[i];
+    const l = JSON.stringify(pMarkAttr[key])
+    const r = yattrs[key]
+    eq = key === 'ychange' || l === r ;
   }
   return eq
 }
@@ -865,6 +884,7 @@ const equalYTypePNode = (ytype, pnode) => {
     const normalizedContent = normalizePNodeContent(pnode)
     return ytype._length === normalizedContent.length &&
       equalAttrs(ytype.getAttributes(), pnode.attrs) &&
+      equalMarks(ytype.getAttributes(), pnode.marks) &&
       ytype.toArray().every((ychild, i) =>
         equalYTypePNode(ychild, normalizedContent[i])
       )
