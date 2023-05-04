@@ -20,6 +20,7 @@ import * as random from 'lib0/random'
 import * as environment from 'lib0/environment'
 import * as dom from 'lib0/dom'
 import * as eventloop from 'lib0/eventloop'
+import * as f from 'lib0/function'
 
 /**
  * @param {Y.Item} item
@@ -675,10 +676,10 @@ const createNodeFromYElement = (
     const nodeMarks = [];
 
     for (const key in attrs) {
-      if (key.includes('yelement_mark_')) {
+      if (key.startsWith('yelement_mark_')) {
         const markName = key.replace('yelement_mark_','');
-        let markValue = JSON.parse(attrs[key]);
-        nodeMarks.push(schema.mark(markName, markValue))
+        let markValue = attrs[key];
+        nodeMarks.push(schema.mark(markName, markValue.attrs))
       } else {
         nodeAttrs[key] = attrs[key]
       }
@@ -796,7 +797,7 @@ const createTypeFromTextOrElementNode = (node, mapping) =>
 const isObject = (val) => typeof val === 'object' && val !== null
 
 const equalAttrs = (pattrs, yattrs) => {
-  const keys = Object.keys(pattrs).filter((key) => pattrs[key] !== null && !key.includes('yelement_mark_'))
+  const keys = Object.keys(pattrs).filter((key) => pattrs[key] !== null && !key.startsWith('yelement_mark_'))
   let eq =
     keys.length ===
       Object.keys(yattrs).filter((key) => yattrs[key] !== null).length
@@ -811,20 +812,18 @@ const equalAttrs = (pattrs, yattrs) => {
 }
 
 const equalMarks = (yattrs, pmarks) => {
-  const keys = Object.keys(yattrs).filter((key) => key.includes('yelement_mark_'));
+  const keys = Object.keys(yattrs).filter((key) => key.startsWith('yelement_mark_'));
 
   let eq =
     keys.length === pmarks.length;
 
   let pMarkAttr = nodeMarksToAttributes(pmarks);
 
-  console.log('yattrs:',yattrs , 'pMarkAttr',pMarkAttr);
-
   for (let i = 0; i < keys.length && eq; i++) {
     const key = keys[i];
-    const l = JSON.stringify(pMarkAttr[key])
+    const l = pMarkAttr[key]
     const r = yattrs[key]
-    eq = key === 'ychange' || l === r ;
+    eq = key === 'ychange' || f.equalityDeep(l,r);
   }
   return eq
 }
@@ -1006,7 +1005,7 @@ const nodeMarksToAttributes = (marks) => {
   const prefix = 'yelement_mark_'
   marks.forEach((mark) => {
     if (mark.type.name !== 'ychange') {
-      pattrs[`${prefix}${mark.type.name}`] = JSON.stringify(mark.attrs || {})
+      pattrs[`${prefix}${mark.type.name}`] = mark.toJSON()
     }
   })
   return pattrs
