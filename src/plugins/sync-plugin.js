@@ -22,6 +22,8 @@ import * as dom from 'lib0/dom'
 import * as eventloop from 'lib0/eventloop'
 import * as f from 'lib0/function'
 
+const MarkPrefix = '_mark_'
+
 /**
  * @param {Y.Item} item
  * @param {Y.Snapshot} [snapshot]
@@ -676,9 +678,9 @@ const createNodeFromYElement = (
     const nodeMarks = [];
 
     for (const key in attrs) {
-      if (key.startsWith('yelement_mark_')) {
-        const markName = key.replace('yelement_mark_','');
-        let markValue = attrs[key];
+      if (key.startsWith(MarkPrefix)) {
+        const markName = key.replace(MarkPrefix,'');
+        const markValue = attrs[key];
         nodeMarks.push(schema.mark(markName, markValue.attrs))
       } else {
         nodeAttrs[key] = attrs[key]
@@ -797,10 +799,10 @@ const createTypeFromTextOrElementNode = (node, mapping) =>
 const isObject = (val) => typeof val === 'object' && val !== null
 
 const equalAttrs = (pattrs, yattrs) => {
-  const keys = Object.keys(pattrs).filter((key) => pattrs[key] !== null && !key.startsWith('yelement_mark_'))
+  const keys = Object.keys(pattrs).filter((key) => pattrs[key] !== null )
   let eq =
     keys.length ===
-      Object.keys(yattrs).filter((key) => yattrs[key] !== null).length
+      Object.keys(yattrs).filter((key) => yattrs[key] !== null && !key.startsWith(MarkPrefix)).length
   for (let i = 0; i < keys.length && eq; i++) {
     const key = keys[i]
     const l = pattrs[key]
@@ -812,13 +814,10 @@ const equalAttrs = (pattrs, yattrs) => {
 }
 
 const equalMarks = (yattrs, pmarks) => {
-  const keys = Object.keys(yattrs).filter((key) => key.startsWith('yelement_mark_'));
-
+  const keys = Object.keys(yattrs).filter((key) => key.startsWith(MarkPrefix));
   let eq =
     keys.length === pmarks.length;
-
   let pMarkAttr = nodeMarksToAttributes(pmarks);
-
   for (let i = 0; i < keys.length && eq; i++) {
     const key = keys[i];
     const l = pMarkAttr[key]
@@ -882,8 +881,8 @@ const equalYTypePNode = (ytype, pnode) => {
   ) {
     const normalizedContent = normalizePNodeContent(pnode)
     return ytype._length === normalizedContent.length &&
-      equalAttrs(ytype.getAttributes(), pnode.attrs) &&
-      equalMarks(ytype.getAttributes(), pnode.marks) &&
+      equalAttrs(pnode.attrs, ytype.getAttributes()) &&
+      equalMarks(pnode.marks, ytype.getAttributes()) &&
       ytype.toArray().every((ychild, i) =>
         equalYTypePNode(ychild, normalizedContent[i])
       )
@@ -1002,10 +1001,9 @@ const marksToAttributes = (marks) => {
 
 const nodeMarksToAttributes = (marks) => {
   const pattrs = {}
-  const prefix = 'yelement_mark_'
   marks.forEach((mark) => {
     if (mark.type.name !== 'ychange') {
-      pattrs[`${prefix}${mark.type.name}`] = mark.toJSON()
+      pattrs[`${MarkPrefix}${mark.type.name}`] = mark.toJSON()
     }
   })
   return pattrs
