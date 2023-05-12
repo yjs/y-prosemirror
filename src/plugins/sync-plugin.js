@@ -813,7 +813,7 @@ const equalAttrs = (pattrs, yattrs) => {
   return eq
 }
 
-const equalMarks = (yattrs, pmarks) => {
+const equalMarks = (pmarks, yattrs) => {
   const keys = Object.keys(yattrs).filter((key) => key.startsWith(MarkPrefix));
   let eq =
     keys.length === pmarks.length;
