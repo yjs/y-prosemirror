@@ -33,6 +33,6 @@ jobs:
           scope: "@peppercontent"
       - run: npm install
       - run: npm run dist
-      - run: npm publish --registry=https://npm.pkg.github.com/
+      - run: npm publish --access public --registry=https://npm.pkg.github.com/
         env:
           NODE_AUTH_TOKEN: ${{secrets.GITHUB_TOKEN}}
