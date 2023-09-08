@@ -16,10 +16,10 @@ import * as math from 'lib0/math'
  *
  * @param {number} currentClientId current client id
  * @param {number} userClientId user client id
- * @param {any} user user data
+ * @param {any} _user user data
  * @return {boolean}
  */
-export const defaultAwarenessStateFilter = (currentClientId, userClientId, user) => currentClientId !== userClientId;
+export const defaultAwarenessStateFilter = (currentClientId, userClientId, _user) => currentClientId !== userClientId
 
 /**
  * Default generator for a cursor element
