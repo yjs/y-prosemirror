@@ -321,13 +321,47 @@ export const testAddToHistoryIgnore = (_tc) => {
   )
 }
 
-const createNewProsemirrorViewWithSchema = (y, schema, undoManager = false) => {
+export const testAddToHistoryIgnoreWithAppendTransactionPlugin = (_tc) => {
+  const ydoc = new Y.Doc()
+  const view = createNewProsemirrorViewWithUndoManagerAndAppendTransactionPlugin(ydoc)
+  view.dispatch(
+    view.state.tr.insert(
+      0,
+      /** @type {any} */ (schema.node(
+        'paragraph',
+        undefined,
+        schema.text('123')
+      ))
+    ).setMeta('addToHistory', false)
+  )
+  const yxml = ydoc.get('prosemirror')
+  t.assert(
+    yxml.length === 2 && yxml.get(0).length === 1,
+    'contains inserted content'
+  )
+  undo(view.state)
+  t.assert(
+    yxml.length === 2 && yxml.get(0).length === 1,
+    'insertion was *not* undone'
+  )
+}
+
+const appendTransactionPlugin = () => new Plugin({
+  appendTransaction: (_, __, state) => {
+    // intentionally returns empty transaction
+    const tr = state.tr
+    return tr
+  }
+})
+
+const createNewProsemirrorViewWithSchema = (y, schema, undoManager = false, appendTransaction = false) => {
   const view = new EditorView(null, {
     // @ts-ignore
     state: EditorState.create({
       schema,
       plugins: [ySyncPlugin(y.get('prosemirror', Y.XmlFragment))].concat(
-        undoManager ? [yUndoPlugin()] : []
+        undoManager ? [yUndoPlugin()] : [],
+        appendTransaction ? [appendTransactionPlugin()] : []
       )
     })
   })
@@ -342,6 +376,9 @@ const createNewProsemirrorView = (y) =>
 
 const createNewProsemirrorViewWithUndoManager = (y) =>
   createNewProsemirrorViewWithSchema(y, schema, true)
+
+const createNewProsemirrorViewWithUndoManagerAndAppendTransactionPlugin = (y) =>
+  createNewProsemirrorViewWithSchema(y, schema, true, true)
 
 let charCounter = 0
 
