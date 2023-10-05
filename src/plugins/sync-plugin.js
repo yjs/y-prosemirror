@@ -659,7 +659,7 @@ const createNodeFromYElement = (
       .forEach(createChildren)
   }
   try {
-    const attrs = el.getAttributes(snapshot)
+    const attrs = el.getAttributes()
     if (snapshot !== undefined) {
       if (!isVisible(/** @type {Y.Item} */ (el._item), snapshot)) {
         attrs.ychange = computeYChange
