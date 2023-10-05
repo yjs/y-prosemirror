@@ -59,7 +59,7 @@
     "prosemirror-state": "^1.2.3",
     "prosemirror-view": "^1.9.10",
     "y-protocols": "^1.0.1",
-    "yjs": "^13.5.38"
+    "yjs": "^13.5.45"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^21.0.1",
@@ -78,6 +78,6 @@
     "typescript": "^4.8.4",
     "y-protocols": "^1.0.5",
     "y-webrtc": "^10.2.0",
-    "yjs": "^13.5.38"
+    "yjs": "^13.5.45"
   }
 }
