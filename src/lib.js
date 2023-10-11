@@ -339,7 +339,7 @@ export function yXmlFragmentToProsemirrorJSON (xmlFragment) {
           text.marks = Object.keys(d.attributes).map((type) => {
             const attrs = d.attributes[type]
             const mark = {
-              type
+              type: type.replace(/\$.+/, '')
             }
 
             if (Object.keys(attrs)) {

@@ -709,7 +709,8 @@ const createTextNodesFromYText = (
       const delta = deltas[i]
       const marks = []
       for (const markName in delta.attributes) {
-        marks.push(schema.mark(markName, delta.attributes[markName]))
+        const actualMarkName = markName.replace(/\$.+/, '')
+        marks.push(schema.mark(actualMarkName, delta.attributes[markName]))
       }
       nodes.push(schema.text(delta.insert, marks))
     }
@@ -957,9 +958,16 @@ const updateYText = (ytext, ptexts, mapping) => {
 
 const marksToAttributes = (marks) => {
   const pattrs = {}
+  const seenAttrs = {}
   marks.forEach((mark) => {
     if (mark.type.name !== 'ychange') {
-      pattrs[mark.type.name] = mark.attrs
+      if (typeof seenAttrs[mark.type.name] === 'number') {
+        pattrs[mark.type.name + '$' + seenAttrs[mark.type.name]] = mark.attrs
+        seenAttrs[mark.type.name] += 1
+      } else {
+        pattrs[mark.type.name] = mark.attrs
+        seenAttrs[mark.type.name] = 1
+      }
     }
   })
   return pattrs
