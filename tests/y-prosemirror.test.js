@@ -519,8 +519,8 @@ export const testDuplicateMarks = tc => {
   t.assert(type.toString() === '', 'should only sync after first change')
 
   const marks = [
-    complexSchema.mark('comment', { id: 0 }),
-    complexSchema.mark('comment', { id: 1 })
+    complexSchema.mark('snippet-highlight', { snippetUid: '0' }),
+    complexSchema.mark('snippet-highlight', { snippetUid: '1' })
   ]
 
   view.dispatch(view.state.tr.insert(view.state.doc.content.size - 1, /** @type {any} */ complexSchema.text('hello world', marks)))
@@ -535,5 +535,5 @@ export const testDuplicateMarks = tc => {
 
   t.compare(JSON.parse(JSON.stringify(stateJSON)), JSON.parse(JSON.stringify(backandforth)))
 
-  t.compareStrings(type.toString(), '<custom checked="false"></custom><paragraph><comment id="0"><comment$1 id="1">hello world</comment$1></comment></paragraph>')
+  t.compareStrings(type.toString(), '<custom checked="false"></custom><paragraph><snippet-highlight-0 snippetUid="0"><snippet-highlight-1 snippetUid="1">hello world</snippet-highlight-1></snippet-highlight-0></paragraph>')
 }
