@@ -338,12 +338,26 @@ export function yXmlFragmentToProsemirrorJSON (xmlFragment) {
         if (d.attributes) {
           text.marks = Object.keys(d.attributes).map((type) => {
             const attrs = d.attributes[type]
-            const mark = {
-              type: type.startsWith('snippet-highlight-') ? 'snippet-highlight' : type
+
+            const mark = { type }
+
+            if (type.startsWith('snippet-highlight-')) {
+              mark.type = 'snippet-highlight'
+            }
+
+            if (type === 'uw') {
+              mark.type = 'utterance-word'
             }
 
             if (Object.keys(attrs)) {
-              mark.attrs = attrs
+              if (type === 'uw') {
+                mark.attrs = {
+                  startTime: attrs.s,
+                  endTime: attrs.e
+                }
+              } else {
+                mark.attrs = attrs
+              }
             }
 
             return mark
