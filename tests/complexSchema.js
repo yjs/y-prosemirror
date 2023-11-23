@@ -158,6 +158,7 @@ const emDOM = ['em', 0]
 const strongDOM = ['strong', 0]
 const codeDOM = ['code', 0]
 const snippetHighlightDOM = ['mark', 0]
+const utteranceWordDOM = ['mark', 0]
 
 // :: Object [Specs](#model.MarkSpec) for the marks in the schema.
 export const marks = {
@@ -236,6 +237,18 @@ export const marks = {
     }
   },
 
+  'utterance-word': {
+    attrs: {
+      startTime: { default: null },
+      endTime: { default: null }
+    },
+    exclude: '',
+    parseDOM: [{ tag: 'mark' }],
+    toDOM () {
+      return utteranceWordDOM
+    }
+  },
+
   ychange: {
     attrs: {
       user: { default: null },
@@ -262,3 +275,35 @@ export const marks = {
 // To reuse elements from this schema, extend or read from its
 // `spec.nodes` and `spec.marks` [properties](#model.Schema.spec).
 export const schema = new Schema({ nodes, marks })
+
+export const extendedSchema = new Schema({
+  nodes: {
+    doc: {
+      content: 'utterance*'
+    },
+    text: {
+      group: 'inline'
+    },
+    utterance: {
+      group: 'block',
+      content: 'text*',
+      attrs: {
+        speakerName: { default: null }
+      },
+      parseDOM: [{
+        tag: 'div',
+        getAttrs (dom) {
+          return {
+            speakerName: dom.getAttribute('data-speaker-name')
+          }
+        }
+      }],
+      toDOM (node) {
+        return ['div', {
+          'data-speaker-name': node.attrs.speakerName
+        }, 0]
+      }
+    }
+  },
+  marks
+})

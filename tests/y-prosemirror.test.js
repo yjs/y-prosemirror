@@ -20,7 +20,7 @@ import { EditorState, Plugin, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import * as basicSchema from 'prosemirror-schema-basic'
 import { findWrapping } from 'prosemirror-transform'
-import { schema as complexSchema } from './complexSchema.js'
+import { schema as complexSchema, extendedSchema as extendedComplexSchema } from './complexSchema.js'
 
 const schema = /** @type {any} */ (basicSchema.schema)
 
@@ -337,6 +337,9 @@ const createNewProsemirrorViewWithSchema = (y, schema, undoManager = false) => {
 const createNewComplexProsemirrorView = (y, undoManager = false) =>
   createNewProsemirrorViewWithSchema(y, complexSchema, undoManager)
 
+const createNewExtendedComplexProsemirrorView = (y, undoManager = false) =>
+  createNewProsemirrorViewWithSchema(y, extendedComplexSchema, undoManager)
+
 const createNewProsemirrorView = (y) =>
   createNewProsemirrorViewWithSchema(y, schema, false)
 
@@ -536,4 +539,42 @@ export const testDuplicateMarks = tc => {
   t.compare(JSON.parse(JSON.stringify(stateJSON)), JSON.parse(JSON.stringify(backandforth)))
 
   t.compareStrings(type.toString(), '<custom checked="false"></custom><paragraph><snippet-highlight-0 snippetUid="0"><snippet-highlight-1 snippetUid="1">hello world</snippet-highlight-1></snippet-highlight-0></paragraph>')
+}
+
+/**
+ * @param {t.TestCase} tc
+ */
+export const testCompressUtterances = tc => {
+  const ydoc = new Y.Doc()
+  const type = ydoc.getXmlFragment('prosemirror')
+  const view = createNewExtendedComplexProsemirrorView(ydoc)
+  t.assert(type.toString() === '', 'should only sync after first change')
+
+  const schema = extendedComplexSchema
+
+  view.dispatch(view.state.tr.insert(0, /** @type {any} */ schema.node('utterance', { speakerName: 'X' }, [
+    schema.text('Hello', [
+      schema.mark('utterance-word', {
+        startTime: 0,
+        endTime: 1
+      })
+    ]),
+    schema.text(' '),
+    schema.text('world', [
+      schema.mark('utterance-word', {
+        startTime: 2,
+        endTime: 3
+      })
+    ])
+  ])))
+
+  const stateJSON = view.state.doc.toJSON()
+
+  const backandforth = yDocToProsemirrorJSON(
+    prosemirrorJSONToYDoc(/** @type {any} */ (schema), stateJSON)
+  )
+
+  t.compare(JSON.parse(JSON.stringify(stateJSON)), JSON.parse(JSON.stringify(backandforth)))
+
+  t.compareStrings(type.toString(), '<utterance speakerName="X"><utterance-word endTime="1" startTime="0">Hello</utterance-word> <utterance-word endTime="3" startTime="2">world</utterance-word></utterance>')
 }
