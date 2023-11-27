@@ -350,14 +350,7 @@ export function yXmlFragmentToProsemirrorJSON (xmlFragment) {
             }
 
             if (Object.keys(attrs)) {
-              if (type === 'uw') {
-                mark.attrs = {
-                  startTime: attrs.s,
-                  endTime: attrs.e
-                }
-              } else {
-                mark.attrs = attrs
-              }
+              mark.attrs = attrs
             }
 
             return mark

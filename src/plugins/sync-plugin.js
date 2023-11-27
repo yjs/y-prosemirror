@@ -715,11 +715,7 @@ const createTextNodesFromYText = (
         }
 
         if (markName === 'uw') {
-          marks.push(schema.mark('utterance-word', {
-            startTime: delta.attributes[markName]?.s,
-            endTime: delta.attributes[markName]?.e
-          }))
-
+          marks.push(schema.mark('utterance-word', delta.attributes[markName]))
           continue
         }
 
@@ -981,11 +977,7 @@ const marksToAttributes = (marks) => {
 
       const isUtteranceWord = mark.type.name === 'utterance-word' && typeof mark.attrs?.startTime === 'number' && typeof mark.attrs?.endTime === 'number'
       if (isUtteranceWord) {
-        pattrs.uw = {
-          s: mark.attrs.startTime,
-          e: mark.attrs.endTime
-        }
-
+        pattrs.uw = mark.attrs
         return
       }
 
