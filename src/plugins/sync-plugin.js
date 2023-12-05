@@ -709,7 +709,7 @@ const createTextNodesFromYText = (
       const delta = deltas[i]
       const marks = []
       for (const markName in delta.attributes) {
-        if (markName.startsWith('snippet-highlight-')) {
+        if (markName.startsWith('snippet-highlght-')) {
           marks.push(schema.mark('snippet-highlight', delta.attributes[markName]))
           continue
         }
