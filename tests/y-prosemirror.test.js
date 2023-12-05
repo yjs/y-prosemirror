@@ -576,5 +576,5 @@ export const testCompressUtterances = tc => {
 
   t.compare(JSON.parse(JSON.stringify(stateJSON)), JSON.parse(JSON.stringify(backandforth)))
 
-  t.compareStrings(type.toString(), '<utterance speakerName="X"><uw e="1" s="0">Hello</uw> <uw e="3" s="2">world</uw></utterance>')
+  t.compareStrings(type.toString(), '<utterance speakerName="X"><uw endTime="1" startTime="0">Hello</uw> <uw endTime="3" startTime="2">world</uw></utterance>')
 }
