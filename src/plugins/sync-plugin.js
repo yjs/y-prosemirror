@@ -709,21 +709,7 @@ const createTextNodesFromYText = (
       const delta = deltas[i]
       const marks = []
       for (const markName in delta.attributes) {
-        if (markName.startsWith('snippet-highlght-')) {
-          marks.push(schema.mark('snippet-highlight', delta.attributes[markName]))
-          continue
-        }
-
-        if (markName === 'uw') {
-          marks.push(schema.mark('utterance-word', {
-            startTime: delta.attributes[markName]?.s,
-            endTime: delta.attributes[markName]?.e
-          }))
-
-          continue
-        }
-
-        marks.push(schema.mark(markName, delta.attributes[markName]))
+        marks.push(schema.mark(markName.startsWith('snippet-highlight-') ? 'snippet-highlight' : markName, delta.attributes[markName]))
       }
       nodes.push(schema.text(delta.insert, marks))
     }
@@ -976,20 +962,9 @@ const marksToAttributes = (marks) => {
       const isSnippetHighlight = mark.type.name === 'snippet-highlight' && typeof mark.attrs?.snippetUid === 'string'
       if (isSnippetHighlight) {
         pattrs[mark.type.name + '-' + mark.attrs.snippetUid] = mark.attrs
-        return
+      } else {
+        pattrs[mark.type.name] = mark.attrs
       }
-
-      const isUtteranceWord = mark.type.name === 'utterance-word' && typeof mark.attrs?.startTime === 'number' && typeof mark.attrs?.endTime === 'number'
-      if (isUtteranceWord) {
-        pattrs.uw = {
-          s: mark.attrs.startTime,
-          e: mark.attrs.endTime
-        }
-
-        return
-      }
-
-      pattrs[mark.type.name] = mark.attrs
     }
   })
   return pattrs
