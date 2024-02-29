@@ -966,7 +966,13 @@ const marksToAttributes = (marks) => {
 }
 
 /**
+ * Update a yDom node by syncing the current content of the prosemirror node.
+ *
+ * This is a y-prosemirror internal feature that you can use at your own risk.
+ *
  * @private
+ * @unstable
+ *
  * @param {{transact: Function}} y
  * @param {Y.XmlFragment} yDomFragment
  * @param {any} pNode
