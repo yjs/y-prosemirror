@@ -384,11 +384,14 @@ export class ProsemirrorBinding {
           this.mapping
         )
       ).filter((n) => n !== null)
-      // @ts-ignore
+      const fragment = PModel.Fragment.from(fragmentContent)
+      if (this.prosemirrorView.state.doc.content.eq(fragment)) {
+        return
+      }
       const tr = this._tr.replace(
         0,
         this.prosemirrorView.state.doc.content.size,
-        new PModel.Slice(PModel.Fragment.from(fragmentContent), 0, 0)
+        new PModel.Slice(fragment, 0, 0)
       )
       tr.setMeta(ySyncPluginKey, { snapshot: null, prevSnapshot: null })
       this.prosemirrorView.dispatch(tr)
@@ -405,11 +408,14 @@ export class ProsemirrorBinding {
           this.mapping
         )
       ).filter((n) => n !== null)
-      // @ts-ignore
+      const fragment = PModel.Fragment.from(fragmentContent)
+      if (this.prosemirrorView.state.doc.content.eq(fragment)) {
+        return
+      }      
       const tr = this._tr.replace(
         0,
         this.prosemirrorView.state.doc.content.size,
-        new PModel.Slice(PModel.Fragment.from(fragmentContent), 0, 0)
+        new PModel.Slice(fragment, 0, 0)
       )
       this.prosemirrorView.dispatch(
         tr.setMeta(ySyncPluginKey, { isChangeOrigin: true })
@@ -479,11 +485,14 @@ export class ProsemirrorBinding {
             return null
           }
         }).filter((n) => n !== null)
-        // @ts-ignore
+        const fragment = PModel.Fragment.from(fragmentContent)
+        if (this.prosemirrorView.state.doc.content.eq(fragment)) {
+          return
+        }        
         const tr = this._tr.replace(
           0,
           this.prosemirrorView.state.doc.content.size,
-          new PModel.Slice(PModel.Fragment.from(fragmentContent), 0, 0)
+          new PModel.Slice(fragment, 0, 0)
         )
         this.prosemirrorView.dispatch(
           tr.setMeta(ySyncPluginKey, { isChangeOrigin: true })
@@ -531,11 +540,14 @@ export class ProsemirrorBinding {
           this.mapping
         )
       ).filter((n) => n !== null)
-      // @ts-ignore
+      const fragment = PModel.Fragment.from(fragmentContent)
+      if (this.prosemirrorView.state.doc.content.eq(fragment)) {
+        return
+      }      
       let tr = this._tr.replace(
         0,
         this.prosemirrorView.state.doc.content.size,
-        new PModel.Slice(PModel.Fragment.from(fragmentContent), 0, 0)
+        new PModel.Slice(fragment, 0, 0)
       )
       restoreRelativeSelection(tr, this.beforeTransactionSelection, this)
       tr = tr.setMeta(ySyncPluginKey, { isChangeOrigin: true, isUndoRedoOperation: transaction.origin instanceof Y.UndoManager })
