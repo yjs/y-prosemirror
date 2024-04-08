@@ -12,6 +12,7 @@ import {
   undo,
   yDocToProsemirrorJSON,
   ySyncPlugin,
+  ySyncPluginKey,
   yUndoPlugin,
   yXmlFragmentToProsemirrorJSON
 } from '../src/y-prosemirror.js'
@@ -123,6 +124,36 @@ export const testXmlFragmentTransformation = (_tc) => {
   const backandforth = yXmlFragmentToProsemirrorJSON(xml)
   console.log(JSON.stringify(backandforth))
   t.compare(stateJSON, backandforth)
+}
+
+export const testChangeOrigin = (_tc) => {
+  const ydoc = new Y.Doc()
+  const yXmlFragment = ydoc.get('prosemirror', Y.XmlFragment)
+  const yundoManager = new Y.UndoManager(yXmlFragment, { trackedOrigins: new Set(['trackme']) })
+  const view = createNewProsemirrorView(ydoc)
+  view.dispatch(
+    view.state.tr.insert(
+      0,
+      /** @type {any} */ (schema.node(
+        'paragraph',
+        undefined,
+        schema.text('world')
+      ))
+    )
+  )
+  const ysyncState1 = ySyncPluginKey.getState(view.state)
+  t.assert(ysyncState1.isChangeOrigin === false)
+  t.assert(ysyncState1.isUndoRedoOperation === false)
+  ydoc.transact(() => {
+    yXmlFragment.get(0).get(0).insert(0, 'hello')
+  }, 'trackme')
+  const ysyncState2 = ySyncPluginKey.getState(view.state)
+  t.assert(ysyncState2.isChangeOrigin === true)
+  t.assert(ysyncState2.isUndoRedoOperation === false)
+  yundoManager.undo()
+  const ysyncState3 = ySyncPluginKey.getState(view.state)
+  t.assert(ysyncState3.isChangeOrigin === true)
+  t.assert(ysyncState3.isUndoRedoOperation === true)
 }
 
 /**

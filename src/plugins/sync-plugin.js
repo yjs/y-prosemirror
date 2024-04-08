@@ -100,6 +100,9 @@ export const ySyncPlugin = (yXmlFragment, {
     },
     key: ySyncPluginKey,
     state: {
+      /**
+       * @returns {any}
+       */
       init: (_initargs, _state) => {
         return {
           type: yXmlFragment,
@@ -108,6 +111,7 @@ export const ySyncPlugin = (yXmlFragment, {
           snapshot: null,
           prevSnapshot: null,
           isChangeOrigin: false,
+          isUndoRedoOperation: false,
           addToHistory: true,
           colors,
           colorMapping,
@@ -126,6 +130,7 @@ export const ySyncPlugin = (yXmlFragment, {
         // always set isChangeOrigin. If undefined, this is not change origin.
         pluginState.isChangeOrigin = change !== undefined &&
           !!change.isChangeOrigin
+        pluginState.isUndoRedoOperation = change !== undefined && !!change.isChangeOrigin && !!change.isUndoRedoOperation
         if (pluginState.binding !== null) {
           if (
             change !== undefined &&
@@ -204,7 +209,7 @@ export const ySyncPlugin = (yXmlFragment, {
                 }
               }
               binding.mux(() => {
-                pluginState.doc.transact((tr) => {
+                /** @type {Y.Doc} */ (pluginState.doc).transact((tr) => {
                   tr.meta.set('addToHistory', pluginState.addToHistory)
                   binding._prosemirrorChanged(view.state.doc)
                 }, ySyncPluginKey)
@@ -376,6 +381,10 @@ export class ProsemirrorBinding {
       bounding.top <= (window.innerHeight || documentElement.clientHeight || 0)
   }
 
+  /**
+   * @param {Y.Snapshot} snapshot
+   * @param {Y.Snapshot} prevSnapshot
+   */
   renderSnapshot (snapshot, prevSnapshot) {
     if (!prevSnapshot) {
       prevSnapshot = Y.createSnapshot(Y.createDeleteSet(), new Map())
@@ -526,12 +535,12 @@ export class ProsemirrorBinding {
       Y.iterateDeletedStructs(
         transaction,
         transaction.deleteSet,
-        (struct) =>
-          struct.constructor === Y.Item &&
-          this.mapping.delete(
-            /** @type {Y.ContentType} */ (/** @type {Y.Item} */ (struct)
-              .content).type
-          )
+        (struct) => {
+          if (struct.constructor === Y.Item) {
+            const type = /** @type {Y.ContentType} */ (/** @type {Y.Item} */ (struct).content).type
+            type && this.mapping.delete(type)
+          }
+        }
       )
       transaction.changed.forEach(delType)
       transaction.changedParentTypes.forEach(delType)
@@ -549,7 +558,7 @@ export class ProsemirrorBinding {
         new PModel.Slice(PModel.Fragment.from(fragmentContent), 0, 0)
       )
       restoreRelativeSelection(tr, this.beforeTransactionSelection, this)
-      tr = tr.setMeta(ySyncPluginKey, { isChangeOrigin: true })
+      tr = tr.setMeta(ySyncPluginKey, { isChangeOrigin: true, isUndoRedoOperation: transaction.origin instanceof Y.UndoManager })
       if (
         this.beforeTransactionSelection !== null && this._isLocalCursorInView()
       ) {
@@ -560,7 +569,7 @@ export class ProsemirrorBinding {
   }
 
   _prosemirrorChanged (doc) {
-    this.doc.transact((tr) => {
+    this.doc.transact(() => {
       updateYFragment(this.doc, this.type, doc, this.mapping)
       this.beforeTransactionSelection = getRelativeSelection(
         this,
@@ -699,7 +708,7 @@ const createNodeFromYElement = (
  * @private
  * @param {Y.XmlText} text
  * @param {any} schema
- * @param {ProsemirrorMapping} mapping
+ * @param {ProsemirrorMapping} _mapping
  * @param {Y.Snapshot} [snapshot]
  * @param {Y.Snapshot} [prevSnapshot]
  * @param {function('removed' | 'added', Y.ID):any} [computeYChange]
@@ -708,7 +717,7 @@ const createNodeFromYElement = (
 const createTextNodesFromYText = (
   text,
   schema,
-  mapping,
+  _mapping,
   snapshot,
   prevSnapshot,
   computeYChange
@@ -977,7 +986,13 @@ const marksToAttributes = (marks) => {
 }
 
 /**
+ * Update a yDom node by syncing the current content of the prosemirror node.
+ *
+ * This is a y-prosemirror internal feature that you can use at your own risk.
+ *
  * @private
+ * @unstable
+ *
  * @param {{transact: Function}} y
  * @param {Y.XmlFragment} yDomFragment
  * @param {any} pNode
@@ -1107,6 +1122,7 @@ export const updateYFragment = (y, yDomFragment, pNode, mapping) => {
           )
           right += 1
         } else {
+          mapping.delete(yDomFragment.get(left))
           yDomFragment.delete(left, 1)
           yDomFragment.insert(left, [
             createTypeFromTextOrElementNode(leftP, mapping)
@@ -1119,10 +1135,12 @@ export const updateYFragment = (y, yDomFragment, pNode, mapping) => {
     if (
       yChildCnt === 1 && pChildCnt === 0 && yChildren[0] instanceof Y.XmlText
     ) {
+      mapping.delete(yChildren[0])
       // Edge case handling https://github.com/yjs/y-prosemirror/issues/108
       // Only delete the content of the Y.Text to retain remote changes on the same Y.Text object
       yChildren[0].delete(0, yChildren[0].length)
     } else if (yDelLen > 0) {
+      yDomFragment.slice(left, left + yDelLen).forEach(type => mapping.delete(type))
       yDomFragment.delete(left, yDelLen)
     }
     if (left + right < pChildCnt) {
