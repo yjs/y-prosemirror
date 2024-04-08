@@ -695,6 +695,9 @@ const createNodeFromYElement = (
     mapping.set(el, node)
     return node
   } catch (e) {
+    console.error('[@gamma-app/y-prosemirror][sync-plugin] createNodeFromYElement error:', {
+      el,
+    });
     // an error occured while creating the node. This is probably a result of a concurrent action.
     /** @type {Y.Doc} */ (el.doc).transact((transaction) => {
       /** @type {Y.Item} */ (el._item).delete(transaction)
@@ -734,6 +737,9 @@ const createTextNodesFromYText = (
       nodes.push(schema.text(delta.insert, marks))
     }
   } catch (e) {
+    console.error('[@gamma-app/y-prosemirror][sync-plugin] createTextNodesFromYText error:', {
+      text,
+    });
     // an error occured while creating the node. This is probably a result of a concurrent action.
     /** @type {Y.Doc} */ (text.doc).transact((transaction) => {
       /** @type {Y.Item} */ (text._item).delete(transaction)
