@@ -89,7 +89,6 @@ export const ySyncPlugin = (yXmlFragment, {
   permanentUserData = null,
   onFirstRender = () => {}
 } = {}) => {
-  let rerenderTimeout
   let initialContentChanged = false
   const plugin = new Plugin({
     props: {
@@ -173,9 +172,6 @@ export const ySyncPlugin = (yXmlFragment, {
     },
     view: (view) => {
       const binding = new ProsemirrorBinding(yXmlFragment, view)
-      if (rerenderTimeout != null) {
-        rerenderTimeout.destroy()
-      }
       binding._forceRerender()
       onFirstRender()
       return {
@@ -217,7 +213,6 @@ export const ySyncPlugin = (yXmlFragment, {
           }
         },
         destroy: () => {
-          rerenderTimeout.destroy()
           binding.destroy()
         }
       }
