@@ -1,4 +1,3 @@
-
 import { PluginKey } from 'prosemirror-state' // eslint-disable-line
 
 /**

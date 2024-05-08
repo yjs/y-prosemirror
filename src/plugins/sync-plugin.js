@@ -89,8 +89,8 @@ export const ySyncPlugin = (yXmlFragment, {
   permanentUserData = null,
   onFirstRender = () => {}
 } = {}) => {
-  let changedInitialContent = false
   let rerenderTimeout
+  let initialContentChanged = false
   const plugin = new Plugin({
     props: {
       editable: (state) => {
@@ -176,12 +176,8 @@ export const ySyncPlugin = (yXmlFragment, {
       if (rerenderTimeout != null) {
         rerenderTimeout.destroy()
       }
-      // Make sure this is called in a separate context
-      rerenderTimeout = eventloop.timeout(0, () => {
-        binding._forceRerender()
-        view.dispatch(view.state.tr.setMeta(ySyncPluginKey, { binding }))
-        onFirstRender()
-      })
+      binding._forceRerender()
+      onFirstRender()
       return {
         update: () => {
           const pluginState = plugin.getState(view.state)
@@ -189,12 +185,15 @@ export const ySyncPlugin = (yXmlFragment, {
             pluginState.snapshot == null && pluginState.prevSnapshot == null
           ) {
             if (
-              changedInitialContent ||
+              // If the content doesn't change initially, we don't render anything to Yjs
+              // If the content was cleared by a user action, we want to catch the change and
+              // represent it in Yjs
+              initialContentChanged ||
               view.state.doc.content.findDiffStart(
                 view.state.doc.type.createAndFill().content
               ) !== null
             ) {
-              changedInitialContent = true
+              initialContentChanged = true
               if (
                 pluginState.addToHistory === false &&
                 !pluginState.isChangeOrigin
@@ -412,7 +411,7 @@ export class ProsemirrorBinding {
         new PModel.Slice(PModel.Fragment.from(fragmentContent), 0, 0)
       )
       this.prosemirrorView.dispatch(
-        tr.setMeta(ySyncPluginKey, { isChangeOrigin: true })
+        tr.setMeta(ySyncPluginKey, { isChangeOrigin: true, binding: this })
       )
     })
   }

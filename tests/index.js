@@ -1,4 +1,3 @@
-
 import * as prosemirror from './y-prosemirror.test.js'
 
 import { runTests } from 'lib0/testing'

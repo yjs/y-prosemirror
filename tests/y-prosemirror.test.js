@@ -75,7 +75,7 @@ export const testPluginIntegrity = (_tc) => {
   )
   t.compare({ viewUpdateEvents, stateUpdateEvents }, {
     viewUpdateEvents: 1,
-    stateUpdateEvents: 1
+    stateUpdateEvents: 2 // fired twice, because the ySyncPlugin adds additional fields to state after the initial render
   }, 'events are fired only once')
 }
 

@@ -1,4 +1,3 @@
-
 import { Plugin } from 'prosemirror-state' // eslint-disable-line
 
 import { getRelativeSelection } from './sync-plugin.js'

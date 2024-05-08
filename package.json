@@ -12,7 +12,8 @@
     "url": "https://github.com/sponsors/dmonad"
   },
   "scripts": {
-    "dist": "rm -rf dist && rollup -c && tsc",
+    "clean": "rm -rf dist",
+    "dist": "npm run clean && rollup -c && tsc",
     "test": "npm run lint && rollup -c && node dist/test.cjs",
     "lint": "standard && tsc",
     "watch": "rollup -wc",
