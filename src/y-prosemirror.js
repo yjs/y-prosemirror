@@ -3,6 +3,8 @@ export { ySyncPlugin, isVisible, getRelativeSelection, ProsemirrorBinding, updat
 export * from './plugins/undo-plugin.js'
 export * from './plugins/keys.js'
 export {
-  absolutePositionToRelativePosition, relativePositionToAbsolutePosition, setMeta, prosemirrorJSONToYDoc, yDocToProsemirrorJSON, yDocToProsemirror, prosemirrorToYDoc,
-  prosemirrorJSONToYXmlFragment, yXmlFragmentToProsemirrorJSON, yXmlFragmentToProsemirror, prosemirrorToYXmlFragment
+  absolutePositionToRelativePosition, relativePositionToAbsolutePosition, setMeta,
+  prosemirrorJSONToYDoc, yDocToProsemirrorJSON, yDocToProsemirror, prosemirrorToYDoc,
+  prosemirrorJSONToYXmlFragment, yXmlFragmentToProsemirrorJSON, yXmlFragmentToProsemirror,
+  prosemirrorToYXmlFragment, yXmlFragmentToProseMirrorRootNode, yXmlFragmentToProseMirrorFragment
 } from './lib.js'

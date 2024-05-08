@@ -2,7 +2,7 @@
 
 import * as Y from 'yjs'
 import { WebrtcProvider } from 'y-webrtc'
-import { ySyncPlugin, yCursorPlugin, yUndoPlugin, undo, redo } from '../src/y-prosemirror.js'
+import { ySyncPlugin, yCursorPlugin, yUndoPlugin, undo, redo, yXmlFragmentToProseMirrorRootNode } from '../src/y-prosemirror.js'
 import { EditorState } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { schema } from './schema.js'
@@ -20,6 +20,7 @@ window.addEventListener('load', () => {
   editorContainer.insertBefore(editor, null)
   const prosemirrorView = new EditorView(editor, {
     state: EditorState.create({
+      doc: yXmlFragmentToProseMirrorRootNode(type, schema),
       schema,
       plugins: [
         ySyncPlugin(type),

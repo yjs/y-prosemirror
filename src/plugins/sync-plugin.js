@@ -611,7 +611,7 @@ const createNodeIfNotExists = (
  * @param {function('removed' | 'added', Y.ID):any} [computeYChange]
  * @return {PModel.Node | null} Returns node if node could be created. Otherwise it deletes the yjs type and returns null
  */
-const createNodeFromYElement = (
+export const createNodeFromYElement = (
   el,
   schema,
   mapping,

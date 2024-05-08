@@ -1,8 +1,8 @@
-import { updateYFragment } from './plugins/sync-plugin.js' // eslint-disable-line
+import { updateYFragment, createNodeFromYElement } from './plugins/sync-plugin.js' // eslint-disable-line
 import { ySyncPluginKey } from './plugins/keys.js'
 import * as Y from 'yjs'
 import { EditorView } from 'prosemirror-view' // eslint-disable-line
-import { Node, Schema } from 'prosemirror-model' // eslint-disable-line
+import { Node, Schema, Fragment } from 'prosemirror-model' // eslint-disable-line
 import * as error from 'lib0/error'
 import * as map from 'lib0/map'
 import * as eventloop from 'lib0/eventloop'
@@ -192,6 +192,33 @@ export const relativePositionToAbsolutePosition = (y, documentType, relPos, mapp
 }
 
 /**
+ * Utility function for converting an Y.Fragment to a ProseMirror fragment.
+ *
+ * @param {Y.XmlFragment} yXmlFragment
+ * @param {Schema} schema
+ */
+export const yXmlFragmentToProseMirrorFragment = (yXmlFragment, schema) => {
+  const fragmentContent = yXmlFragment.toArray().map((t) =>
+    createNodeFromYElement(
+      /** @type {Y.XmlElement} */ (t),
+      schema,
+      new Map()
+    )
+  ).filter((n) => n !== null)
+  return Fragment.fromArray(fragmentContent)
+}
+
+/**
+ * Utility function for converting an Y.Fragment to a ProseMirror node.
+ * This can be used for supplying the initial content to ProseMirror state.
+ *
+ * @param {Y.XmlFragment} yXmlFragment
+ * @param {Schema} schema
+ */
+export const yXmlFragmentToProseMirrorRootNode = (yXmlFragment, schema) =>
+  schema.topNodeType.create(null, yXmlFragmentToProseMirrorFragment(yXmlFragment, schema))
+
+/**
  * Utility method to convert a Prosemirror Doc Node into a Y.Doc.
  *
  * This can be used when importing existing content to Y.Doc for the first time,
@@ -271,6 +298,8 @@ export function prosemirrorJSONToYXmlFragment (schema, state, xmlFragment) {
 }
 
 /**
+ * @deprecated Use `yXmlFragmentToProseMirrorNode` instead
+ *
  * Utility method to convert a Y.Doc to a Prosemirror Doc node.
  *
  * @param {Schema} schema
@@ -283,6 +312,9 @@ export function yDocToProsemirror (schema, ydoc) {
 }
 
 /**
+ *
+ * @deprecated Use `yXmlFragmentToProseMirrorNode` instead
+ *
  * Utility method to convert a Y.XmlFragment to a Prosemirror Doc node.
  *
  * @param {Schema} schema
@@ -295,6 +327,9 @@ export function yXmlFragmentToProsemirror (schema, xmlFragment) {
 }
 
 /**
+ *
+ * @deprecated Use `yXmlFragmentToProseMirrorNode` instead
+ *
  * Utility method to convert a Y.Doc to Prosemirror compatible JSON.
  *
  * @param {Y.Doc} ydoc
@@ -309,6 +344,8 @@ export function yDocToProsemirrorJSON (
 }
 
 /**
+ * @deprecated Use `yXmlFragmentToProseMirrorNode` instead
+ *
  * Utility method to convert a Y.Doc to Prosemirror compatible JSON.
  *
  * @param {Y.XmlFragment} xmlFragment The fragment, which must be part of a Y.Doc.
