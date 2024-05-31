@@ -16,6 +16,7 @@ import {
   yUndoPlugin,
   yXmlFragmentToProsemirrorJSON
 } from '../src/y-prosemirror.js'
+import { setRgbAlphaChannel, setHexAlphaChannel, setHslAlphaChannel, setAlphaChannel } from '../src/utils/colors.js'
 import { EditorState, Plugin, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import * as basicSchema from 'prosemirror-schema-basic'
@@ -508,3 +509,35 @@ export const testRepeatGenerateProsemirrorChanges300 = tc => {
   checkResult(applyRandomTests(tc, pmChanges, 300, createNewProsemirrorView))
 }
 */
+
+/**
+ * @param {t.TestCase} _tc
+ */
+export const testColorUtils = _tc => {
+  const rgb = 'rgb(42,42,42)'
+  const rgbWithAlpha = setRgbAlphaChannel(rgb, 0.7)
+  t.compare(rgbWithAlpha, 'rgba(42, 42, 42, 0.7)')
+
+  // even if a rgb string has alpha channel, we should replace with a new value
+  const rgbWithReplacedAlpha = setRgbAlphaChannel(rgbWithAlpha, 0.5)
+  t.compare(rgbWithReplacedAlpha, 'rgba(42, 42, 42, 0.5)')
+
+  const hex = '#007bff'
+  const hexWithAlpha = setHexAlphaChannel(hex, 0.7)
+  t.compare(hexWithAlpha, '#007bffb2')
+
+  const hexWithReplacedAlpha = setHexAlphaChannel(hexWithAlpha, 0.5)
+  t.compare(hexWithReplacedAlpha, '#007bff7f')
+
+  const hsl = 'hsl(240, 100%, 50%)'
+  const hslWithAlpha = setHslAlphaChannel(hsl, 0.7)
+  t.compare(hslWithAlpha, 'hsla(240, 100%, 50%, 0.7)')
+
+  const hslWithReplacedAlpha = setHslAlphaChannel(hslWithAlpha, 0.5)
+  t.compare(hslWithReplacedAlpha, 'hsla(240, 100%, 50%, 0.5)')
+
+  // tests for generic function for all three types
+  t.compare(setAlphaChannel(rgb, 0.7), rgbWithAlpha)
+  t.compare(setAlphaChannel(hex, 0.7), hexWithAlpha)
+  t.compare(setAlphaChannel(hsl, 0.7), hslWithAlpha)
+}

@@ -10,6 +10,7 @@ import {
 import { yCursorPluginKey, ySyncPluginKey } from './keys.js'
 
 import * as math from 'lib0/math'
+import { setAlphaChannel } from 'src/utils/colors.js';
 
 /**
  * Default awareness state filter
@@ -49,8 +50,9 @@ export const defaultCursorBuilder = (user) => {
  * @return {import('prosemirror-view').DecorationAttrs}
  */
 export const defaultSelectionBuilder = (user) => {
+  const color = setAlphaChannel(user.color, 0.7);
   return {
-    style: `background-color: ${user.color}70`,
+    style: `background-color: ${color}`,
     class: 'ProseMirror-yjs-selection'
   }
 }
@@ -91,8 +93,8 @@ export const createDecorations = (
       const user = aw.user || {}
       if (user.color == null) {
         user.color = '#ffa500'
-      } else if (!rxValidColor.test(user.color)) {
-        // We only support 6-digit RGB colors in y-prosemirror
+      } else if (!CSS.supports('color', user.color)) {
+        // We only support CSS colors in y-prosemirror
         console.warn('A user uses an unsupported color format', user)
       }
       if (user.name == null) {
