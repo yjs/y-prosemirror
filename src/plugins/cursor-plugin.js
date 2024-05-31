@@ -10,7 +10,7 @@ import {
 import { yCursorPluginKey, ySyncPluginKey } from './keys.js'
 
 import * as math from 'lib0/math'
-import { setAlphaChannel } from 'src/utils/colors.js';
+import { setAlphaChannel } from '../utils/colors.js';
 
 /**
  * Default awareness state filter
