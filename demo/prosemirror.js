@@ -36,6 +36,10 @@ window.addEventListener('load', () => {
   })
   document.body.insertBefore(editorContainer, null)
 
+  setTimeout(() => {
+    prosemirrorView.focus()
+  })
+
   const connectBtn = /** @type {HTMLElement} */ (document.getElementById('y-connect-btn'))
   connectBtn.addEventListener('click', () => {
     if (provider.shouldConnect) {

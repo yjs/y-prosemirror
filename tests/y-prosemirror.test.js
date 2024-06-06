@@ -21,6 +21,7 @@ import { EditorView } from 'prosemirror-view'
 import * as basicSchema from 'prosemirror-schema-basic'
 import { findWrapping } from 'prosemirror-transform'
 import { schema as complexSchema } from './complexSchema.js'
+import * as promise from 'lib0/promise'
 
 const schema = /** @type {any} */ (basicSchema.schema)
 
@@ -251,6 +252,41 @@ export const testAddToHistory = (_tc) => {
     yxml.length === 2 && yxml.get(0).length === 1,
     'insertion was *not* undone'
   )
+}
+
+/**
+ * Tests for #126 - initial cursor position should be retained, not jump to the end.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testInitialCursorPosition = async (_tc) => {
+  const ydoc = new Y.Doc()
+  const yxml = ydoc.get('prosemirror', Y.XmlFragment)
+  const p = new Y.XmlElement('paragraph')
+  p.insert(0, [new Y.XmlText('hello world!')])
+  yxml.insert(0, [p])
+  console.log('yxml', yxml.toString())
+  const view = createNewProsemirrorView(ydoc)
+  view.focus()
+  await promise.wait(10)
+  console.log('anchor', view.state.selection.anchor)
+  t.assert(view.state.selection.anchor === 1)
+  t.assert(view.state.selection.head === 1)
+}
+
+export const testInitialCursorPosition2 = async (_tc) => {
+  const ydoc = new Y.Doc()
+  const yxml = ydoc.get('prosemirror', Y.XmlFragment)
+  console.log('yxml', yxml.toString())
+  const view = createNewProsemirrorView(ydoc)
+  view.focus()
+  await promise.wait(10)
+  const p = new Y.XmlElement('paragraph')
+  p.insert(0, [new Y.XmlText('hello world!')])
+  yxml.insert(0, [p])
+  console.log('anchor', view.state.selection.anchor)
+  t.assert(view.state.selection.anchor === 0)
+  t.assert(view.state.selection.head === 0)
 }
 
 export const testAddToHistoryIgnore = (_tc) => {

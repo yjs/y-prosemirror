@@ -392,6 +392,10 @@ export class ProsemirrorBinding {
   _forceRerender () {
     this.mapping = new Map()
     this.mux(() => {
+      // If this is a forced rerender, this might neither happen as a pm change nor within a Yjs
+      // transaction. Then the "before selection" doesn't exist. In this case, we need to create a
+      // relative position before replacing content. Fixes #126
+      const sel = this.beforeTransactionSelection !== null ? null : this.prosemirrorView.state.selection
       const fragmentContent = this.type.toArray().map((t) =>
         createNodeFromYElement(
           /** @type {Y.XmlElement} */ (t),
@@ -405,6 +409,9 @@ export class ProsemirrorBinding {
         this.prosemirrorView.state.doc.content.size,
         new PModel.Slice(PModel.Fragment.from(fragmentContent), 0, 0)
       )
+      if (sel) {
+        tr.setSelection(TextSelection.create(tr.doc, sel.anchor, sel.head))
+      }
       this.prosemirrorView.dispatch(
         tr.setMeta(ySyncPluginKey, { isChangeOrigin: true, binding: this })
       )
