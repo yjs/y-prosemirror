@@ -419,18 +419,34 @@ export class ProsemirrorBinding {
   }
 
   /**
-   * @param {Y.Snapshot} snapshot
-   * @param {Y.Snapshot} prevSnapshot
+   * @param {Y.Snapshot|Uint8Array} snapshot
+   * @param {Y.Snapshot|Uint8Array} prevSnapshot
    * @param {Object} pluginState
    */
   _renderSnapshot (snapshot, prevSnapshot, pluginState) {
+    /**
+     * The document that contains the full history of this document.
+     * @type {Y.Doc}
+     */
+    let historyDoc = this.doc
     if (!snapshot) {
       snapshot = Y.snapshot(this.doc)
+    }
+    if (snapshot instanceof Uint8Array || prevSnapshot instanceof Uint8Array) {
+      if (!(snapshot instanceof Uint8Array) || !(prevSnapshot instanceof Uint8Array)) {
+        // expected both snapshots to be v2 updates
+        error.unexpectedCase()
+      }
+      historyDoc = new Y.Doc({ gc: false })
+      Y.applyUpdateV2(historyDoc, prevSnapshot)
+      prevSnapshot = Y.snapshot(historyDoc)
+      Y.applyUpdateV2(historyDoc, snapshot)
+      snapshot = Y.snapshot(historyDoc)
     }
     // clear mapping because we are going to rerender
     this.mapping = new Map()
     this.mux(() => {
-      this.doc.transact((transaction) => {
+      historyDoc.transact((transaction) => {
         // before rendering, we are going to sanitize ops and split deleted ops
         // if they were deleted by seperate users.
         const pud = pluginState.permanentUserData
