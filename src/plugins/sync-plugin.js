@@ -582,6 +582,7 @@ export class ProsemirrorBinding {
   }
 
   destroy () {
+    if (this.isDestroyed) return
     this.isDestroyed = true
     this.type.unobserveDeep(this._observeFunction)
     this.doc.off('beforeAllTransactions', this.beforeAllTransactions)
