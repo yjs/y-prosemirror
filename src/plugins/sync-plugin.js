@@ -294,7 +294,7 @@ export class ProsemirrorBinding {
      */
     this.beforeTransactionSelection = null
     this.beforeAllTransactions = () => {
-      if (this.beforeTransactionSelection === null) {
+      if (this.beforeTransactionSelection === null && this.prosemirrorView != null) {
         this.beforeTransactionSelection = getRelativeSelection(
           this,
           this.prosemirrorView.state
@@ -519,6 +519,7 @@ export class ProsemirrorBinding {
    * @param {Y.Transaction} transaction
    */
   _typeChanged (events, transaction) {
+    if (this.prosemirrorView == null) return
     const syncState = ySyncPluginKey.getState(this.prosemirrorView.state)
     if (
       events.length === 0 || syncState.snapshot != null ||
