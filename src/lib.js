@@ -210,13 +210,35 @@ export const yXmlFragmentToProseMirrorFragment = (yXmlFragment, schema) => {
 
 /**
  * Utility function for converting an Y.Fragment to a ProseMirror node.
- * This can be used for supplying the initial content to ProseMirror state.
  *
  * @param {Y.XmlFragment} yXmlFragment
  * @param {Schema} schema
  */
 export const yXmlFragmentToProseMirrorRootNode = (yXmlFragment, schema) =>
   schema.topNodeType.create(null, yXmlFragmentToProseMirrorFragment(yXmlFragment, schema))
+
+/**
+ * The initial ProseMirror content should be supplied by Yjs. This function transforms a Y.Fragment
+ * to a ProseMirror Doc node and creates a mapping that is used by the sync plugin.
+ *
+ * @param {Y.XmlFragment} yXmlFragment
+ * @param {Schema} schema
+ */
+export const initProseMirrorDoc = (yXmlFragment, schema) => {
+  /**
+   * @type {ProsemirrorMapping}
+   */
+  const mapping = new Map()
+  const fragmentContent = yXmlFragment.toArray().map((t) =>
+    createNodeFromYElement(
+      /** @type {Y.XmlElement} */ (t),
+      schema,
+      mapping
+    )
+  ).filter((n) => n !== null)
+  const doc = schema.topNodeType.create(null, Fragment.fromArray(fragmentContent))
+  return { doc, mapping }
+}
 
 /**
  * Utility method to convert a Prosemirror Doc Node into a Y.Doc.

@@ -6,5 +6,6 @@ export {
   absolutePositionToRelativePosition, relativePositionToAbsolutePosition, setMeta,
   prosemirrorJSONToYDoc, yDocToProsemirrorJSON, yDocToProsemirror, prosemirrorToYDoc,
   prosemirrorJSONToYXmlFragment, yXmlFragmentToProsemirrorJSON, yXmlFragmentToProsemirror,
-  prosemirrorToYXmlFragment, yXmlFragmentToProseMirrorRootNode, yXmlFragmentToProseMirrorFragment
+  prosemirrorToYXmlFragment, yXmlFragmentToProseMirrorRootNode, yXmlFragmentToProseMirrorFragment,
+  initProseMirrorDoc
 } from './lib.js'
