@@ -140,7 +140,7 @@ export const ySyncPlugin = (yXmlFragment, {
           ) {
             // snapshot changed, rerender next
             eventloop.timeout(0, () => {
-              if (binding.isDestroyed) {
+              if (binding.prosemirrorView == null) {
                 return
               }
               if (change.restore == null) {
@@ -172,7 +172,7 @@ export const ySyncPlugin = (yXmlFragment, {
       }
     },
     view: (view) => {
-      binding.prosemirrorView = view
+      binding.initView(view)
       if (mapping == null) {
         // force rerender to update the bindings mapping
         binding._forceRerender()
@@ -281,7 +281,6 @@ export class ProsemirrorBinding {
      */
     this.prosemirrorView = null
     this.mux = createMutex()
-    this.isDestroyed = false
     this.mapping = mapping
     this._observeFunction = this._typeChanged.bind(this)
     /**
@@ -304,11 +303,6 @@ export class ProsemirrorBinding {
     this.afterAllTransactions = () => {
       this.beforeTransactionSelection = null
     }
-
-    this.doc.on('beforeAllTransactions', this.beforeAllTransactions)
-    this.doc.on('afterAllTransactions', this.afterAllTransactions)
-    yXmlFragment.observeDeep(this._observeFunction)
-
     this._domSelectionInView = null
   }
 
@@ -581,9 +575,21 @@ export class ProsemirrorBinding {
     }, ySyncPluginKey)
   }
 
+  /**
+   * View is ready to listen to changes. Register observers.
+   * @param {any} prosemirrorView
+   */
+  initView (prosemirrorView) {
+    if (this.prosemirrorView != null) this.destroy()
+    this.prosemirrorView = prosemirrorView
+    this.doc.on('beforeAllTransactions', this.beforeAllTransactions)
+    this.doc.on('afterAllTransactions', this.afterAllTransactions)
+    this.type.observeDeep(this._observeFunction)
+  }
+
   destroy () {
-    if (this.isDestroyed) return
-    this.isDestroyed = true
+    if (this.prosemirrorView == null) return
+    this.prosemirrorView = null
     this.type.unobserveDeep(this._observeFunction)
     this.doc.off('beforeAllTransactions', this.beforeAllTransactions)
     this.doc.off('afterAllTransactions', this.afterAllTransactions)
