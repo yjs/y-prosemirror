@@ -77,7 +77,7 @@ export const createDecorations = (
   const decorations = []
   if (
     ystate.snapshot != null || ystate.prevSnapshot != null ||
-    ystate.binding === null
+    ystate.binding.mapping.size === 0
   ) {
     // do not render cursors while snapshot is active
     return DecorationSet.create(state.doc, [])
