@@ -320,7 +320,7 @@ export function prosemirrorJSONToYXmlFragment (schema, state, xmlFragment) {
 }
 
 /**
- * @deprecated Use `yXmlFragmentToProseMirrorNode` instead
+ * @deprecated Use `yXmlFragmentToProseMirrorRootNode` instead
  *
  * Utility method to convert a Y.Doc to a Prosemirror Doc node.
  *
@@ -335,7 +335,7 @@ export function yDocToProsemirror (schema, ydoc) {
 
 /**
  *
- * @deprecated Use `yXmlFragmentToProseMirrorNode` instead
+ * @deprecated Use `yXmlFragmentToProseMirrorRootNode` instead
  *
  * Utility method to convert a Y.XmlFragment to a Prosemirror Doc node.
  *
@@ -350,7 +350,7 @@ export function yXmlFragmentToProsemirror (schema, xmlFragment) {
 
 /**
  *
- * @deprecated Use `yXmlFragmentToProseMirrorNode` instead
+ * @deprecated Use `yXmlFragmentToProseMirrorRootNode` instead
  *
  * Utility method to convert a Y.Doc to Prosemirror compatible JSON.
  *
@@ -366,7 +366,7 @@ export function yDocToProsemirrorJSON (
 }
 
 /**
- * @deprecated Use `yXmlFragmentToProseMirrorNode` instead
+ * @deprecated Use `yXmlFragmentToProseMirrorRootNode` instead
  *
  * Utility method to convert a Y.Doc to Prosemirror compatible JSON.
  *
