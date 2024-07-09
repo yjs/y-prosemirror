@@ -1,4 +1,4 @@
-# y-prosemirror [![Build Status](https://travis-ci.com/yjs/y-prosemirror.svg?branch=master)](https://travis-ci.com/yjs/y-prosemirror)
+# y-prosemirror
 
 > [ProseMirror](http://prosemirror.net/) Binding for [Yjs](https://github.com/yjs/yjs) - [Demo](https://demos.yjs.dev/prosemirror/prosemirror.html)
 
