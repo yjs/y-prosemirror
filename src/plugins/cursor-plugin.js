@@ -87,7 +87,6 @@ export const createDecorations = (
   awareness.getStates().forEach((aw, clientId) => {
     if (!awarenessFilter(y.clientID, clientId, aw)) {
       return
-      return;
     }
 
     if (aw[cursorStateField] != null) {
