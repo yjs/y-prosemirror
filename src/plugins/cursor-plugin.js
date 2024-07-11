@@ -90,7 +90,7 @@ export const createDecorations = (
     }
 
     if (aw[cursorStateField] != null) {
-      const user = aw.user || {}
+      const user = aw.user || {};
       if (user.color == null) {
         user.color = '#ffa500'
       } else if (!rxValidColor.test(user.color)) {
@@ -105,7 +105,7 @@ export const createDecorations = (
         ystate.type,
         Y.createRelativePositionFromJSON(aw[cursorStateField].anchor),
         ystate.binding.mapping
-      )
+      );
       let head = relativePositionToAbsolutePosition(
         y,
         ystate.type,
@@ -246,7 +246,13 @@ export const yCursorPlugin = (
             })
           }
         } else if (
-          current[cursorStateField] != null
+          current[cursorStateField] != null &&
+          relativePositionToAbsolutePosition(
+            ystate.doc,
+            ystate.type,
+            Y.createRelativePositionFromJSON(current[cursorStateField].anchor),
+            ystate.binding.mapping
+          ) !== null
         ) {
           // delete cursor information if current cursor information is owned by this editor binding
           awareness.setLocalStateField(cursorStateField, null)
