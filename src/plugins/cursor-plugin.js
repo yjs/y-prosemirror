@@ -63,6 +63,7 @@ const rxValidColor = /^#[0-9a-fA-F]{6}$/
  * @param {function(number, number, any):boolean} awarenessFilter
  * @param {function({ name: string, color: string }):Element} createCursor
  * @param {function({ name: string, color: string }):import('prosemirror-view').DecorationAttrs} createSelection
+ * @param {string} cursorStateField
  * @return {any} DecorationSet
  */
 export const createDecorations = (
@@ -70,7 +71,8 @@ export const createDecorations = (
   awareness,
   awarenessFilter,
   createCursor,
-  createSelection
+  createSelection,
+  cursorStateField
 ) => {
   const ystate = ySyncPluginKey.getState(state)
   const y = ystate.doc
@@ -85,10 +87,11 @@ export const createDecorations = (
   awareness.getStates().forEach((aw, clientId) => {
     if (!awarenessFilter(y.clientID, clientId, aw)) {
       return
+      return;
     }
 
-    if (aw.cursor != null) {
-      const user = aw.user || {}
+    if (aw[cursorStateField] != null) {
+      const user = aw.user || {};
       if (user.color == null) {
         user.color = '#ffa500'
       } else if (!rxValidColor.test(user.color)) {
@@ -101,13 +104,13 @@ export const createDecorations = (
       let anchor = relativePositionToAbsolutePosition(
         y,
         ystate.type,
-        Y.createRelativePositionFromJSON(aw.cursor.anchor),
+        Y.createRelativePositionFromJSON(aw[cursorStateField].anchor),
         ystate.binding.mapping
-      )
+      );
       let head = relativePositionToAbsolutePosition(
         y,
         ystate.type,
-        Y.createRelativePositionFromJSON(aw.cursor.head),
+        Y.createRelativePositionFromJSON(aw[cursorStateField].head),
         ystate.binding.mapping
       )
       if (anchor !== null && head !== null) {
@@ -167,7 +170,8 @@ export const yCursorPlugin = (
           awareness,
           awarenessStateFilter,
           cursorBuilder,
-          selectionBuilder
+          selectionBuilder,
+          cursorStateField
         )
       },
       apply (tr, prevState, _oldState, newState) {
