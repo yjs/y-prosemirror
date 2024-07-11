@@ -231,13 +231,13 @@ export const yCursorPlugin = (
             ystate.binding.mapping
           )
           if (
-            current.cursor == null ||
+            current[cursorStateField] == null ||
             !Y.compareRelativePositions(
-              Y.createRelativePositionFromJSON(current.cursor.anchor),
+              Y.createRelativePositionFromJSON(current[cursorStateField].anchor),
               anchor
             ) ||
             !Y.compareRelativePositions(
-              Y.createRelativePositionFromJSON(current.cursor.head),
+              Y.createRelativePositionFromJSON(current[cursorStateField].head),
               head
             )
           ) {
@@ -247,11 +247,11 @@ export const yCursorPlugin = (
             })
           }
         } else if (
-          current.cursor != null &&
+          current[cursorStateField] != null &&
           relativePositionToAbsolutePosition(
             ystate.doc,
             ystate.type,
-            Y.createRelativePositionFromJSON(current.cursor.anchor),
+            Y.createRelativePositionFromJSON(current[cursorStateField].anchor),
             ystate.binding.mapping
           ) !== null
         ) {
