@@ -186,7 +186,8 @@ export const yCursorPlugin = (
             awareness,
             awarenessStateFilter,
             cursorBuilder,
-            selectionBuilder
+            selectionBuilder,
+            cursorStateField
           )
         }
         return prevState.map(tr.mapping, tr.doc)
