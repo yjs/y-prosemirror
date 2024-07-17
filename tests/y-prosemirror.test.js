@@ -590,3 +590,96 @@ export const testRepeatGenerateProsemirrorChanges300 = tc => {
   checkResult(applyRandomTests(tc, pmChanges, 300, createNewProsemirrorView))
 }
 */
+
+/**
+ * @param {t.TestCase} _tc
+ */
+export const testSimultaneousInsertOnEmptyLineWithSync = (_tc) => {
+  const ydoc1 = new Y.Doc()
+  const ydoc2 = new Y.Doc()
+
+  // Apply initial state to ydoc1
+  const initialContent = schema.node('doc', null, [
+    schema.node('paragraph', null, [schema.text('123')]),
+    schema.node('paragraph'),
+    schema.node('paragraph', null, [schema.text('456')])
+  ])
+
+  const view1 = createNewProsemirrorView(ydoc1)
+  view1.dispatch(
+    view1.state.tr.replaceWith(0, view1.state.doc.content.size, initialContent)
+  )
+
+  // Encode the initial state from ydoc1 and apply it to ydoc2
+  const initialUpdate = Y.encodeStateAsUpdate(ydoc1)
+  Y.applyUpdate(ydoc2, initialUpdate)
+
+  // Create views for ydoc1 and ydoc2
+  const view2 = createNewProsemirrorView(ydoc2)
+
+  // Simulate simultaneous inserts on the empty line
+  const insertA = view1.state.tr.insertText('A', 6)
+  const insertX = view2.state.tr.insertText('X', 6)
+
+  view1.dispatch(insertA)
+  view2.dispatch(insertX)
+
+  // Sync the documents
+  const updateFromDoc1 = Y.encodeStateAsUpdate(ydoc1)
+  const updateFromDoc2 = Y.encodeStateAsUpdate(ydoc2)
+
+  Y.applyUpdate(ydoc1, updateFromDoc2)
+  Y.applyUpdate(ydoc2, updateFromDoc1)
+
+  // Update ProseMirror views with Yjs updates
+  view1.updateState(view1.state.apply(view1.state.tr))
+  view2.updateState(view2.state.apply(view2.state.tr))
+
+  // Check the results
+  const yxml1 = ydoc1.get('prosemirror', Y.XmlFragment)
+  const yxml2 = ydoc2.get('prosemirror', Y.XmlFragment)
+
+  t.assert(yxml1.toString() === yxml2.toString(), 'Documents should be in sync after first insert')
+
+  const contentAfterFirstInsert = yxml1.toString()
+
+  t.assert(
+    contentAfterFirstInsert === '<paragraph>123</paragraph><paragraph>AX</paragraph><paragraph>456</paragraph>' ||
+    contentAfterFirstInsert === '<paragraph>123</paragraph><paragraph>XA</paragraph><paragraph>456</paragraph>'
+  )
+
+  // Simulate simultaneous inserts on the previously empty line
+  const insertB = view1.state.tr.insertText('B', 7)
+  const insertY = view2.state.tr.insertText('Y', 7)
+
+  view1.dispatch(insertB)
+  view2.dispatch(insertY)
+
+  // Sync the documents again
+  const updateFromDoc1AfterSecondInsert = Y.encodeStateAsUpdate(ydoc1)
+  const updateFromDoc2AfterSecondInsert = Y.encodeStateAsUpdate(ydoc2)
+
+  Y.applyUpdate(ydoc1, updateFromDoc2AfterSecondInsert)
+  Y.applyUpdate(ydoc2, updateFromDoc1AfterSecondInsert)
+
+  // Update ProseMirror views with Yjs updates
+  view1.updateState(view1.state.apply(view1.state.tr))
+  view2.updateState(view2.state.apply(view2.state.tr))
+
+  // Check the results
+  const yxml1AfterSecondInsert = ydoc1.get('prosemirror', Y.XmlFragment)
+  const yxml2AfterSecondInsert = ydoc2.get('prosemirror', Y.XmlFragment)
+
+  t.assert(yxml1AfterSecondInsert.toString() === yxml2AfterSecondInsert.toString(), 'Documents should be in sync after second insert')
+
+  const contentAfterSecondInsert = yxml1AfterSecondInsert.toString()
+
+  // TODO: This is failing.
+  // contentAfterSecondInsert == <paragraph>123</paragraph><paragraph>ABXYX</paragraph><paragraph>456</paragraph>
+  // Note the duplication of `X`.
+
+  t.assert(
+    contentAfterSecondInsert === '<paragraph>123</paragraph><paragraph>ABXY</paragraph><paragraph>456</paragraph>' ||
+    contentAfterSecondInsert === '<paragraph>123</paragraph><paragraph>XYAB</paragraph><paragraph>456</paragraph>'
+  )
+}
