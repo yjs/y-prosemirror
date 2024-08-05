@@ -204,9 +204,6 @@ export const yCursorPlugin = (
         const ystate = ySyncPluginKey.getState(view.state)
         // @note We make implicit checks when checking for the cursor property
         const current = awareness.getLocalState() || {}
-        if (ystate.binding == null) {
-          return
-        }
         if (view.hasFocus()) {
           const selection = getSelection(view.state)
           /**
