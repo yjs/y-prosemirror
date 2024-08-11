@@ -669,7 +669,7 @@ export const createNodeFromYElement = (
       // This is a fix for #160 -- duplication of characters when two Y.Text exist next to each
       // other.
       const nextytext = type._item.right?.content.type
-      if (nextytext != null && !nextytext._item.deleted && nextytext._item.id.client === nextytext.doc.clientID) {
+      if (nextytext instanceof Y.Text && !nextytext._item.deleted && nextytext._item.id.client === nextytext.doc.clientID) {
         type.applyDelta([
           { retain: type.length },
           ...nextytext.toDelta()
