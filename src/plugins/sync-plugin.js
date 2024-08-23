@@ -665,6 +665,20 @@ export const createNodeFromYElement = (
         children.push(n)
       }
     } else {
+      // If the next ytext exists and was created by us, move the content to the current ytext.
+      // This is a fix for #160 -- duplication of characters when two Y.Text exist next to each
+      // other.
+      const nextytext = type._item.right?.content.type
+      if (nextytext instanceof Y.Text && !nextytext._item.deleted && nextytext._item.id.client === nextytext.doc.clientID) {
+        type.applyDelta([
+          { retain: type.length },
+          ...nextytext.toDelta()
+        ])
+        nextytext.doc.transact(tr => {
+          nextytext._item.delete(tr)
+        })
+      }
+      // now create the prosemirror text nodes
       const ns = createTextNodesFromYText(
         type,
         schema,

@@ -205,6 +205,55 @@ export const testEmptyParagraph = (_tc) => {
   )
 }
 
+/**
+ * Test duplication issue https://github.com/yjs/y-prosemirror/issues/161
+ *
+ * @param {t.TestCase} tc
+ */
+export const testInsertDuplication = (_tc) => {
+  const ydoc1 = new Y.Doc()
+  ydoc1.clientID = 1
+  const ydoc2 = new Y.Doc()
+  ydoc2.clientID = 2
+  const view1 = createNewProsemirrorView(ydoc1)
+  const view2 = createNewProsemirrorView(ydoc2)
+  const yxml1 = ydoc1.getXmlFragment('prosemirror')
+  const yxml2 = ydoc2.getXmlFragment('prosemirror')
+  yxml1.observeDeep(events => {
+    events.forEach(event => {
+      console.log('yxml1: ', JSON.stringify(event.changes.delta))
+    })
+  })
+  yxml2.observeDeep(events => {
+    events.forEach(event => {
+      console.log('yxml2: ', JSON.stringify(event.changes.delta))
+    })
+  })
+  view1.dispatch(
+    view1.state.tr.insert(
+      0,
+      /** @type {any} */ (schema.node(
+        'paragraph'
+      ))
+    )
+  )
+  const sync = () => {
+    Y.applyUpdate(ydoc2, Y.encodeStateAsUpdate(ydoc1))
+    Y.applyUpdate(ydoc1, Y.encodeStateAsUpdate(ydoc2))
+    Y.applyUpdate(ydoc2, Y.encodeStateAsUpdate(ydoc1))
+    Y.applyUpdate(ydoc1, Y.encodeStateAsUpdate(ydoc2))
+  }
+  sync()
+  view1.dispatch(view1.state.tr.insertText('1', 1, 1))
+  view2.dispatch(view2.state.tr.insertText('2', 1, 1))
+  sync()
+  view1.dispatch(view1.state.tr.insertText('1', 2, 2))
+  view2.dispatch(view2.state.tr.insertText('2', 3, 3))
+  sync()
+  checkResult({ testObjects: [view1, view2] })
+  t.assert(yxml1.toString() === '<paragraph>1122</paragraph><paragraph></paragraph>')
+}
+
 export const testAddToHistory = (_tc) => {
   const ydoc = new Y.Doc()
   const view = createNewProsemirrorViewWithUndoManager(ydoc)
