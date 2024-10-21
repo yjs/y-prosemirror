@@ -1,4 +1,4 @@
-# y-prosemirror [![Build Status](https://travis-ci.com/yjs/y-prosemirror.svg?branch=master)](https://travis-ci.com/yjs/y-prosemirror)
+# y-prosemirror
 
 > [ProseMirror](http://prosemirror.net/) Binding for [Yjs](https://github.com/yjs/yjs) - [Demo](https://demos.yjs.dev/prosemirror/prosemirror.html)
 
@@ -14,18 +14,20 @@ This binding maps a Y.XmlFragment to the ProseMirror state.
 ### Example
 
 ```js
-import { ySyncPlugin, yCursorPlugin, yUndoPlugin, undo, redo } from 'y-prosemirror'
+import { ySyncPlugin, yCursorPlugin, yUndoPlugin, undo, redo, initProseMirrorDoc } from 'y-prosemirror'
 import { exampleSetup } from 'prosemirror-example-setup'
 import { keymap } from 'prosemirror-keymap'
 ..
 
 const type = ydocument.get('prosemirror', Y.XmlFragment)
+const { doc, mapping } = initProseMirrorDoc(type, schema)
 
 const prosemirrorView = new EditorView(document.querySelector('#editor'), {
   state: EditorState.create({
+    doc,
     schema,
     plugins: [
-        ySyncPlugin(type),
+        ySyncPlugin(type, { mapping }),
         yCursorPlugin(provider.awareness),
         yUndoPlugin(),
         keymap({

@@ -12,6 +12,16 @@ import { yCursorPluginKey, ySyncPluginKey } from './keys.js'
 import * as math from 'lib0/math'
 
 /**
+ * Default awareness state filter
+ *
+ * @param {number} currentClientId current client id
+ * @param {number} userClientId user client id
+ * @param {any} _user user data
+ * @return {boolean}
+ */
+export const defaultAwarenessStateFilter = (currentClientId, userClientId, _user) => currentClientId !== userClientId
+
+/**
  * Default generator for a cursor element
  *
  * @param {any} user user data
@@ -50,6 +60,7 @@ const rxValidColor = /^#[0-9a-fA-F]{6}$/
 /**
  * @param {any} state
  * @param {Awareness} awareness
+ * @param {function(number, number, any):boolean} awarenessFilter
  * @param {function({ name: string, color: string }):Element} createCursor
  * @param {function({ name: string, color: string }):import('prosemirror-view').DecorationAttrs} createSelection
  * @return {any} DecorationSet
@@ -57,6 +68,7 @@ const rxValidColor = /^#[0-9a-fA-F]{6}$/
 export const createDecorations = (
   state,
   awareness,
+  awarenessFilter,
   createCursor,
   createSelection
 ) => {
@@ -65,15 +77,16 @@ export const createDecorations = (
   const decorations = []
   if (
     ystate.snapshot != null || ystate.prevSnapshot != null ||
-    ystate.binding === null
+    ystate.binding.mapping.size === 0
   ) {
     // do not render cursors while snapshot is active
     return DecorationSet.create(state.doc, [])
   }
   awareness.getStates().forEach((aw, clientId) => {
-    if (clientId === y.clientID) {
+    if (!awarenessFilter(y.clientID, clientId, aw)) {
       return
     }
+
     if (aw.cursor != null) {
       const user = aw.user || {}
       if (user.color == null) {
@@ -128,6 +141,7 @@ export const createDecorations = (
  * @public
  * @param {Awareness} awareness
  * @param {object} opts
+ * @param {function(any, any, any):boolean} [opts.awarenessStateFilter]
  * @param {function(any):HTMLElement} [opts.cursorBuilder]
  * @param {function(any):import('prosemirror-view').DecorationAttrs} [opts.selectionBuilder]
  * @param {function(any):any} [opts.getSelection]
@@ -137,6 +151,7 @@ export const createDecorations = (
 export const yCursorPlugin = (
   awareness,
   {
+    awarenessStateFilter = defaultAwarenessStateFilter,
     cursorBuilder = defaultCursorBuilder,
     selectionBuilder = defaultSelectionBuilder,
     getSelection = (state) => state.selection
@@ -150,6 +165,7 @@ export const yCursorPlugin = (
         return createDecorations(
           state,
           awareness,
+          awarenessStateFilter,
           cursorBuilder,
           selectionBuilder
         )
@@ -164,6 +180,7 @@ export const yCursorPlugin = (
           return createDecorations(
             newState,
             awareness,
+            awarenessStateFilter,
             cursorBuilder,
             selectionBuilder
           )
@@ -187,9 +204,6 @@ export const yCursorPlugin = (
         const ystate = ySyncPluginKey.getState(view.state)
         // @note We make implicit checks when checking for the cursor property
         const current = awareness.getLocalState() || {}
-        if (ystate.binding == null) {
-          return
-        }
         if (view.hasFocus()) {
           const selection = getSelection(view.state)
           /**

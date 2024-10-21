@@ -223,19 +223,16 @@ export const marks = {
       return codeDOM
     }
   },
+
   ychange: {
     attrs: {
       user: { default: null },
-      state: { default: null }
+      type: { default: null }
     },
     inclusive: false,
     parseDOM: [{ tag: 'ychange' }],
     toDOM (node) {
-      return [
-        'ychange',
-        { ychange_user: node.attrs.user, ychange_state: node.attrs.state },
-        0
-      ]
+      return ['ychange', { ychange_user: node.attrs.user, ychange_type: node.attrs.type }]
     }
   }
 }

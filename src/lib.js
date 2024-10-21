@@ -1,8 +1,8 @@
-import { updateYFragment } from './plugins/sync-plugin.js' // eslint-disable-line
+import { updateYFragment, createNodeFromYElement } from './plugins/sync-plugin.js' // eslint-disable-line
 import { ySyncPluginKey } from './plugins/keys.js'
 import * as Y from 'yjs'
 import { EditorView } from 'prosemirror-view' // eslint-disable-line
-import { Node, Schema } from 'prosemirror-model' // eslint-disable-line
+import { Node, Schema, Fragment } from 'prosemirror-model' // eslint-disable-line
 import * as error from 'lib0/error'
 import * as map from 'lib0/map'
 import * as eventloop from 'lib0/eventloop'
@@ -53,7 +53,7 @@ export const setMeta = (view, key, value) => {
  */
 export const absolutePositionToRelativePosition = (pos, type, mapping) => {
   if (pos === 0) {
-    return Y.createRelativePositionFromTypeIndex(type, 0)
+    return Y.createRelativePositionFromTypeIndex(type, 0, -1)
   }
   /**
    * @type {any}
@@ -62,7 +62,7 @@ export const absolutePositionToRelativePosition = (pos, type, mapping) => {
   while (n !== null && type !== n) {
     if (n instanceof Y.XmlText) {
       if (n._length >= pos) {
-        return Y.createRelativePositionFromTypeIndex(n, pos)
+        return Y.createRelativePositionFromTypeIndex(n, pos, -1)
       } else {
         pos -= n._length
       }
@@ -116,7 +116,7 @@ export const absolutePositionToRelativePosition = (pos, type, mapping) => {
       return createRelativePosition(n._item.parent, n._item)
     }
   }
-  return Y.createRelativePositionFromTypeIndex(type, type._length)
+  return Y.createRelativePositionFromTypeIndex(type, type._length, -1)
 }
 
 const createRelativePosition = (type, item) => {
@@ -189,6 +189,55 @@ export const relativePositionToAbsolutePosition = (y, documentType, relPos, mapp
     type = /** @type {Y.AbstractType} */ (parent)
   }
   return pos - 1 // we don't count the most outer tag, because it is a fragment
+}
+
+/**
+ * Utility function for converting an Y.Fragment to a ProseMirror fragment.
+ *
+ * @param {Y.XmlFragment} yXmlFragment
+ * @param {Schema} schema
+ */
+export const yXmlFragmentToProseMirrorFragment = (yXmlFragment, schema) => {
+  const fragmentContent = yXmlFragment.toArray().map((t) =>
+    createNodeFromYElement(
+      /** @type {Y.XmlElement} */ (t),
+      schema,
+      new Map()
+    )
+  ).filter((n) => n !== null)
+  return Fragment.fromArray(fragmentContent)
+}
+
+/**
+ * Utility function for converting an Y.Fragment to a ProseMirror node.
+ *
+ * @param {Y.XmlFragment} yXmlFragment
+ * @param {Schema} schema
+ */
+export const yXmlFragmentToProseMirrorRootNode = (yXmlFragment, schema) =>
+  schema.topNodeType.create(null, yXmlFragmentToProseMirrorFragment(yXmlFragment, schema))
+
+/**
+ * The initial ProseMirror content should be supplied by Yjs. This function transforms a Y.Fragment
+ * to a ProseMirror Doc node and creates a mapping that is used by the sync plugin.
+ *
+ * @param {Y.XmlFragment} yXmlFragment
+ * @param {Schema} schema
+ */
+export const initProseMirrorDoc = (yXmlFragment, schema) => {
+  /**
+   * @type {ProsemirrorMapping}
+   */
+  const mapping = new Map()
+  const fragmentContent = yXmlFragment.toArray().map((t) =>
+    createNodeFromYElement(
+      /** @type {Y.XmlElement} */ (t),
+      schema,
+      mapping
+    )
+  ).filter((n) => n !== null)
+  const doc = schema.topNodeType.create(null, Fragment.fromArray(fragmentContent))
+  return { doc, mapping }
 }
 
 /**
@@ -271,6 +320,8 @@ export function prosemirrorJSONToYXmlFragment (schema, state, xmlFragment) {
 }
 
 /**
+ * @deprecated Use `yXmlFragmentToProseMirrorRootNode` instead
+ *
  * Utility method to convert a Y.Doc to a Prosemirror Doc node.
  *
  * @param {Schema} schema
@@ -283,6 +334,9 @@ export function yDocToProsemirror (schema, ydoc) {
 }
 
 /**
+ *
+ * @deprecated Use `yXmlFragmentToProseMirrorRootNode` instead
+ *
  * Utility method to convert a Y.XmlFragment to a Prosemirror Doc node.
  *
  * @param {Schema} schema
@@ -295,6 +349,9 @@ export function yXmlFragmentToProsemirror (schema, xmlFragment) {
 }
 
 /**
+ *
+ * @deprecated Use `yXmlFragmentToProseMirrorRootNode` instead
+ *
  * Utility method to convert a Y.Doc to Prosemirror compatible JSON.
  *
  * @param {Y.Doc} ydoc
@@ -309,6 +366,8 @@ export function yDocToProsemirrorJSON (
 }
 
 /**
+ * @deprecated Use `yXmlFragmentToProseMirrorRootNode` instead
+ *
  * Utility method to convert a Y.Doc to Prosemirror compatible JSON.
  *
  * @param {Y.XmlFragment} xmlFragment The fragment, which must be part of a Y.Doc.

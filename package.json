@@ -1,6 +1,6 @@
 {
-  "name": "@peppercontent/y-prosemirror",
-  "version": "1.2.3",
+  "name": "y-prosemirror",
+  "version": "1.2.12",
   "description": "Prosemirror bindings for Yjs",
   "main": "./dist/y-prosemirror.cjs",
   "module": "./src/y-prosemirror.js",
@@ -12,16 +12,18 @@
     "url": "https://github.com/sponsors/dmonad"
   },
   "scripts": {
-    "dist": "rm -rf dist && rollup -c && tsc",
+    "clean": "rm -rf dist",
+    "dist": "npm run clean && rollup -c && tsc",
     "test": "npm run lint && rollup -c && node dist/test.cjs",
     "lint": "standard && tsc",
     "watch": "rollup -wc",
-    "debug": "concurrently 'http-server -o test.html' 'npm run watch'",
+    "debug": "concurrently '0serve -o test.html' 'npm run watch'",
     "preversion": "npm run lint && npm run dist && npm run test",
-    "start": "concurrently 'http-server -o demo/prosemirror.html' 'npm run watch'"
+    "start": "concurrently '0serve -o demo/prosemirror.html' 'npm run watch'"
   },
   "exports": {
     ".": {
+      "types": "./dist/src/y-prosemirror.d.ts",
       "import": "./src/y-prosemirror.js",
       "require": "./dist/y-prosemirror.cjs"
     }
@@ -75,9 +77,13 @@
     "prosemirror-view": "^1.26.2",
     "rollup": "^2.59.0",
     "standard": "^17.0.0",
-    "typescript": "^4.8.4",
+    "typescript": "^5.4.5",
     "y-protocols": "^1.0.5",
     "y-webrtc": "^10.2.0",
     "yjs": "^13.5.38"
+  },
+  "engines": {
+    "npm": ">=8.0.0",
+    "node": ">=16.0.0"
   }
 }

@@ -2,7 +2,7 @@
 
 import * as Y from 'yjs'
 import { WebrtcProvider } from 'y-webrtc'
-import { ySyncPlugin, yCursorPlugin, yUndoPlugin, undo, redo } from '../src/y-prosemirror.js'
+import { ySyncPlugin, yCursorPlugin, yUndoPlugin, undo, redo, initProseMirrorDoc } from '../src/y-prosemirror.js'
 import { EditorState } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { schema } from './schema.js'
@@ -18,11 +18,13 @@ window.addEventListener('load', () => {
   editor.setAttribute('id', 'editor')
   const editorContainer = document.createElement('div')
   editorContainer.insertBefore(editor, null)
+  const { doc, mapping } = initProseMirrorDoc(type, schema)
   const prosemirrorView = new EditorView(editor, {
     state: EditorState.create({
+      doc,
       schema,
       plugins: [
-        ySyncPlugin(type),
+        ySyncPlugin(type, { mapping }),
         yCursorPlugin(provider.awareness),
         yUndoPlugin(),
         keymap({
@@ -34,6 +36,10 @@ window.addEventListener('load', () => {
     })
   })
   document.body.insertBefore(editorContainer, null)
+
+  setTimeout(() => {
+    prosemirrorView.focus()
+  })
 
   const connectBtn = /** @type {HTMLElement} */ (document.getElementById('y-connect-btn'))
   connectBtn.addEventListener('click', () => {

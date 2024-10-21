@@ -51,6 +51,7 @@ export const isVisible = (item, snapshot) =>
  * @property {Array<ColorDef>} [YSyncOpts.colors]
  * @property {Map<string,ColorDef>} [YSyncOpts.colorMapping]
  * @property {Y.PermanentUserData|null} [YSyncOpts.permanentUserData]
+ * @property {ProsemirrorMapping} [YSyncOpts.mapping]
  * @property {function} [YSyncOpts.onFirstRender] Fired when the content from Yjs is initially rendered to ProseMirror
  */
 
@@ -90,10 +91,11 @@ export const ySyncPlugin = (yXmlFragment, {
   colors = defaultColors,
   colorMapping = new Map(),
   permanentUserData = null,
-  onFirstRender = () => {}
+  onFirstRender = () => {},
+  mapping
 } = {}) => {
-  let changedInitialContent = false
-  let rerenderTimeout
+  let initialContentChanged = false
+  const binding = new ProsemirrorBinding(yXmlFragment, mapping)
   const plugin = new Plugin({
     props: {
       editable: (state) => {
@@ -110,7 +112,7 @@ export const ySyncPlugin = (yXmlFragment, {
         return {
           type: yXmlFragment,
           doc: yXmlFragment.doc,
-          binding: null,
+          binding,
           snapshot: null,
           prevSnapshot: null,
           isChangeOrigin: false,
@@ -134,26 +136,24 @@ export const ySyncPlugin = (yXmlFragment, {
         pluginState.isChangeOrigin = change !== undefined &&
           !!change.isChangeOrigin
         pluginState.isUndoRedoOperation = change !== undefined && !!change.isChangeOrigin && !!change.isUndoRedoOperation
-        if (pluginState.binding !== null) {
+        if (binding.prosemirrorView !== null) {
           if (
             change !== undefined &&
             (change.snapshot != null || change.prevSnapshot != null)
           ) {
             // snapshot changed, rerender next
             eventloop.timeout(0, () => {
-              if (
-                pluginState.binding == null || pluginState.binding.isDestroyed
-              ) {
+              if (binding.prosemirrorView == null) {
                 return
               }
               if (change.restore == null) {
-                pluginState.binding._renderSnapshot(
+                binding._renderSnapshot(
                   change.snapshot,
                   change.prevSnapshot,
                   pluginState
                 )
               } else {
-                pluginState.binding._renderSnapshot(
+                binding._renderSnapshot(
                   change.snapshot,
                   change.snapshot,
                   pluginState
@@ -162,9 +162,9 @@ export const ySyncPlugin = (yXmlFragment, {
                 delete pluginState.restore
                 delete pluginState.snapshot
                 delete pluginState.prevSnapshot
-                pluginState.binding.mux(() => {
-                  pluginState.binding._prosemirrorChanged(
-                    pluginState.binding.prosemirrorView.state.doc
+                binding.mux(() => {
+                  binding._prosemirrorChanged(
+                    binding.prosemirrorView.state.doc
                   )
                 })
               }
@@ -175,16 +175,12 @@ export const ySyncPlugin = (yXmlFragment, {
       }
     },
     view: (view) => {
-      const binding = new ProsemirrorBinding(yXmlFragment, view)
-      if (rerenderTimeout != null) {
-        rerenderTimeout.destroy()
-      }
-      // Make sure this is called in a separate context
-      rerenderTimeout = eventloop.timeout(0, () => {
+      binding.initView(view)
+      if (mapping == null) {
+        // force rerender to update the bindings mapping
         binding._forceRerender()
-        view.dispatch(view.state.tr.setMeta(ySyncPluginKey, { binding }))
-        onFirstRender()
-      })
+      }
+      onFirstRender()
       return {
         update: () => {
           const pluginState = plugin.getState(view.state)
@@ -192,12 +188,15 @@ export const ySyncPlugin = (yXmlFragment, {
             pluginState.snapshot == null && pluginState.prevSnapshot == null
           ) {
             if (
-              changedInitialContent ||
+              // If the content doesn't change initially, we don't render anything to Yjs
+              // If the content was cleared by a user action, we want to catch the change and
+              // represent it in Yjs
+              initialContentChanged ||
               view.state.doc.content.findDiffStart(
                 view.state.doc.type.createAndFill().content
               ) !== null
             ) {
-              changedInitialContent = true
+              initialContentChanged = true
               if (
                 pluginState.addToHistory === false &&
                 !pluginState.isChangeOrigin
@@ -221,7 +220,6 @@ export const ySyncPlugin = (yXmlFragment, {
           }
         },
         destroy: () => {
-          rerenderTimeout.destroy()
           binding.destroy()
         }
       }
@@ -276,17 +274,17 @@ export const getRelativeSelection = (pmbinding, state) => ({
 export class ProsemirrorBinding {
   /**
    * @param {Y.XmlFragment} yXmlFragment The bind source
-   * @param {any} prosemirrorView The target binding
+   * @param {ProsemirrorMapping} mapping
    */
-  constructor (yXmlFragment, prosemirrorView) {
+  constructor (yXmlFragment, mapping = new Map()) {
     this.type = yXmlFragment
-    this.prosemirrorView = prosemirrorView
-    this.mux = createMutex()
-    this.isDestroyed = false
     /**
-     * @type {ProsemirrorMapping}
+     * this will be set once the view is created
+     * @type {any}
      */
-    this.mapping = new Map()
+    this.prosemirrorView = null
+    this.mux = createMutex()
+    this.mapping = mapping
     this._observeFunction = this._typeChanged.bind(this)
     /**
      * @type {Y.Doc}
@@ -298,21 +296,16 @@ export class ProsemirrorBinding {
      */
     this.beforeTransactionSelection = null
     this.beforeAllTransactions = () => {
-      if (this.beforeTransactionSelection === null) {
+      if (this.beforeTransactionSelection === null && this.prosemirrorView != null) {
         this.beforeTransactionSelection = getRelativeSelection(
           this,
-          prosemirrorView.state
+          this.prosemirrorView.state
         )
       }
     }
     this.afterAllTransactions = () => {
       this.beforeTransactionSelection = null
     }
-
-    this.doc.on('beforeAllTransactions', this.beforeAllTransactions)
-    this.doc.on('afterAllTransactions', this.afterAllTransactions)
-    yXmlFragment.observeDeep(this._observeFunction)
-
     this._domSelectionInView = null
   }
 
@@ -378,7 +371,7 @@ export class ProsemirrorBinding {
   }
 
   unrenderSnapshot () {
-    this.mapping = new Map()
+    this.mapping.clear()
     this.mux(() => {
       const fragmentContent = this.type.toArray().map((t) =>
         createNodeFromYElement(
@@ -399,8 +392,12 @@ export class ProsemirrorBinding {
   }
 
   _forceRerender () {
-    this.mapping = new Map()
+    this.mapping.clear()
     this.mux(() => {
+      // If this is a forced rerender, this might neither happen as a pm change nor within a Yjs
+      // transaction. Then the "before selection" doesn't exist. In this case, we need to create a
+      // relative position before replacing content. Fixes #126
+      const sel = this.beforeTransactionSelection !== null ? null : this.prosemirrorView.state.selection
       const fragmentContent = this.type.toArray().map((t) =>
         createNodeFromYElement(
           /** @type {Y.XmlElement} */ (t),
@@ -414,25 +411,44 @@ export class ProsemirrorBinding {
         this.prosemirrorView.state.doc.content.size,
         new PModel.Slice(PModel.Fragment.from(fragmentContent), 0, 0)
       )
+      if (sel) {
+        tr.setSelection(TextSelection.create(tr.doc, sel.anchor, sel.head))
+      }
       this.prosemirrorView.dispatch(
-        tr.setMeta(ySyncPluginKey, { isChangeOrigin: true })
+        tr.setMeta(ySyncPluginKey, { isChangeOrigin: true, binding: this })
       )
     })
   }
 
   /**
-   * @param {Y.Snapshot} snapshot
-   * @param {Y.Snapshot} prevSnapshot
+   * @param {Y.Snapshot|Uint8Array} snapshot
+   * @param {Y.Snapshot|Uint8Array} prevSnapshot
    * @param {Object} pluginState
    */
   _renderSnapshot (snapshot, prevSnapshot, pluginState) {
+    /**
+     * The document that contains the full history of this document.
+     * @type {Y.Doc}
+     */
+    let historyDoc = this.doc
     if (!snapshot) {
       snapshot = Y.snapshot(this.doc)
     }
+    if (snapshot instanceof Uint8Array || prevSnapshot instanceof Uint8Array) {
+      if (!(snapshot instanceof Uint8Array) || !(prevSnapshot instanceof Uint8Array)) {
+        // expected both snapshots to be v2 updates
+        error.unexpectedCase()
+      }
+      historyDoc = new Y.Doc({ gc: false })
+      Y.applyUpdateV2(historyDoc, prevSnapshot)
+      prevSnapshot = Y.snapshot(historyDoc)
+      Y.applyUpdateV2(historyDoc, snapshot)
+      snapshot = Y.snapshot(historyDoc)
+    }
     // clear mapping because we are going to rerender
-    this.mapping = new Map()
+    this.mapping.clear()
     this.mux(() => {
-      this.doc.transact((transaction) => {
+      historyDoc.transact((transaction) => {
         // before rendering, we are going to sanitize ops and split deleted ops
         // if they were deleted by seperate users.
         const pud = pluginState.permanentUserData
@@ -500,6 +516,7 @@ export class ProsemirrorBinding {
    * @param {Y.Transaction} transaction
    */
   _typeChanged (events, transaction) {
+    if (this.prosemirrorView == null) return
     const syncState = ySyncPluginKey.getState(this.prosemirrorView.state)
     if (
       events.length === 0 || syncState.snapshot != null ||
@@ -561,8 +578,21 @@ export class ProsemirrorBinding {
     }, ySyncPluginKey)
   }
 
+  /**
+   * View is ready to listen to changes. Register observers.
+   * @param {any} prosemirrorView
+   */
+  initView (prosemirrorView) {
+    if (this.prosemirrorView != null) this.destroy()
+    this.prosemirrorView = prosemirrorView
+    this.doc.on('beforeAllTransactions', this.beforeAllTransactions)
+    this.doc.on('afterAllTransactions', this.afterAllTransactions)
+    this.type.observeDeep(this._observeFunction)
+  }
+
   destroy () {
-    this.isDestroyed = true
+    if (this.prosemirrorView == null) return
+    this.prosemirrorView = null
     this.type.unobserveDeep(this._observeFunction)
     this.doc.off('beforeAllTransactions', this.beforeAllTransactions)
     this.doc.off('afterAllTransactions', this.afterAllTransactions)
@@ -615,7 +645,7 @@ const createNodeIfNotExists = (
  * @param {function('removed' | 'added', Y.ID):any} [computeYChange]
  * @return {PModel.Node | null} Returns node if node could be created. Otherwise it deletes the yjs type and returns null
  */
-const createNodeFromYElement = (
+export const createNodeFromYElement = (
   el,
   schema,
   mapping,
@@ -638,6 +668,20 @@ const createNodeFromYElement = (
         children.push(n)
       }
     } else {
+      // If the next ytext exists and was created by us, move the content to the current ytext.
+      // This is a fix for #160 -- duplication of characters when two Y.Text exist next to each
+      // other.
+      const nextytext = type._item.right?.content.type
+      if (nextytext instanceof Y.Text && !nextytext._item.deleted && nextytext._item.id.client === nextytext.doc.clientID) {
+        type.applyDelta([
+          { retain: type.length },
+          ...nextytext.toDelta()
+        ])
+        nextytext.doc.transact(tr => {
+          nextytext._item.delete(tr)
+        })
+      }
+      // now create the prosemirror text nodes
       const ns = createTextNodesFromYText(
         type,
         schema,
@@ -1010,7 +1054,13 @@ const nodeMarksToAttributes = (marks) => {
 }
 
 /**
+ * Update a yDom node by syncing the current content of the prosemirror node.
+ *
+ * This is a y-prosemirror internal feature that you can use at your own risk.
+ *
  * @private
+ * @unstable
+ *
  * @param {{transact: Function}} y
  * @param {Y.XmlFragment} yDomFragment
  * @param {any} pNode

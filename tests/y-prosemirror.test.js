@@ -21,6 +21,7 @@ import { EditorView } from 'prosemirror-view'
 import * as basicSchema from 'prosemirror-schema-basic'
 import { findWrapping } from 'prosemirror-transform'
 import { schema as complexSchema } from './complexSchema.js'
+import * as promise from 'lib0/promise'
 
 const schema = /** @type {any} */ (basicSchema.schema)
 
@@ -75,7 +76,7 @@ export const testPluginIntegrity = (_tc) => {
   )
   t.compare({ viewUpdateEvents, stateUpdateEvents }, {
     viewUpdateEvents: 1,
-    stateUpdateEvents: 1
+    stateUpdateEvents: 2 // fired twice, because the ySyncPlugin adds additional fields to state after the initial render
   }, 'events are fired only once')
 }
 
@@ -204,6 +205,55 @@ export const testEmptyParagraph = (_tc) => {
   )
 }
 
+/**
+ * Test duplication issue https://github.com/yjs/y-prosemirror/issues/161
+ *
+ * @param {t.TestCase} tc
+ */
+export const testInsertDuplication = (_tc) => {
+  const ydoc1 = new Y.Doc()
+  ydoc1.clientID = 1
+  const ydoc2 = new Y.Doc()
+  ydoc2.clientID = 2
+  const view1 = createNewProsemirrorView(ydoc1)
+  const view2 = createNewProsemirrorView(ydoc2)
+  const yxml1 = ydoc1.getXmlFragment('prosemirror')
+  const yxml2 = ydoc2.getXmlFragment('prosemirror')
+  yxml1.observeDeep(events => {
+    events.forEach(event => {
+      console.log('yxml1: ', JSON.stringify(event.changes.delta))
+    })
+  })
+  yxml2.observeDeep(events => {
+    events.forEach(event => {
+      console.log('yxml2: ', JSON.stringify(event.changes.delta))
+    })
+  })
+  view1.dispatch(
+    view1.state.tr.insert(
+      0,
+      /** @type {any} */ (schema.node(
+        'paragraph'
+      ))
+    )
+  )
+  const sync = () => {
+    Y.applyUpdate(ydoc2, Y.encodeStateAsUpdate(ydoc1))
+    Y.applyUpdate(ydoc1, Y.encodeStateAsUpdate(ydoc2))
+    Y.applyUpdate(ydoc2, Y.encodeStateAsUpdate(ydoc1))
+    Y.applyUpdate(ydoc1, Y.encodeStateAsUpdate(ydoc2))
+  }
+  sync()
+  view1.dispatch(view1.state.tr.insertText('1', 1, 1))
+  view2.dispatch(view2.state.tr.insertText('2', 1, 1))
+  sync()
+  view1.dispatch(view1.state.tr.insertText('1', 2, 2))
+  view2.dispatch(view2.state.tr.insertText('2', 3, 3))
+  sync()
+  checkResult({ testObjects: [view1, view2] })
+  t.assert(yxml1.toString() === '<paragraph>1122</paragraph><paragraph></paragraph>')
+}
+
 export const testAddToHistory = (_tc) => {
   const ydoc = new Y.Doc()
   const view = createNewProsemirrorViewWithUndoManager(ydoc)
@@ -251,6 +301,87 @@ export const testAddToHistory = (_tc) => {
     yxml.length === 2 && yxml.get(0).length === 1,
     'insertion was *not* undone'
   )
+}
+
+/**
+ * Tests for #126 - initial cursor position should be retained, not jump to the end.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testInitialCursorPosition = async (_tc) => {
+  const ydoc = new Y.Doc()
+  const yxml = ydoc.get('prosemirror', Y.XmlFragment)
+  const p = new Y.XmlElement('paragraph')
+  p.insert(0, [new Y.XmlText('hello world!')])
+  yxml.insert(0, [p])
+  console.log('yxml', yxml.toString())
+  const view = createNewProsemirrorView(ydoc)
+  view.focus()
+  await promise.wait(10)
+  console.log('anchor', view.state.selection.anchor)
+  t.assert(view.state.selection.anchor === 1)
+  t.assert(view.state.selection.head === 1)
+}
+
+export const testInitialCursorPosition2 = async (_tc) => {
+  const ydoc = new Y.Doc()
+  const yxml = ydoc.get('prosemirror', Y.XmlFragment)
+  console.log('yxml', yxml.toString())
+  const view = createNewProsemirrorView(ydoc)
+  view.focus()
+  await promise.wait(10)
+  const p = new Y.XmlElement('paragraph')
+  p.insert(0, [new Y.XmlText('hello world!')])
+  yxml.insert(0, [p])
+  console.log('anchor', view.state.selection.anchor)
+  t.assert(view.state.selection.anchor === 0)
+  t.assert(view.state.selection.head === 0)
+}
+
+export const testVersioning = async (_tc) => {
+  const ydoc = new Y.Doc({ gc: false })
+  const yxml = ydoc.get('prosemirror', Y.XmlFragment)
+  const permanentUserData = new Y.PermanentUserData(ydoc)
+  permanentUserData.setUserMapping(ydoc, ydoc.clientID, 'me')
+  ydoc.gc = false
+  console.log('yxml', yxml.toString())
+  const view = createNewComplexProsemirrorView(ydoc)
+  const p = new Y.XmlElement('paragraph')
+  const ytext = new Y.XmlText('hello world!')
+  p.insert(0, [ytext])
+  yxml.insert(0, [p])
+  const snapshot1 = Y.snapshot(ydoc)
+  const snapshotDoc1 = Y.encodeStateAsUpdateV2(ydoc)
+  ytext.delete(0, 6)
+  const snapshot2 = Y.snapshot(ydoc)
+  const snapshotDoc2 = Y.encodeStateAsUpdateV2(ydoc)
+  view.dispatch(
+    view.state.tr.setMeta(ySyncPluginKey, { snapshot: snapshot2, prevSnapshot: snapshot1, permanentUserData })
+  )
+  await promise.wait(50)
+  console.log('calculated diff via snapshots: ', view.state.doc.toJSON())
+  // recreate the JSON, because ProseMirror messes with the constructors
+  const viewstate1 = JSON.parse(JSON.stringify(view.state.doc.toJSON().content[1].content))
+  const expectedState = [{
+    type: 'text',
+    marks: [{ type: 'ychange', attrs: { user: 'me', type: 'removed' } }],
+    text: 'hello '
+  }, {
+    type: 'text',
+    text: 'world!'
+  }]
+  console.log('calculated diff via snapshots: ', JSON.stringify(viewstate1))
+  t.compare(viewstate1, expectedState)
+
+  t.info('now check whether we get the same result when rendering the updates')
+  view.dispatch(
+    view.state.tr.setMeta(ySyncPluginKey, { snapshot: snapshotDoc2, prevSnapshot: snapshotDoc1, permanentUserData })
+  )
+  await promise.wait(50)
+
+  const viewstate2 = JSON.parse(JSON.stringify(view.state.doc.toJSON().content[1].content))
+  console.log('calculated diff via updates: ', JSON.stringify(viewstate2))
+  t.compare(viewstate2, expectedState)
 }
 
 export const testAddToHistoryIgnore = (_tc) => {
