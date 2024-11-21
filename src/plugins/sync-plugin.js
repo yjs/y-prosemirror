@@ -409,7 +409,15 @@ export class ProsemirrorBinding {
         new PModel.Slice(PModel.Fragment.from(fragmentContent), 0, 0)
       )
       if (sel) {
-        tr.setSelection(TextSelection.create(tr.doc, sel.anchor, sel.head))
+        /**
+         * If the Prosemirror document we just created from this.type is
+         * smaller than the previous document, the selection might be
+         * out of bound, which would make Prosemirror throw an error.
+         */
+        const clampedAnchor = math.min(math.max(sel.anchor, 0), tr.doc.content.size)
+        const clampedHead = math.min(math.max(sel.head, 0), tr.doc.content.size)
+
+        tr.setSelection(TextSelection.create(tr.doc, clampedAnchor, clampedHead))
       }
       this.prosemirrorView.dispatch(
         tr.setMeta(ySyncPluginKey, { isChangeOrigin: true, binding: this })
