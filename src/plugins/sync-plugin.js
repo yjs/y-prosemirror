@@ -6,7 +6,6 @@ import { createMutex } from 'lib0/mutex'
 import * as PModel from 'prosemirror-model'
 import { Plugin, TextSelection } from "prosemirror-state"; // eslint-disable-line
 import * as math from 'lib0/math'
-import * as object from 'lib0/object'
 import * as set from 'lib0/set'
 import { simpleDiff } from 'lib0/diff'
 import * as error from 'lib0/error'
@@ -735,6 +734,8 @@ export const createNodeFromYElement = (
         const markValue = attrs[key]
         if (isObject(markValue)) {
           nodeMarks.push(schema.mark(markName, /** @type {Object} */ (markValue).attrs))
+        } else if (Array.isArray(markValue)) {
+          nodeMarks.push(...markValue.map(attrs => schema.mark(markName, attrs)))
         }
       } else {
         nodeAttrs[key] = attrs[key]
@@ -779,7 +780,15 @@ const createTextNodesFromYText = (
       const delta = deltas[i]
       const marks = []
       for (const markName in delta.attributes) {
-        marks.push(schema.mark(markName, delta.attributes[markName]))
+        if (Array.isArray(delta.attributes[markName])) {
+          // multiple marks of same type
+          delta.attributes[markName].forEach(attrs => {
+            marks.push(schema.mark(markName, attrs))
+          })
+        } else {
+          // single mark
+          marks.push(schema.mark(markName, delta.attributes[markName]))
+        }
       }
       nodes.push(schema.text(delta.insert, marks))
     }
@@ -918,9 +927,14 @@ const equalYTextPText = (ytext, ptexts) => {
   return delta.length === ptexts.length &&
     delta.every((d, i) =>
       d.insert === /** @type {any} */ (ptexts[i]).text &&
-      object.keys(d.attributes || {}).length === ptexts[i].marks.length &&
-      ptexts[i].marks.every((mark) =>
-        equalAttrs(d.attributes[mark.type.name] || {}, mark.attrs)
+      Object.keys(d.attributes || {}).reduce((sum, val) => sum + (Array.isArray(val) ? val.length : 1), 0) === ptexts[i].marks.length &&
+      ptexts[i].marks.every((mark) => {
+        const yattrs = d.attributes || {}
+        if (Array.isArray(yattrs)) {
+          return yattrs.some((yattr) => equalAttrs(mark.attrs, yattr))
+        }
+        return equalAttrs(mark.attrs, yattrs)
+      }
       )
     )
 }
@@ -1048,7 +1062,16 @@ const marksToAttributes = (marks) => {
   const pattrs = {}
   marks.forEach((mark) => {
     if (mark.type.name !== 'ychange') {
-      pattrs[mark.type.name] = mark.attrs
+      if (pattrs[mark.type.name] && Array.isArray(pattrs[mark.type.name])) {
+        // already has multiple marks of same type
+        pattrs[mark.type.name].push(mark.attrs)
+      } else if (pattrs[mark.type.name]) {
+        // already has mark of same type, change to array
+        pattrs[mark.type.name] = [pattrs[mark.type.name], mark.attrs]
+      } else {
+        // first mark of this type
+        pattrs[mark.type.name] = mark.attrs
+      }
     }
   })
   return pattrs

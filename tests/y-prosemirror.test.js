@@ -702,3 +702,37 @@ export const testRepeatGenerateProsemirrorChanges300 = tc => {
   checkResult(applyRandomTests(tc, pmChanges, 300, createNewProsemirrorView))
 }
 */
+
+/**
+ * @param {t.TestCase} tc
+ */
+export const testDuplicateMarks = tc => {
+  const ydoc = new Y.Doc()
+  const type = ydoc.getXmlFragment('prosemirror')
+  const view = createNewComplexProsemirrorView(ydoc)
+  t.assert(type.toString() === '', 'should only sync after first change')
+
+  view.dispatch(
+    view.state.tr.setNodeMarkup(0, undefined, {
+      checked: true
+    })
+  )
+
+  const marks = [complexSchema.mark('comment', { id: 0 }), complexSchema.mark('comment', { id: 1 })]
+  view.dispatch(view.state.tr.insert(view.state.doc.content.size - 1, /** @type {any} */ complexSchema.text('hello world', marks)))
+  const stateJSON = JSON.parse(JSON.stringify(view.state.doc.toJSON()))
+
+  // remove the attrs, because ychange is setting a default value
+  delete stateJSON.content[1].attrs
+
+  // test if transforming back and forth from Yjs doc works
+  const backandforth = JSON.parse(JSON.stringify(yDocToProsemirrorJSON(prosemirrorJSONToYDoc(/** @type {any} */ (complexSchema), stateJSON))))
+
+  console.dir(stateJSON, { depth: null })
+  console.dir(backandforth, { depth: null })
+
+  t.compare(stateJSON, backandforth)
+
+  // TODO: create a toString test, this currently fails because YXmlText breaks
+  // t.compareStrings(type.toString(), '<custom checked="true"></custom><paragraph></paragraph>')
+}
