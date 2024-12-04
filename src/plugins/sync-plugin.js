@@ -330,7 +330,7 @@ export class ProsemirrorBinding {
   _isDomSelectionInView () {
     const selection = this.prosemirrorView._root.getSelection()
 
-    if (selection == null || selection.anchor == null) return false
+    if (selection == null || selection.anchorNode == null) return false
 
     const range = this.prosemirrorView._root.createRange()
     range.setStart(selection.anchorNode, selection.anchorOffset)
