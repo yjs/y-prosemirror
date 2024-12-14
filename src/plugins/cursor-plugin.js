@@ -77,7 +77,7 @@ export const createDecorations = (
   const decorations = []
   if (
     ystate.snapshot != null || ystate.prevSnapshot != null ||
-    ystate.binding.mapping.size === 0
+    ystate?.binding?.mapping?.size === 0
   ) {
     // do not render cursors while snapshot is active
     return DecorationSet.create(state.doc, [])
@@ -102,13 +102,13 @@ export const createDecorations = (
         y,
         ystate.type,
         Y.createRelativePositionFromJSON(aw.cursor.anchor),
-        ystate.binding.mapping
+        ystate.binding?.mapping
       )
       let head = relativePositionToAbsolutePosition(
         y,
         ystate.type,
         Y.createRelativePositionFromJSON(aw.cursor.head),
-        ystate.binding.mapping
+        ystate.binding?.mapping
       )
       if (anchor !== null && head !== null) {
         const maxsize = math.max(state.doc.content.size - 1, 0)
@@ -212,7 +212,7 @@ export const yCursorPlugin = (
           const anchor = absolutePositionToRelativePosition(
             selection.anchor,
             ystate.type,
-            ystate.binding.mapping
+            ystate.binding?.mapping
           )
           /**
            * @type {Y.RelativePosition}
@@ -220,7 +220,7 @@ export const yCursorPlugin = (
           const head = absolutePositionToRelativePosition(
             selection.head,
             ystate.type,
-            ystate.binding.mapping
+            ystate.binding?.mapping
           )
           if (
             current.cursor == null ||
@@ -244,7 +244,7 @@ export const yCursorPlugin = (
             ystate.doc,
             ystate.type,
             Y.createRelativePositionFromJSON(current.cursor.anchor),
-            ystate.binding.mapping
+            ystate.binding?.mapping
           ) !== null
         ) {
           // delete cursor information if current cursor information is owned by this editor binding
