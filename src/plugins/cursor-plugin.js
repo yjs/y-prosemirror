@@ -1,15 +1,15 @@
-import * as Y from 'yjs'
+import * as Y from "yjs";
 import { Decoration, DecorationSet } from "prosemirror-view"; // eslint-disable-line
 import { Plugin } from "prosemirror-state"; // eslint-disable-line
 import { Awareness } from "y-protocols/awareness"; // eslint-disable-line
 import {
   absolutePositionToRelativePosition,
   relativePositionToAbsolutePosition,
-  setMeta
-} from '../lib.js'
-import { yCursorPluginKey, ySyncPluginKey } from './keys.js'
+  setMeta,
+} from "../lib.js";
+import { yCursorPluginKey, ySyncPluginKey } from "./keys.js";
 
-import * as math from 'lib0/math'
+import * as math from "lib0/math";
 
 /**
  * Default awareness state filter
@@ -19,7 +19,11 @@ import * as math from 'lib0/math'
  * @param {any} _user user data
  * @return {boolean}
  */
-export const defaultAwarenessStateFilter = (currentClientId, userClientId, _user) => currentClientId !== userClientId
+export const defaultAwarenessStateFilter = (
+  currentClientId,
+  userClientId,
+  _user,
+) => currentClientId !== userClientId;
 
 /**
  * Default generator for a cursor element
@@ -28,19 +32,19 @@ export const defaultAwarenessStateFilter = (currentClientId, userClientId, _user
  * @return {HTMLElement}
  */
 export const defaultCursorBuilder = (user) => {
-  const cursor = document.createElement('span')
-  cursor.classList.add('ProseMirror-yjs-cursor')
-  cursor.setAttribute('style', `border-color: ${user.color}`)
-  const userDiv = document.createElement('div')
-  userDiv.setAttribute('style', `background-color: ${user.color}`)
-  userDiv.insertBefore(document.createTextNode(user.name), null)
-  const nonbreakingSpace1 = document.createTextNode('\u2060')
-  const nonbreakingSpace2 = document.createTextNode('\u2060')
-  cursor.insertBefore(nonbreakingSpace1, null)
-  cursor.insertBefore(userDiv, null)
-  cursor.insertBefore(nonbreakingSpace2, null)
-  return cursor
-}
+  const cursor = document.createElement("span");
+  cursor.classList.add("ProseMirror-yjs-cursor");
+  cursor.setAttribute("style", `border-color: ${user.color}`);
+  const userDiv = document.createElement("div");
+  userDiv.setAttribute("style", `background-color: ${user.color}`);
+  userDiv.insertBefore(document.createTextNode(user.name), null);
+  const nonbreakingSpace1 = document.createTextNode("\u2060");
+  const nonbreakingSpace2 = document.createTextNode("\u2060");
+  cursor.insertBefore(nonbreakingSpace1, null);
+  cursor.insertBefore(userDiv, null);
+  cursor.insertBefore(nonbreakingSpace2, null);
+  return cursor;
+};
 
 /**
  * Default generator for the selection attributes
@@ -51,11 +55,11 @@ export const defaultCursorBuilder = (user) => {
 export const defaultSelectionBuilder = (user) => {
   return {
     style: `background-color: ${user.color}70`,
-    class: 'ProseMirror-yjs-selection'
-  }
-}
+    class: "ProseMirror-yjs-selection",
+  };
+};
 
-const rxValidColor = /^#[0-9a-fA-F]{6}$/
+const rxValidColor = /^#[0-9a-fA-F]{6}$/;
 
 /**
  * @param {any} state
@@ -70,69 +74,70 @@ export const createDecorations = (
   awareness,
   awarenessFilter,
   createCursor,
-  createSelection
+  createSelection,
 ) => {
-  const ystate = ySyncPluginKey.getState(state)
-  const y = ystate.doc
-  const decorations = []
+  const ystate = ySyncPluginKey.getState(state);
+  const y = ystate.doc;
+  const decorations = [];
   if (
-    ystate.snapshot != null || ystate.prevSnapshot != null ||
+    ystate.snapshot != null ||
+    ystate.prevSnapshot != null ||
     ystate.binding.mapping.size === 0
   ) {
     // do not render cursors while snapshot is active
-    return DecorationSet.create(state.doc, [])
+    return DecorationSet.create(state.doc, []);
   }
   awareness.getStates().forEach((aw, clientId) => {
     if (!awarenessFilter(y.clientID, clientId, aw)) {
-      return
+      return;
     }
 
     if (aw.cursor != null) {
-      const user = aw.user || {}
+      const user = aw.user || {};
       if (user.color == null) {
-        user.color = '#ffa500'
+        user.color = "#ffa500";
       } else if (!rxValidColor.test(user.color)) {
         // We only support 6-digit RGB colors in y-prosemirror
-        console.warn('A user uses an unsupported color format', user)
+        console.warn("A user uses an unsupported color format", user);
       }
       if (user.name == null) {
-        user.name = `User: ${clientId}`
+        user.name = `User: ${clientId}`;
       }
       let anchor = relativePositionToAbsolutePosition(
         y,
         ystate.type,
         Y.createRelativePositionFromJSON(aw.cursor.anchor),
-        ystate.binding.mapping
-      )
+        ystate.binding.mapping,
+      );
       let head = relativePositionToAbsolutePosition(
         y,
         ystate.type,
         Y.createRelativePositionFromJSON(aw.cursor.head),
-        ystate.binding.mapping
-      )
+        ystate.binding.mapping,
+      );
       if (anchor !== null && head !== null) {
-        const maxsize = math.max(state.doc.content.size - 1, 0)
-        anchor = math.min(anchor, maxsize)
-        head = math.min(head, maxsize)
+        const maxsize = math.max(state.doc.content.size - 1, 0);
+        anchor = math.min(anchor, maxsize);
+        head = math.min(head, maxsize);
         decorations.push(
           Decoration.widget(head, () => createCursor(user), {
-            key: clientId + '',
-            side: 10
-          })
-        )
-        const from = math.min(anchor, head)
-        const to = math.max(anchor, head)
+            key: clientId + "",
+            side: 10,
+          }),
+        );
+        const from = math.min(anchor, head);
+        const to = math.max(anchor, head);
         decorations.push(
           Decoration.inline(from, to, createSelection(user), {
             inclusiveEnd: true,
-            inclusiveStart: false
-          })
-        )
+            inclusiveStart: false,
+          }),
+        );
       }
     }
-  })
-  return DecorationSet.create(state.doc, decorations)
-}
+  });
+  return DecorationSet.create(state.doc, decorations);
+};
 
 /**
  * A prosemirror plugin that listens to awareness information on Yjs.
@@ -154,25 +159,25 @@ export const yCursorPlugin = (
     awarenessStateFilter = defaultAwarenessStateFilter,
     cursorBuilder = defaultCursorBuilder,
     selectionBuilder = defaultSelectionBuilder,
-    getSelection = (state) => state.selection
+    getSelection = (state) => state.selection,
   } = {},
-  cursorStateField = 'cursor'
+  cursorStateField = "cursor",
 ) =>
   new Plugin({
     key: yCursorPluginKey,
     state: {
-      init (_, state) {
+      init(_, state) {
         return createDecorations(
           state,
           awareness,
           awarenessStateFilter,
           cursorBuilder,
-          selectionBuilder
-        )
+          selectionBuilder,
+        );
       },
-      apply (tr, prevState, _oldState, newState) {
-        const ystate = ySyncPluginKey.getState(newState)
-        const yCursorState = tr.getMeta(yCursorPluginKey)
+      apply(tr, prevState, _oldState, newState) {
+        const ystate = ySyncPluginKey.getState(newState);
+        const yCursorState = tr.getMeta(yCursorPluginKey);
         if (
           (ystate && ystate.isChangeOrigin) ||
           (yCursorState && yCursorState.awarenessUpdated)
@@ -182,86 +187,87 @@ export const yCursorPlugin = (
             awareness,
             awarenessStateFilter,
             cursorBuilder,
-            selectionBuilder
-          )
+            selectionBuilder,
+          );
         }
-        return prevState.map(tr.mapping, tr.doc)
-      }
+        return prevState.map(tr.mapping, tr.doc);
+      },
     },
     props: {
       decorations: (state) => {
-        return yCursorPluginKey.getState(state)
-      }
+        return yCursorPluginKey.getState(state);
+      },
     },
     view: (view) => {
       const awarenessListener = () => {
         // @ts-ignore
         if (view.docView) {
-          setMeta(view, yCursorPluginKey, { awarenessUpdated: true })
+          setMeta(view, yCursorPluginKey, { awarenessUpdated: true });
         }
-      }
+      };
       const updateCursorInfo = () => {
-        const ystate = ySyncPluginKey.getState(view.state)
+        const ystate = ySyncPluginKey.getState(view.state);
         // @note We make implicit checks when checking for the cursor property
-        const current = awareness.getLocalState() || {}
+        const current = awareness.getLocalState() || {};
+        if (ystate.binding == null) {
+          return;
+        }
         if (view.hasFocus()) {
-          const selection = getSelection(view.state)
+          const selection = getSelection(view.state);
           /**
            * @type {Y.RelativePosition}
            */
           const anchor = absolutePositionToRelativePosition(
             selection.anchor,
             ystate.type,
-            ystate.binding.mapping
-          )
+            ystate.binding.mapping,
+          );
           /**
            * @type {Y.RelativePosition}
            */
           const head = absolutePositionToRelativePosition(
             selection.head,
             ystate.type,
-            ystate.binding.mapping
-          )
+            ystate.binding.mapping,
+          );
           if (
             current.cursor == null ||
             !Y.compareRelativePositions(
               Y.createRelativePositionFromJSON(current.cursor.anchor),
-              anchor
+              anchor,
             ) ||
             !Y.compareRelativePositions(
               Y.createRelativePositionFromJSON(current.cursor.head),
-              head
+              head,
             )
           ) {
             awareness.setLocalStateField(cursorStateField, {
               anchor,
-              head
-            })
+              head,
+            });
           }
-        } else if (
-          current.cursor != null &&
-          relativePositionToAbsolutePosition(
-            ystate.doc,
-            ystate.type,
-            Y.createRelativePositionFromJSON(current.cursor.anchor),
-            ystate.binding.mapping
-          ) !== null
-        ) {
-          // delete cursor information if current cursor information is owned by this editor binding
-          awareness.setLocalStateField(cursorStateField, null)
         }
-      }
-      awareness.on('change', awarenessListener)
-      view.dom.addEventListener('focusin', updateCursorInfo)
-      view.dom.addEventListener('focusout', updateCursorInfo)
+      };
+
+      const unsetCursorInfo = () => {
+        const current = awareness.getLocalState() || {};
+
+        if (current[cursorStateField]) {
+          awareness.setLocalStateField(cursorStateField, null);
+        }
+      };
+
+      awareness.on("change", awarenessListener);
+      view.dom.addEventListener("focusin", updateCursorInfo);
+      view.dom.addEventListener("focusout", unsetCursorInfo);
       return {
         update: updateCursorInfo,
         destroy: () => {
-          view.dom.removeEventListener('focusin', updateCursorInfo)
-          view.dom.removeEventListener('focusout', updateCursorInfo)
-          awareness.off('change', awarenessListener)
-          awareness.setLocalStateField(cursorStateField, null)
-        }
-      }
-    }
-  })
+          view.dom.removeEventListener("focusin", updateCursorInfo);
+          view.dom.removeEventListener("focusout", unsetCursorInfo);
+          awareness.off("change", awarenessListener);
+          awareness.setLocalStateField(cursorStateField, null);
+        },
+      };
+    },
+  });
