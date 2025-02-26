@@ -4,7 +4,7 @@
 
 import { createMutex } from 'lib0/mutex'
 import * as PModel from 'prosemirror-model'
-import { Plugin, TextSelection } from "prosemirror-state"; // eslint-disable-line
+import { AllSelection, Plugin, TextSelection } from "prosemirror-state"; // eslint-disable-line
 import * as math from 'lib0/math'
 import * as object from 'lib0/object'
 import * as set from 'lib0/set'
@@ -232,25 +232,30 @@ export const ySyncPlugin = (yXmlFragment, {
  */
 const restoreRelativeSelection = (tr, relSel, binding) => {
   if (relSel !== null && relSel.anchor !== null && relSel.head !== null) {
-    const anchor = relativePositionToAbsolutePosition(
-      binding.doc,
-      binding.type,
-      relSel.anchor,
-      binding.mapping
-    )
-    const head = relativePositionToAbsolutePosition(
-      binding.doc,
-      binding.type,
-      relSel.head,
-      binding.mapping
-    )
-    if (anchor !== null && head !== null) {
-      tr = tr.setSelection(TextSelection.create(tr.doc, anchor, head))
+    if (relSel.type === 'all') {
+      tr.setSelection(new AllSelection(tr.doc))
+    } else {
+      const anchor = relativePositionToAbsolutePosition(
+        binding.doc,
+        binding.type,
+        relSel.anchor,
+        binding.mapping
+      )
+      const head = relativePositionToAbsolutePosition(
+        binding.doc,
+        binding.type,
+        relSel.head,
+        binding.mapping
+      )
+      if (anchor !== null && head !== null) {
+        tr = tr.setSelection(TextSelection.create(tr.doc, anchor, head))
+      }
     }
   }
 }
 
 export const getRelativeSelection = (pmbinding, state) => ({
+  type: state.selection.jsonID,
   anchor: absolutePositionToRelativePosition(
     state.selection.anchor,
     pmbinding.type,
