@@ -1,4 +1,4 @@
-import { updateYFragment, createNodeFromYElement } from './plugins/sync-plugin.js' // eslint-disable-line
+import { updateYFragment, createNodeFromYElement, MarkPrefix } from './plugins/sync-plugin.js' // eslint-disable-line
 import { ySyncPluginKey } from './plugins/keys.js'
 import * as Y from 'yjs'
 import { EditorView } from 'prosemirror-view' // eslint-disable-line
@@ -416,8 +416,20 @@ export function yXmlFragmentToProsemirrorJSON (xmlFragment) {
       }
 
       const attrs = item.getAttributes()
-      if (Object.keys(attrs).length) {
-        response.attrs = attrs
+
+      // Add all non-mark attributes to the element
+      for (const key of Object.keys(attrs).filter((key) => !key.startsWith(MarkPrefix))) {
+        if (!response.attrs) response.attrs = {}
+        response.attrs[key] = attrs[key]
+      }
+
+      // Check whether the attrs contains marks, if so, add them to the response
+      if (Object.keys(attrs).some((key) => key.startsWith(MarkPrefix))) {
+        response.marks = Object.keys(attrs)
+          .filter((key) => key.startsWith(MarkPrefix))
+          .map((key) => {
+            return attrs[key]
+          })
       }
 
       const children = item.toArray()
