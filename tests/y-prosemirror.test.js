@@ -83,6 +83,45 @@ export const testPluginIntegrity = (_tc) => {
 /**
  * @param {t.TestCase} tc
  */
+export const testOverlappingMarks = (_tc) => {
+  debugger
+  const schema = complexSchema
+  const view = new EditorView(null, {
+    state: EditorState.create({
+      schema,
+      plugins: []
+    })
+  })
+
+  view.dispatch(
+    view.state.tr.insert(
+        0,
+        schema.node(
+          'paragraph',
+          undefined,
+          schema.text('hello world')
+        )
+      )
+  )
+
+  view.dispatch(
+    view.state.tr.addMark(1, 3, schema.mark('comment', { id: 4 }))
+  )
+  view.dispatch(
+    view.state.tr.addMark(2, 4, schema.mark('comment', { id: 5 }))
+  )
+  debugger
+  const stateJSON = view.state.doc.toJSON()
+  // test if transforming back and forth from Yjs doc works
+  const backandforth = yDocToProsemirrorJSON(
+    prosemirrorJSONToYDoc(/** @type {any} */ (schema), stateJSON)
+  )
+  t.compare(stateJSON, backandforth)
+}
+
+/**
+ * @param {t.TestCase} tc
+ */
 export const testDocTransformation = (_tc) => {
   const view = createNewProsemirrorView(new Y.Doc())
   view.dispatch(
@@ -95,6 +134,7 @@ export const testDocTransformation = (_tc) => {
       ))
     )
   )
+  debugger
   const stateJSON = view.state.doc.toJSON()
   // test if transforming back and forth from Yjs doc works
   const backandforth = yDocToProsemirrorJSON(
@@ -173,7 +213,7 @@ export const testEmptyNotSync = (_tc) => {
   )
   t.compareStrings(
     type.toString(),
-    '<custom checked="true"></custom><paragraph></paragraph>'
+    '<custom checked="true"></custom>'
   )
 }
 
@@ -361,7 +401,7 @@ export const testVersioning = async (_tc) => {
   await promise.wait(50)
   console.log('calculated diff via snapshots: ', view.state.doc.toJSON())
   // recreate the JSON, because ProseMirror messes with the constructors
-  const viewstate1 = JSON.parse(JSON.stringify(view.state.doc.toJSON().content[1].content))
+  const viewstate1 = JSON.parse(JSON.stringify(view.state.doc.toJSON().content[0].content))
   const expectedState = [{
     type: 'text',
     marks: [{ type: 'ychange', attrs: { user: 'me', type: 'removed' } }],
@@ -379,7 +419,7 @@ export const testVersioning = async (_tc) => {
   )
   await promise.wait(50)
 
-  const viewstate2 = JSON.parse(JSON.stringify(view.state.doc.toJSON().content[1].content))
+  const viewstate2 = JSON.parse(JSON.stringify(view.state.doc.toJSON().content[0].content))
   console.log('calculated diff via updates: ', JSON.stringify(viewstate2))
   t.compare(viewstate2, expectedState)
 }

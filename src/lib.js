@@ -280,7 +280,7 @@ export function prosemirrorToYDoc (doc, xmlFragment = 'prosemirror') {
 export function prosemirrorToYXmlFragment (doc, xmlFragment) {
   const type = xmlFragment || new Y.XmlFragment()
   const ydoc = type.doc ? type.doc : { transact: (transaction) => transaction(undefined) }
-  updateYFragment(ydoc, type, doc, new Map())
+  updateYFragment(ydoc, type, doc, { mapping: new Map(),  isOMark: new Map() })
   return type
 }
 

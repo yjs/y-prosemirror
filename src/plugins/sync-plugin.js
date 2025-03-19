@@ -20,6 +20,15 @@ import * as random from 'lib0/random'
 import * as environment from 'lib0/environment'
 import * as dom from 'lib0/dom'
 import * as eventloop from 'lib0/eventloop'
+import * as map from 'lib0/map'
+import * as utils from '../utils.js'
+
+/**
+ * @typedef {Object} BindingMetadata
+ * @property {ProsemirrorMapping} BindingMetadata.mapping
+ * @property {Map<import('prosemirror-model').Mark, boolean>} BindingMetadata.isOMark - is
+ * overlapping mark
+ */
 
 /**
  * @param {Y.Item} item
@@ -254,8 +263,12 @@ const restoreRelativeSelection = (tr, relSel, binding) => {
   }
 }
 
+/**
+ * @param {ProsemirrorBinding} pmbinding
+ * @param {import('prosemirror-state').EditorState} state
+ */
 export const getRelativeSelection = (pmbinding, state) => ({
-  type: state.selection.jsonID,
+  type: /** @type {any} */ (state.selection).jsonID,
   anchor: absolutePositionToRelativePosition(
     state.selection.anchor,
     pmbinding.type,
@@ -287,6 +300,12 @@ export class ProsemirrorBinding {
     this.prosemirrorView = null
     this.mux = createMutex()
     this.mapping = mapping
+    /**
+     * Is overlapping mark - i.e. mark does not exclude itself.
+     *
+     * @type {Map<import('prosemirror-model').Mark, boolean>}
+     */
+    this.isOMark = new Map()
     this._observeFunction = this._typeChanged.bind(this)
     /**
      * @type {Y.Doc}
@@ -381,7 +400,7 @@ export class ProsemirrorBinding {
         createNodeFromYElement(
           /** @type {Y.XmlElement} */ (t),
           this.prosemirrorView.state.schema,
-          this.mapping
+          this
         )
       ).filter((n) => n !== null)
       // @ts-ignore
@@ -406,7 +425,7 @@ export class ProsemirrorBinding {
         createNodeFromYElement(
           /** @type {Y.XmlElement} */ (t),
           this.prosemirrorView.state.schema,
-          this.mapping
+          this
         )
       ).filter((n) => n !== null)
       // @ts-ignore
@@ -463,6 +482,9 @@ export class ProsemirrorBinding {
       historyDoc.transact((transaction) => {
         // before rendering, we are going to sanitize ops and split deleted ops
         // if they were deleted by seperate users.
+        /**
+         * @type {Y.PermanentUserData}
+         */
         const pud = pluginState.permanentUserData
         if (pud) {
           pud.dss.forEach((ds) => {
@@ -499,7 +521,7 @@ export class ProsemirrorBinding {
             return createNodeFromYElement(
               t,
               this.prosemirrorView.state.schema,
-              new Map(),
+              { mapping: new Map(), isOMark: new Map() },
               snapshot,
               prevSnapshot,
               computeYChange
@@ -560,7 +582,7 @@ export class ProsemirrorBinding {
         createNodeIfNotExists(
           /** @type {Y.XmlElement | Y.XmlHook} */ (t),
           this.prosemirrorView.state.schema,
-          this.mapping
+          this
         )
       ).filter((n) => n !== null)
       // @ts-ignore
@@ -580,9 +602,12 @@ export class ProsemirrorBinding {
     })
   }
 
+  /**
+   * @param {import('prosemirror-model').Node} doc
+   */
   _prosemirrorChanged (doc) {
     this.doc.transact(() => {
-      updateYFragment(this.doc, this.type, doc, this.mapping)
+      updateYFragment(this.doc, this.type, doc, this)
       this.beforeTransactionSelection = getRelativeSelection(
         this,
         this.prosemirrorView.state
@@ -615,7 +640,7 @@ export class ProsemirrorBinding {
  * @private
  * @param {Y.XmlElement | Y.XmlHook} el
  * @param {PModel.Schema} schema
- * @param {ProsemirrorMapping} mapping
+ * @param {BindingMetadata} meta
  * @param {Y.Snapshot} [snapshot]
  * @param {Y.Snapshot} [prevSnapshot]
  * @param {function('removed' | 'added', Y.ID):any} [computeYChange]
@@ -624,18 +649,18 @@ export class ProsemirrorBinding {
 const createNodeIfNotExists = (
   el,
   schema,
-  mapping,
+  meta,
   snapshot,
   prevSnapshot,
   computeYChange
 ) => {
-  const node = /** @type {PModel.Node} */ (mapping.get(el))
+  const node = /** @type {PModel.Node} */ (meta.mapping.get(el))
   if (node === undefined) {
     if (el instanceof Y.XmlElement) {
       return createNodeFromYElement(
         el,
         schema,
-        mapping,
+        meta,
         snapshot,
         prevSnapshot,
         computeYChange
@@ -651,7 +676,7 @@ const createNodeIfNotExists = (
  * @private
  * @param {Y.XmlElement} el
  * @param {any} schema
- * @param {ProsemirrorMapping} mapping
+ * @param {BindingMetadata} meta
  * @param {Y.Snapshot} [snapshot]
  * @param {Y.Snapshot} [prevSnapshot]
  * @param {function('removed' | 'added', Y.ID):any} [computeYChange]
@@ -660,18 +685,21 @@ const createNodeIfNotExists = (
 export const createNodeFromYElement = (
   el,
   schema,
-  mapping,
+  meta,
   snapshot,
   prevSnapshot,
   computeYChange
 ) => {
   const children = []
+  /**
+   * @param {Y.XmlElement | Y.XmlText} type
+   */
   const createChildren = (type) => {
-    if (type.constructor === Y.XmlElement) {
+    if (type instanceof Y.XmlElement) {
       const n = createNodeIfNotExists(
         type,
         schema,
-        mapping,
+        meta,
         snapshot,
         prevSnapshot,
         computeYChange
@@ -683,7 +711,7 @@ export const createNodeFromYElement = (
       // If the next ytext exists and was created by us, move the content to the current ytext.
       // This is a fix for #160 -- duplication of characters when two Y.Text exist next to each
       // other.
-      const nextytext = type._item.right?.content.type
+      const nextytext = /** @type {Y.ContentType} */ (type._item.right?.content)?.type
       if (nextytext instanceof Y.Text && !nextytext._item.deleted && nextytext._item.id.client === nextytext.doc.clientID) {
         type.applyDelta([
           { retain: type.length },
@@ -697,7 +725,7 @@ export const createNodeFromYElement = (
       const ns = createTextNodesFromYText(
         type,
         schema,
-        mapping,
+        meta,
         snapshot,
         prevSnapshot,
         computeYChange
@@ -731,14 +759,14 @@ export const createNodeFromYElement = (
       }
     }
     const node = schema.node(el.nodeName, attrs, children)
-    mapping.set(el, node)
+    meta.mapping.set(el, node)
     return node
   } catch (e) {
     // an error occured while creating the node. This is probably a result of a concurrent action.
     /** @type {Y.Doc} */ (el.doc).transact((transaction) => {
       /** @type {Y.Item} */ (el._item).delete(transaction)
     }, ySyncPluginKey)
-    mapping.delete(el)
+    meta.mapping.delete(el)
     return null
   }
 }
@@ -746,8 +774,8 @@ export const createNodeFromYElement = (
 /**
  * @private
  * @param {Y.XmlText} text
- * @param {any} schema
- * @param {ProsemirrorMapping} _mapping
+ * @param {import('prosemirror-model').Schema} schema
+ * @param {BindingMetadata} _meta
  * @param {Y.Snapshot} [snapshot]
  * @param {Y.Snapshot} [prevSnapshot]
  * @param {function('removed' | 'added', Y.ID):any} [computeYChange]
@@ -756,7 +784,7 @@ export const createNodeFromYElement = (
 const createTextNodesFromYText = (
   text,
   schema,
-  _mapping,
+  _meta,
   snapshot,
   prevSnapshot,
   computeYChange
@@ -766,11 +794,7 @@ const createTextNodesFromYText = (
   try {
     for (let i = 0; i < deltas.length; i++) {
       const delta = deltas[i]
-      const marks = []
-      for (const markName in delta.attributes) {
-        marks.push(schema.mark(markName, delta.attributes[markName]))
-      }
-      nodes.push(schema.text(delta.insert, marks))
+      nodes.push(schema.text(delta.insert, attributesToMarks(delta.attributes, schema)))
     }
   } catch (e) {
     // an error occured while creating the node. This is probably a result of a concurrent action.
@@ -786,28 +810,28 @@ const createTextNodesFromYText = (
 /**
  * @private
  * @param {Array<any>} nodes prosemirror node
- * @param {ProsemirrorMapping} mapping
+ * @param {BindingMetadata} meta
  * @return {Y.XmlText}
  */
-const createTypeFromTextNodes = (nodes, mapping) => {
+const createTypeFromTextNodes = (nodes, meta) => {
   const type = new Y.XmlText()
   const delta = nodes.map((node) => ({
     // @ts-ignore
     insert: node.text,
-    attributes: marksToAttributes(node.marks)
+    attributes: marksToAttributes(node.marks, meta)
   }))
   type.applyDelta(delta)
-  mapping.set(type, nodes)
+  meta.mapping.set(type, nodes)
   return type
 }
 
 /**
  * @private
  * @param {any} node prosemirror node
- * @param {ProsemirrorMapping} mapping
+ * @param {BindingMetadata} meta
  * @return {Y.XmlElement}
  */
-const createTypeFromElementNode = (node, mapping) => {
+const createTypeFromElementNode = (node, meta) => {
   const type = new Y.XmlElement(node.type.name)
   for (const key in node.attrs) {
     const val = node.attrs[key]
@@ -818,26 +842,33 @@ const createTypeFromElementNode = (node, mapping) => {
   type.insert(
     0,
     normalizePNodeContent(node).map((n) =>
-      createTypeFromTextOrElementNode(n, mapping)
+      createTypeFromTextOrElementNode(n, meta)
     )
   )
-  mapping.set(type, node)
+  meta.mapping.set(type, node)
   return type
 }
 
 /**
  * @private
  * @param {PModel.Node|Array<PModel.Node>} node prosemirror text node
- * @param {ProsemirrorMapping} mapping
+ * @param {BindingMetadata} meta
  * @return {Y.XmlElement|Y.XmlText}
  */
-const createTypeFromTextOrElementNode = (node, mapping) =>
+const createTypeFromTextOrElementNode = (node, meta) =>
   node instanceof Array
-    ? createTypeFromTextNodes(node, mapping)
-    : createTypeFromElementNode(node, mapping)
+    ? createTypeFromTextNodes(node, meta)
+    : createTypeFromElementNode(node, meta)
 
+/**
+ * @param {any} val
+ */
 const isObject = (val) => typeof val === 'object' && val !== null
 
+/**
+ * @param {any} pattrs
+ * @param {any} yattrs
+ */
 const equalAttrs = (pattrs, yattrs) => {
   const keys = Object.keys(pattrs).filter((key) => pattrs[key] !== null)
   let eq =
@@ -887,10 +918,10 @@ const normalizePNodeContent = (pnode) => {
 const equalYTextPText = (ytext, ptexts) => {
   const delta = ytext.toDelta()
   return delta.length === ptexts.length &&
-    delta.every((d, i) =>
+    delta.every(/** @type {(d:any,i:number) => boolean}*/ (d, i) =>
       d.insert === /** @type {any} */ (ptexts[i]).text &&
       object.keys(d.attributes || {}).length === ptexts[i].marks.length &&
-      ptexts[i].marks.every((mark) =>
+      ptexts[i].marks.every(/** @param {any} mark */ (mark) =>
         equalAttrs(d.attributes[mark.type.name] || {}, mark.attrs)
       )
     )
@@ -930,10 +961,10 @@ const mappedIdentity = (mapped, pcontent) =>
 /**
  * @param {Y.XmlElement} ytype
  * @param {PModel.Node} pnode
- * @param {ProsemirrorMapping} mapping
+ * @param {BindingMetadata} meta
  * @return {{ foundMappedChild: boolean, equalityFactor: number }}
  */
-const computeChildEqualityFactor = (ytype, pnode, mapping) => {
+const computeChildEqualityFactor = (ytype, pnode, meta) => {
   const yChildren = ytype.toArray()
   const pChildren = normalizePNodeContent(pnode)
   const pChildCnt = pChildren.length
@@ -945,7 +976,7 @@ const computeChildEqualityFactor = (ytype, pnode, mapping) => {
   for (; left < minCnt; left++) {
     const leftY = yChildren[left]
     const leftP = pChildren[left]
-    if (mappedIdentity(mapping.get(leftY), leftP)) {
+    if (mappedIdentity(meta.mapping.get(leftY), leftP)) {
       foundMappedChild = true // definite (good) match!
     } else if (!equalYTypePNode(leftY, leftP)) {
       break
@@ -954,7 +985,7 @@ const computeChildEqualityFactor = (ytype, pnode, mapping) => {
   for (; left + right < minCnt; right++) {
     const rightY = yChildren[yChildCnt - right - 1]
     const rightP = pChildren[pChildCnt - right - 1]
-    if (mappedIdentity(mapping.get(rightY), rightP)) {
+    if (mappedIdentity(meta.mapping.get(rightY), rightP)) {
       foundMappedChild = true
     } else if (!equalYTypePNode(rightY, rightP)) {
       break
@@ -966,6 +997,9 @@ const computeChildEqualityFactor = (ytype, pnode, mapping) => {
   }
 }
 
+/**
+ * @param {Y.Text} ytext
+ */
 const ytextTrans = (ytext) => {
   let str = ''
   /**
@@ -994,14 +1028,14 @@ const ytextTrans = (ytext) => {
  *
  * @param {Y.Text} ytext
  * @param {Array<any>} ptexts
- * @param {ProsemirrorMapping} mapping
+ * @param {BindingMetadata} meta
  */
-const updateYText = (ytext, ptexts, mapping) => {
-  mapping.set(ytext, ptexts)
+const updateYText = (ytext, ptexts, meta) => {
+  meta.mapping.set(ytext, ptexts)
   const { nAttrs, str } = ytextTrans(ytext)
   const content = ptexts.map((p) => ({
     insert: /** @type {any} */ (p).text,
-    attributes: Object.assign({}, nAttrs, marksToAttributes(p.marks))
+    attributes: Object.assign({}, nAttrs, marksToAttributes(p.marks, meta))
   }))
   const { insert, remove, index } = simpleDiff(
     str,
@@ -1014,11 +1048,39 @@ const updateYText = (ytext, ptexts, mapping) => {
   )
 }
 
-const marksToAttributes = (marks) => {
+const hashedMarkNameRegex = /(.*)(--[a-zA-Z0-9+/=]{41})$/
+
+/**
+ * @todo move this to markstoattributes
+ * 
+ * @param {Object<string, any>} attrs
+ * @param {import('prosemirror-model').Schema} schema
+ */
+const attributesToMarks = (attrs, schema) => {
+  /**
+   * @type {Array<import('prosemirror-model').Mark>}
+   */
+  const marks = []
+  for (const markName in attrs) {
+    // remove hashes if necessary
+    const res = hashedMarkNameRegex.exec(markName)
+    debugger
+    marks.push(schema.mark(res ? res[0] : markName, attrs[markName]))
+  }
+  return marks
+}
+
+/**
+ * @param {Array<import('prosemirror-model').Mark>} marks
+ * @param {BindingMetadata} meta
+ */
+const marksToAttributes = (marks, meta) => {
   const pattrs = {}
   marks.forEach((mark) => {
+    debugger
     if (mark.type.name !== 'ychange') {
-      pattrs[mark.type.name] = mark.attrs
+      const isOverlapping = map.setIfUndefined(meta.isOMark, mark, () => !mark.type.excludes(mark.type))
+      pattrs[isOverlapping ? `${mark.type.name}--${utils.hashOfJSON(mark.toJSON())}` : mark.type.name ] = mark.attrs
     }
   })
   return pattrs
@@ -1035,16 +1097,16 @@ const marksToAttributes = (marks) => {
  * @param {{transact: Function}} y
  * @param {Y.XmlFragment} yDomFragment
  * @param {any} pNode
- * @param {ProsemirrorMapping} mapping
+ * @param {BindingMetadata} meta
  */
-export const updateYFragment = (y, yDomFragment, pNode, mapping) => {
+export const updateYFragment = (y, yDomFragment, pNode, meta) => {
   if (
     yDomFragment instanceof Y.XmlElement &&
     yDomFragment.nodeName !== pNode.type.name
   ) {
     throw new Error('node name mismatch!')
   }
-  mapping.set(yDomFragment, pNode)
+  meta.mapping.set(yDomFragment, pNode)
   // update attributes
   if (yDomFragment instanceof Y.XmlElement) {
     const yDomAttrs = yDomFragment.getAttributes()
@@ -1077,10 +1139,10 @@ export const updateYFragment = (y, yDomFragment, pNode, mapping) => {
   for (; left < minCnt; left++) {
     const leftY = yChildren[left]
     const leftP = pChildren[left]
-    if (!mappedIdentity(mapping.get(leftY), leftP)) {
+    if (!mappedIdentity(meta.mapping.get(leftY), leftP)) {
       if (equalYTypePNode(leftY, leftP)) {
         // update mapping
-        mapping.set(leftY, leftP)
+        meta.mapping.set(leftY, leftP)
       } else {
         break
       }
@@ -1090,10 +1152,10 @@ export const updateYFragment = (y, yDomFragment, pNode, mapping) => {
   for (; right + left + 1 < minCnt; right++) {
     const rightY = yChildren[yChildCnt - right - 1]
     const rightP = pChildren[pChildCnt - right - 1]
-    if (!mappedIdentity(mapping.get(rightY), rightP)) {
+    if (!mappedIdentity(meta.mapping.get(rightY), rightP)) {
       if (equalYTypePNode(rightY, rightP)) {
         // update mapping
-        mapping.set(rightY, rightP)
+        meta.mapping.set(rightY, rightP)
       } else {
         break
       }
@@ -1108,7 +1170,7 @@ export const updateYFragment = (y, yDomFragment, pNode, mapping) => {
       const rightP = pChildren[pChildCnt - right - 1]
       if (leftY instanceof Y.XmlText && leftP instanceof Array) {
         if (!equalYTextPText(leftY, leftP)) {
-          updateYText(leftY, leftP, mapping)
+          updateYText(leftY, leftP, meta)
         }
         left += 1
       } else {
@@ -1121,12 +1183,12 @@ export const updateYFragment = (y, yDomFragment, pNode, mapping) => {
           const equalityLeft = computeChildEqualityFactor(
             /** @type {Y.XmlElement} */ (leftY),
             /** @type {PModel.Node} */ (leftP),
-            mapping
+            meta
           )
           const equalityRight = computeChildEqualityFactor(
             /** @type {Y.XmlElement} */ (rightY),
             /** @type {PModel.Node} */ (rightP),
-            mapping
+            meta
           )
           if (
             equalityLeft.foundMappedChild && !equalityRight.foundMappedChild
@@ -1149,7 +1211,7 @@ export const updateYFragment = (y, yDomFragment, pNode, mapping) => {
             y,
             /** @type {Y.XmlFragment} */ (leftY),
             /** @type {PModel.Node} */ (leftP),
-            mapping
+           meta 
           )
           left += 1
         } else if (updateRight) {
@@ -1157,14 +1219,14 @@ export const updateYFragment = (y, yDomFragment, pNode, mapping) => {
             y,
             /** @type {Y.XmlFragment} */ (rightY),
             /** @type {PModel.Node} */ (rightP),
-            mapping
+            meta 
           )
           right += 1
         } else {
-          mapping.delete(yDomFragment.get(left))
+          meta.mapping.delete(yDomFragment.get(left))
           yDomFragment.delete(left, 1)
           yDomFragment.insert(left, [
-            createTypeFromTextOrElementNode(leftP, mapping)
+            createTypeFromTextOrElementNode(leftP, meta)
           ])
           left += 1
         }
@@ -1174,18 +1236,18 @@ export const updateYFragment = (y, yDomFragment, pNode, mapping) => {
     if (
       yChildCnt === 1 && pChildCnt === 0 && yChildren[0] instanceof Y.XmlText
     ) {
-      mapping.delete(yChildren[0])
+      meta.mapping.delete(yChildren[0])
       // Edge case handling https://github.com/yjs/y-prosemirror/issues/108
       // Only delete the content of the Y.Text to retain remote changes on the same Y.Text object
       yChildren[0].delete(0, yChildren[0].length)
     } else if (yDelLen > 0) {
-      yDomFragment.slice(left, left + yDelLen).forEach(type => mapping.delete(type))
+      yDomFragment.slice(left, left + yDelLen).forEach(type => meta.mapping.delete(type))
       yDomFragment.delete(left, yDelLen)
     }
     if (left + right < pChildCnt) {
       const ins = []
       for (let i = left; i < pChildCnt - right; i++) {
-        ins.push(createTypeFromTextOrElementNode(pChildren[i], mapping))
+        ins.push(createTypeFromTextOrElementNode(pChildren[i], meta))
       }
       yDomFragment.insert(left, ins)
     }
