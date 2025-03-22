@@ -18,12 +18,27 @@ import {
 } from '../src/y-prosemirror.js'
 import { EditorState, Plugin, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
+import { Schema } from 'prosemirror-model'
 import * as basicSchema from 'prosemirror-schema-basic'
 import { findWrapping } from 'prosemirror-transform'
 import { schema as complexSchema } from './complexSchema.js'
 import * as promise from 'lib0/promise'
 
-const schema = /** @type {any} */ (basicSchema.schema)
+const schema = new Schema({
+  nodes: basicSchema.nodes,
+  marks: Object.assign({}, basicSchema.marks, {
+    comment: {
+      attrs: {
+        id: { default: null }
+      },
+      excludes: '',
+      parseDOM: [{ tag: 'comment' }],
+      toDOM (node) {
+        return ['comment', { comment_id: node.attrs.id }]
+      }
+    }
+  })
+})
 
 /**
  * Verify that update events in plugins are only fired once.
@@ -84,24 +99,21 @@ export const testPluginIntegrity = (_tc) => {
  * @param {t.TestCase} tc
  */
 export const testOverlappingMarks = (_tc) => {
-  debugger
-  const schema = complexSchema
   const view = new EditorView(null, {
     state: EditorState.create({
       schema,
       plugins: []
     })
   })
-
   view.dispatch(
     view.state.tr.insert(
-        0,
-        schema.node(
-          'paragraph',
-          undefined,
-          schema.text('hello world')
-        )
+      0,
+      schema.node(
+        'paragraph',
+        undefined,
+        schema.text('hello world')
       )
+    )
   )
 
   view.dispatch(
@@ -110,13 +122,17 @@ export const testOverlappingMarks = (_tc) => {
   view.dispatch(
     view.state.tr.addMark(2, 4, schema.mark('comment', { id: 5 }))
   )
-  debugger
-  const stateJSON = view.state.doc.toJSON()
+  const stateJSON = JSON.parse(JSON.stringify(view.state.doc.toJSON()))
+  // attrs.ychange is only available with a schema
+  delete stateJSON.content[0].attrs
+  const back = prosemirrorJSONToYDoc(/** @type {any} */ (schema), stateJSON)
   // test if transforming back and forth from Yjs doc works
-  const backandforth = yDocToProsemirrorJSON(
-    prosemirrorJSONToYDoc(/** @type {any} */ (schema), stateJSON)
-  )
+  const backandforth = JSON.parse(JSON.stringify(yDocToProsemirrorJSON(back)))
   t.compare(stateJSON, backandforth)
+
+  // re-assure that we have overlapping comments
+  const expected = '[{"type":"text","marks":[{"type":"comment","attrs":{"id":4}}],"text":"h"},{"type":"text","marks":[{"type":"comment","attrs":{"id":4}},{"type":"comment","attrs":{"id":5}}],"text":"e"},{"type":"text","marks":[{"type":"comment","attrs":{"id":5}}],"text":"l"},{"type":"text","text":"lo world"}]'
+  t.compare(backandforth.content[0].content, JSON.parse(expected))
 }
 
 /**
@@ -134,7 +150,6 @@ export const testDocTransformation = (_tc) => {
       ))
     )
   )
-  debugger
   const stateJSON = view.state.doc.toJSON()
   // test if transforming back and forth from Yjs doc works
   const backandforth = yDocToProsemirrorJSON(
@@ -518,6 +533,8 @@ let charCounter = 0
 
 const marksChoices = [
   [schema.mark('strong')],
+  [schema.mark('comment', { id: 1 })],
+  [schema.mark('comment', { id: 2 })],
   [schema.mark('em')],
   [schema.mark('em'), schema.mark('strong')],
   [],
@@ -549,6 +566,20 @@ const pmChanges = [
       2
     )
     p.dispatch(p.state.tr.insertText('', insertPos, insertPos + overwrite))
+  },
+  /**
+   * @param {Y.Doc} y
+   * @param {prng.PRNG} gen
+   * @param {EditorView} p
+   */
+  (_y, gen, p) => { // format text
+    const insertPos = prng.int32(gen, 0, p.state.doc.content.size)
+    const formatLen = math.min(
+      prng.int32(gen, 0, p.state.doc.content.size - insertPos),
+      2
+    )
+    const mark = prng.oneOf(gen, marksChoices.filter(choice => choice.length > 0))[0]
+    p.dispatch(p.state.tr.addMark(insertPos, insertPos + formatLen, mark))
   },
   /**
    * @param {Y.Doc} y
