@@ -26,9 +26,16 @@ import * as utils from '../utils.js'
 /**
  * @typedef {Object} BindingMetadata
  * @property {ProsemirrorMapping} BindingMetadata.mapping
- * @property {Map<import('prosemirror-model').Mark, boolean>} BindingMetadata.isOMark - is
- * overlapping mark
+ * @property {Map<import('prosemirror-model').MarkType, boolean>} BindingMetadata.isOMark - is overlapping mark
  */
+
+/**
+ * @return BindingMetadata
+ */
+export const createEmptyMeta = () => ({
+  mapping: new Map(),
+  isOMark: new Map()
+})
 
 /**
  * @param {Y.Item} item
@@ -303,7 +310,7 @@ export class ProsemirrorBinding {
     /**
      * Is overlapping mark - i.e. mark does not exclude itself.
      *
-     * @type {Map<import('prosemirror-model').Mark, boolean>}
+     * @type {Map<import('prosemirror-model').MarkType, boolean>}
      */
     this.isOMark = new Map()
     this._observeFunction = this._typeChanged.bind(this)
@@ -918,12 +925,14 @@ const normalizePNodeContent = (pnode) => {
 const equalYTextPText = (ytext, ptexts) => {
   const delta = ytext.toDelta()
   return delta.length === ptexts.length &&
-    delta.every(/** @type {(d:any,i:number) => boolean}*/ (d, i) =>
+    delta.every(/** @type {(d:any,i:number) => boolean} */ (d, i) =>
       d.insert === /** @type {any} */ (ptexts[i]).text &&
       object.keys(d.attributes || {}).length === ptexts[i].marks.length &&
-      ptexts[i].marks.every(/** @param {any} mark */ (mark) =>
-        equalAttrs(d.attributes[mark.type.name] || {}, mark.attrs)
-      )
+      object.every(d.attributes, (attr, yattrname) => {
+        const markname = yattr2markname(yattrname)
+        const pmarks = ptexts[i].marks
+        return equalAttrs(attr, pmarks.find(/** @param {any} mark */ mark => mark.type.name === markname)?.attrs)
+      })
     )
 }
 
@@ -1048,24 +1057,26 @@ const updateYText = (ytext, ptexts, meta) => {
   )
 }
 
-const hashedMarkNameRegex = /(.*)(--[a-zA-Z0-9+/=]{41})$/
+const hashedMarkNameRegex = /(.*)(--[a-zA-Z0-9+/=]{8})$/
+/**
+ * @param {string} attrName
+ */
+export const yattr2markname = attrName => { debugger; return hashedMarkNameRegex.exec(attrName)?.[1] ?? attrName }
 
 /**
  * @todo move this to markstoattributes
- * 
+ *
  * @param {Object<string, any>} attrs
  * @param {import('prosemirror-model').Schema} schema
  */
-const attributesToMarks = (attrs, schema) => {
+export const attributesToMarks = (attrs, schema) => {
   /**
    * @type {Array<import('prosemirror-model').Mark>}
    */
   const marks = []
   for (const markName in attrs) {
     // remove hashes if necessary
-    const res = hashedMarkNameRegex.exec(markName)
-    debugger
-    marks.push(schema.mark(res ? res[0] : markName, attrs[markName]))
+    marks.push(schema.mark(yattr2markname(markName), attrs[markName]))
   }
   return marks
 }
@@ -1077,10 +1088,9 @@ const attributesToMarks = (attrs, schema) => {
 const marksToAttributes = (marks, meta) => {
   const pattrs = {}
   marks.forEach((mark) => {
-    debugger
     if (mark.type.name !== 'ychange') {
-      const isOverlapping = map.setIfUndefined(meta.isOMark, mark, () => !mark.type.excludes(mark.type))
-      pattrs[isOverlapping ? `${mark.type.name}--${utils.hashOfJSON(mark.toJSON())}` : mark.type.name ] = mark.attrs
+      const isOverlapping = map.setIfUndefined(meta.isOMark, mark.type, () => !mark.type.excludes(mark.type))
+      pattrs[isOverlapping ? `${mark.type.name}--${utils.hashOfJSON(mark.toJSON())}` : mark.type.name] = mark.attrs
     }
   })
   return pattrs
@@ -1211,7 +1221,7 @@ export const updateYFragment = (y, yDomFragment, pNode, meta) => {
             y,
             /** @type {Y.XmlFragment} */ (leftY),
             /** @type {PModel.Node} */ (leftP),
-           meta 
+            meta
           )
           left += 1
         } else if (updateRight) {
@@ -1219,7 +1229,7 @@ export const updateYFragment = (y, yDomFragment, pNode, meta) => {
             y,
             /** @type {Y.XmlFragment} */ (rightY),
             /** @type {PModel.Node} */ (rightP),
-            meta 
+            meta
           )
           right += 1
         } else {
