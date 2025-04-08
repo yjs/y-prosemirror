@@ -223,6 +223,8 @@ export const yXmlFragmentToProseMirrorRootNode = (yXmlFragment, schema) =>
  *
  * @param {Y.XmlFragment} yXmlFragment
  * @param {Schema} schema
+ *
+ * @todo deprecate mapping property
  */
 export const initProseMirrorDoc = (yXmlFragment, schema) => {
   const meta = createEmptyMeta()

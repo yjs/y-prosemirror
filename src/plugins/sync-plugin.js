@@ -518,7 +518,7 @@ export class ProsemirrorBinding {
         }
         // Create document fragment and render
         const fragmentContent = Y.typeListToArraySnapshot(
-          this.type,
+          this.type, // @todo this should use historyDoc's type instead
           new Y.Snapshot(prevSnapshot.ds, snapshot.sv)
         ).map((t) => {
           if (
