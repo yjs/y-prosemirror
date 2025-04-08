@@ -234,7 +234,7 @@ export const initProseMirrorDoc = (yXmlFragment, schema) => {
     )
   ).filter((n) => n !== null)
   const doc = schema.topNodeType.create(null, Fragment.fromArray(fragmentContent))
-  return { doc, meta: meta.mapping }
+  return { doc, meta, mapping: meta.mapping }
 }
 
 /**
