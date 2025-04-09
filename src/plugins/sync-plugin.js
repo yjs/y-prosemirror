@@ -469,6 +469,7 @@ export class ProsemirrorBinding {
      * @type {Y.Doc}
      */
     let historyDoc = this.doc
+    let historyType = this.type
     if (!snapshot) {
       snapshot = Y.snapshot(this.doc)
     }
@@ -482,6 +483,29 @@ export class ProsemirrorBinding {
       prevSnapshot = Y.snapshot(historyDoc)
       Y.applyUpdateV2(historyDoc, snapshot)
       snapshot = Y.snapshot(historyDoc)
+      if (historyType._item === null) {
+        /**
+         * If is a root type, we need to find the root key in the initial document
+         * and use it to get the history type.
+         */
+        const rootKey = Array.from(this.doc.share.keys()).find(
+          (key) => this.doc.share.get(key) === this.type
+        )
+        historyType = historyDoc.getXmlFragment(rootKey)
+      } else {
+        /**
+         * If it is a sub type, we use the item id to find the history type.
+         */
+        const historyStructs =
+          historyDoc.store.clients.get(historyType._item.id.client) ?? []
+        const itemIndex = Y.findIndexSS(
+          historyStructs,
+          historyType._item.id.clock
+        )
+        const item = /** @type {Y.Item} */ (historyStructs[itemIndex])
+        const content = /** @type {Y.ContentType} */ (item.content)
+        historyType = /** @type {Y.XmlFragment} */ (content.type)
+      }
     }
     // clear mapping because we are going to rerender
     this.mapping.clear()
@@ -518,7 +542,7 @@ export class ProsemirrorBinding {
         }
         // Create document fragment and render
         const fragmentContent = Y.typeListToArraySnapshot(
-          this.type, // @todo this should use historyDoc's type instead
+          historyType,
           new Y.Snapshot(prevSnapshot.ds, snapshot.sv)
         ).map((t) => {
           if (
