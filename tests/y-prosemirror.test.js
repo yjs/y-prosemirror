@@ -439,6 +439,39 @@ export const testVersioning = async (_tc) => {
   t.compare(viewstate2, expectedState)
 }
 
+export const testVersioningWithGarbageCollection = async (_tc) => {
+  const ydoc = new Y.Doc()
+  const yxml = ydoc.get('prosemirror', Y.XmlFragment)
+  const permanentUserData = new Y.PermanentUserData(ydoc)
+  permanentUserData.setUserMapping(ydoc, ydoc.clientID, 'me')
+  console.log('yxml', yxml.toString())
+  const view = createNewComplexProsemirrorView(ydoc)
+  const p = new Y.XmlElement('paragraph')
+  const ytext = new Y.XmlText('hello world!')
+  p.insert(0, [ytext])
+  yxml.insert(0, [p])
+  const snapshotDoc1 = Y.encodeStateAsUpdateV2(ydoc)
+  ytext.delete(0, 6)
+  const snapshotDoc2 = Y.encodeStateAsUpdateV2(ydoc)
+  view.dispatch(
+    view.state.tr.setMeta(ySyncPluginKey, { snapshot: snapshotDoc2, prevSnapshot: snapshotDoc1, permanentUserData })
+  )
+  await promise.wait(50)
+  console.log('calculated diff via snapshots: ', view.state.doc.toJSON())
+  // recreate the JSON, because ProseMirror messes with the constructors
+  const viewstate1 = JSON.parse(JSON.stringify(view.state.doc.toJSON().content[0].content))
+  const expectedState = [{
+    type: 'text',
+    marks: [{ type: 'ychange', attrs: { user: 'me', type: 'removed' } }],
+    text: 'hello '
+  }, {
+    type: 'text',
+    text: 'world!'
+  }]
+  console.log('calculated diff via snapshots: ', JSON.stringify(viewstate1))
+  t.compare(viewstate1, expectedState)
+}
+
 export const testAddToHistoryIgnore = (_tc) => {
   const ydoc = new Y.Doc()
   const view = createNewProsemirrorViewWithUndoManager(ydoc)
