@@ -4,7 +4,7 @@
 
 import { createMutex } from 'lib0/mutex'
 import * as PModel from 'prosemirror-model'
-import { AllSelection, Plugin, TextSelection } from "prosemirror-state"; // eslint-disable-line
+import { AllSelection, Plugin, TextSelection, NodeSelection } from "prosemirror-state"; // eslint-disable-line
 import * as math from 'lib0/math'
 import * as object from 'lib0/object'
 import * as set from 'lib0/set'
@@ -242,14 +242,22 @@ export const ySyncPlugin = (yXmlFragment, {
 }
 
 /**
- * @param {any} tr
- * @param {any} relSel
+ * @param {import('prosemirror-state').Transaction} tr
+ * @param {ReturnType<typeof getRelativeSelection>} relSel
  * @param {ProsemirrorBinding} binding
  */
 const restoreRelativeSelection = (tr, relSel, binding) => {
   if (relSel !== null && relSel.anchor !== null && relSel.head !== null) {
     if (relSel.type === 'all') {
       tr.setSelection(new AllSelection(tr.doc))
+    } else if (relSel.type === 'node') {
+      const anchor = relativePositionToAbsolutePosition(
+        binding.doc,
+        binding.type,
+        relSel.anchor,
+        binding.mapping
+      )
+      tr.setSelection(NodeSelection.create(tr.doc, anchor))
     } else {
       const anchor = relativePositionToAbsolutePosition(
         binding.doc,
@@ -264,7 +272,7 @@ const restoreRelativeSelection = (tr, relSel, binding) => {
         binding.mapping
       )
       if (anchor !== null && head !== null) {
-        tr = tr.setSelection(TextSelection.create(tr.doc, anchor, head))
+        tr.setSelection(TextSelection.between(tr.doc.resolve(anchor), tr.doc.resolve(head)))
       }
     }
   }
