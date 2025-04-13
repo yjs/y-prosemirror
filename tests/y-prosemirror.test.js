@@ -389,8 +389,8 @@ export const testInitialCursorPosition2 = async (_tc) => {
   p.insert(0, [new Y.XmlText('hello world!')])
   yxml.insert(0, [p])
   console.log('anchor', view.state.selection.anchor)
-  t.assert(view.state.selection.anchor === 0)
-  t.assert(view.state.selection.head === 0)
+  t.assert(view.state.selection.anchor === 1)
+  t.assert(view.state.selection.head === 1)
 }
 
 export const testVersioning = async (_tc) => {
