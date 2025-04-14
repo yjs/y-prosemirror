@@ -131,6 +131,7 @@ export const ySyncPlugin = (yXmlFragment, {
           isChangeOrigin: false,
           isUndoRedoOperation: false,
           addToHistory: true,
+          addToYDoc: true,
           colors,
           colorMapping,
           permanentUserData
@@ -145,6 +146,7 @@ export const ySyncPlugin = (yXmlFragment, {
           }
         }
         pluginState.addToHistory = tr.getMeta('addToHistory') !== false
+        pluginState.addToYDoc = tr.getMeta('addToYDoc') !== false
         // always set isChangeOrigin. If undefined, this is not change origin.
         pluginState.isChangeOrigin = change !== undefined &&
           !!change.isChangeOrigin
@@ -223,12 +225,15 @@ export const ySyncPlugin = (yXmlFragment, {
                   um.stopCapturing()
                 }
               }
-              binding.mux(() => {
-                /** @type {Y.Doc} */ (pluginState.doc).transact((tr) => {
-                  tr.meta.set('addToHistory', pluginState.addToHistory)
-                  binding._prosemirrorChanged(view.state.doc)
-                }, ySyncPluginKey)
-              })
+
+              if (pluginState.addToYDoc) {
+                binding.mux(() => {
+                  /** @type {Y.Doc} */ (pluginState.doc).transact((tr) => {
+                    tr.meta.set('addToHistory', pluginState.addToHistory)
+                    binding._prosemirrorChanged(view.state.doc)
+                  }, ySyncPluginKey)
+                })
+              }
             }
           }
         },
