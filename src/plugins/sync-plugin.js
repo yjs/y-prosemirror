@@ -4,7 +4,7 @@
 
 import { createMutex } from 'lib0/mutex'
 import * as PModel from 'prosemirror-model'
-import { AllSelection, Plugin, TextSelection, NodeSelection } from "prosemirror-state"; // eslint-disable-line
+import { Plugin, TextSelection } from 'prosemirror-state'
 import * as math from 'lib0/math'
 import * as object from 'lib0/object'
 import * as set from 'lib0/set'
@@ -242,39 +242,16 @@ export const ySyncPlugin = (yXmlFragment, {
 }
 
 /**
- * @param {import('prosemirror-state').Transaction} tr
- * @param {ReturnType<typeof getRelativeSelection>} relSel
- * @param {ProsemirrorBinding} binding
+ * This will return a function that can be used to convert a relative position to an absolute position.
+ * @param {ProsemirrorBinding} pmbinding
+ * @param {number} pos
+ * @returns {(binding?: ProsemirrorBinding) => number}
  */
-const restoreRelativeSelection = (tr, relSel, binding) => {
-  if (relSel !== null && relSel.anchor !== null && relSel.head !== null) {
-    if (relSel.type === 'all') {
-      tr.setSelection(new AllSelection(tr.doc))
-    } else if (relSel.type === 'node') {
-      const anchor = relativePositionToAbsolutePosition(
-        binding.doc,
-        binding.type,
-        relSel.anchor,
-        binding.mapping
-      )
-      tr.setSelection(NodeSelection.create(tr.doc, anchor))
-    } else {
-      const anchor = relativePositionToAbsolutePosition(
-        binding.doc,
-        binding.type,
-        relSel.anchor,
-        binding.mapping
-      )
-      const head = relativePositionToAbsolutePosition(
-        binding.doc,
-        binding.type,
-        relSel.head,
-        binding.mapping
-      )
-      if (anchor !== null && head !== null) {
-        tr.setSelection(TextSelection.between(tr.doc.resolve(anchor), tr.doc.resolve(head)))
-      }
-    }
+export const relativePositionStore = (pmbinding, pos) => {
+  const relPos = absolutePositionToRelativePosition(pos, pmbinding.type, pmbinding.mapping)
+
+  return (binding = pmbinding) => {
+    return relativePositionToAbsolutePosition(binding.doc, binding.type, relPos, binding.mapping)
   }
 }
 
@@ -282,19 +259,62 @@ const restoreRelativeSelection = (tr, relSel, binding) => {
  * @param {ProsemirrorBinding} pmbinding
  * @param {import('prosemirror-state').EditorState} state
  */
-export const getRelativeSelection = (pmbinding, state) => ({
-  type: /** @type {any} */ (state.selection).jsonID,
-  anchor: absolutePositionToRelativePosition(
-    state.selection.anchor,
-    pmbinding.type,
-    pmbinding.mapping
-  ),
-  head: absolutePositionToRelativePosition(
-    state.selection.head,
-    pmbinding.type,
-    pmbinding.mapping
-  )
-})
+export const getRelativeSelection = (pmbinding, state) => {
+  /**
+   * @type {Map<number, (binding?: ProsemirrorBinding) => number>}
+   */
+  const mapping = new Map()
+  /**
+   * We take a bookmark of the current selection
+   * and map it to it's relative positions,
+   * so we can restore the selection in the future.
+   */
+  const bookmark = state.selection.getBookmark().map({
+    map (pos) {
+      // Store the relative position using the position as the key
+      mapping.set(pos, relativePositionStore(pmbinding, pos))
+
+      // Pass through the position unchanged, since we are just using it to store the relative position
+      return pos
+    },
+    mapResult (pos) {
+      // Call the map function to store the relative position
+      return { pos: this.map(pos), deleted: false, deletedAcross: false, deletedAfter: false, deletedBefore: false }
+    }
+  })
+
+  return {
+    mapping,
+    bookmark
+  }
+}
+
+/**
+ * Restores the relative selection to the prosemirror view.
+ * @param {import('prosemirror-state').Transaction} tr
+ * @param {ReturnType<typeof getRelativeSelection>} relSel
+ * @param {ProsemirrorBinding} pmbinding
+ */
+const restoreRelativeSelection = (tr, { mapping, bookmark }, pmbinding) => {
+  const selection = bookmark.map({
+    map (pos) {
+      const getPos = mapping.get(pos)
+      if (!getPos) {
+        throw new Error('Relative position not set')
+      }
+      return getPos(pmbinding)
+    },
+    mapResult (originalPos) {
+      const mappedPos = this.map(originalPos)
+      if (mappedPos === null) {
+        return { pos: originalPos, deleted: true, deletedAcross: true, deletedAfter: true, deletedBefore: true }
+      }
+      return { pos: mappedPos, deleted: false, deletedAcross: false, deletedAfter: false, deletedBefore: false }
+    }
+  }).resolve(tr.doc)
+
+  tr.setSelection(selection)
+}
 
 /**
  * Binding for prosemirror.
