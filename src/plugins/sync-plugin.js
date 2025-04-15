@@ -296,6 +296,9 @@ export const getRelativeSelection = (pmbinding, state) => {
  * @param {ProsemirrorBinding} pmbinding
  */
 const restoreRelativeSelection = (tr, { mapping, bookmark }, pmbinding) => {
+  /**
+   * We can now try to map the bookmark into the appropriate absolute positions.
+   */
   const selection = bookmark.map({
     map (pos) {
       const getPos = mapping.get(pos)
