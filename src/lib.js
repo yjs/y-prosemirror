@@ -49,7 +49,7 @@ export const setMeta = (view, key, value) => {
  * @param {number} pos
  * @param {Y.XmlFragment} type
  * @param {ProsemirrorMapping} mapping
- * @return {any} relative position
+ * @return {Y.RelativePosition} relative position
  */
 export const absolutePositionToRelativePosition = (pos, type, mapping) => {
   if (pos === 0) {
