@@ -11,6 +11,7 @@ export const ySyncPluginKey = new PluginKey('y-sync')
  * The unique prosemirror plugin key for undoPlugin
  *
  * @public
+ * @type {PluginKey<import('./undo-plugin').UndoPluginState>}
  */
 export const yUndoPluginKey = new PluginKey('y-undo')
 

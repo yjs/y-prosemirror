@@ -1,33 +1,86 @@
-import { Plugin } from 'prosemirror-state' // eslint-disable-line
+import { Plugin } from 'prosemirror-state'
 
 import { getRelativeSelection } from './sync-plugin.js'
 import { UndoManager, Item, ContentType, XmlElement, Text } from 'yjs'
 import { yUndoPluginKey, ySyncPluginKey } from './keys.js'
 
-export const undo = state => {
+/**
+ * @typedef {Object} UndoPluginState
+ * @property {import('yjs').UndoManager} undoManager
+ * @property {ReturnType<typeof getRelativeSelection> | null} prevSel
+ * @property {boolean} hasUndoOps
+ * @property {boolean} hasRedoOps
+ */
+
+/**
+ * Undo the last user action if there are undo operations available
+ * @type {import('prosemirror-state').Command}
+ */
+export const undoCommand = (state, dispatch) => {
   const undoManager = yUndoPluginKey.getState(state).undoManager
-  if (undoManager != null) {
-    undoManager.undo()
-    return true
+  if (undoManager == null || !undoManager.undoStack.length) {
+    return false
   }
+
+  if (dispatch) {
+    undoManager.undo()
+  }
+  return true
 }
 
-export const redo = state => {
+/**
+ * Redo the last user action if there are redo operations available
+ * @type {import('prosemirror-state').Command}
+ */
+export const redoCommand = (state, dispatch) => {
   const undoManager = yUndoPluginKey.getState(state).undoManager
-  if (undoManager != null) {
-    undoManager.redo()
-    return true
+  if (undoManager == null || !undoManager.redoStack.length) {
+    return false
   }
+
+  if (dispatch) {
+    undoManager.redo()
+  }
+  return true
+}
+
+/**
+ * Undo the last user action
+ * @param {import('prosemirror-state').EditorState} state
+ * @returns {boolean}
+ */
+export const undo = (state) => {
+  return undoCommand(state, () => {})
+}
+
+/**
+ * Redo the last user action
+ * @param {import('prosemirror-state').EditorState} state
+ * @returns {boolean}
+ */
+export const redo = (state) => {
+  return redoCommand(state, () => {})
 }
 
 export const defaultProtectedNodes = new Set(['paragraph'])
 
+/**
+ * @param {import('yjs').Item} item
+ * @param {Set<string>} protectedNodes
+ * @returns {boolean}
+ */
 export const defaultDeleteFilter = (item, protectedNodes) => !(item instanceof Item) ||
 !(item.content instanceof ContentType) ||
 !(item.content.type instanceof Text ||
   (item.content.type instanceof XmlElement && protectedNodes.has(item.content.type.nodeName))) ||
 item.content.type._length === 0
 
+/**
+ * @param {object} [options]
+ * @param {Set<string>} [options.protectedNodes]
+ * @param {any[]} [options.trackedOrigins]
+ * @param {import('yjs').UndoManager | null} [options.undoManager]
+ */
 export const yUndoPlugin = ({ protectedNodes = defaultProtectedNodes, trackedOrigins = [], undoManager = null } = {}) => new Plugin({
   key: yUndoPluginKey,
   state: {
@@ -46,9 +99,6 @@ export const yUndoPlugin = ({ protectedNodes = defaultProtectedNodes, trackedOri
         hasRedoOps: _undoManager.redoStack.length > 0
       }
     },
-    /**
-     * @returns {any}
-     */
     apply: (tr, val, oldState, state) => {
       const binding = ySyncPluginKey.getState(state).binding
       const undoManager = val.undoManager

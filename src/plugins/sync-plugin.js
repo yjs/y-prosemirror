@@ -30,7 +30,7 @@ import * as utils from '../utils.js'
  */
 
 /**
- * @return BindingMetadata
+ * @return {BindingMetadata}
  */
 export const createEmptyMeta = () => ({
   mapping: new Map(),
