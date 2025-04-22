@@ -13,54 +13,32 @@ import { yUndoPluginKey, ySyncPluginKey } from './keys.js'
  */
 
 /**
+ * Undo the last user action
+ *
+ * @param {import('prosemirror-state').EditorState} state
+ * @return {boolean} whether a change was undone
+ */
+export const undo = state => yUndoPluginKey.getState(state)?.undoManager?.undo() != null
+
+/**
+ * Redo the last user action
+ *
+ * @param {import('prosemirror-state').EditorState} state
+ * @return {boolean} whether a change was undone
+ */
+export const redo = state => yUndoPluginKey.getState(state)?.undoManager?.redo() != null
+
+/**
  * Undo the last user action if there are undo operations available
  * @type {import('prosemirror-state').Command}
  */
-export const undoCommand = (state, dispatch) => {
-  const undoManager = yUndoPluginKey.getState(state).undoManager
-  if (undoManager == null || !undoManager.undoStack.length) {
-    return false
-  }
-
-  if (dispatch) {
-    undoManager.undo()
-  }
-  return true
-}
+export const undoCommand = (state, dispatch) => dispatch == null ? yUndoPluginKey.getState(state)?.undoManager?.canUndo() : undo(state)
 
 /**
  * Redo the last user action if there are redo operations available
  * @type {import('prosemirror-state').Command}
  */
-export const redoCommand = (state, dispatch) => {
-  const undoManager = yUndoPluginKey.getState(state).undoManager
-  if (undoManager == null || !undoManager.redoStack.length) {
-    return false
-  }
-
-  if (dispatch) {
-    undoManager.redo()
-  }
-  return true
-}
-
-/**
- * Undo the last user action
- * @param {import('prosemirror-state').EditorState} state
- * @returns {boolean}
- */
-export const undo = (state) => {
-  return undoCommand(state, () => {})
-}
-
-/**
- * Redo the last user action
- * @param {import('prosemirror-state').EditorState} state
- * @returns {boolean}
- */
-export const redo = (state) => {
-  return redoCommand(state, () => {})
-}
+export const redoCommand = (state, dispatch) => dispatch == null ? yUndoPluginKey.getState(state)?.undoManager?.canRedo() : redo(state)
 
 export const defaultProtectedNodes = new Set(['paragraph'])
 
@@ -70,10 +48,10 @@ export const defaultProtectedNodes = new Set(['paragraph'])
  * @returns {boolean}
  */
 export const defaultDeleteFilter = (item, protectedNodes) => !(item instanceof Item) ||
-!(item.content instanceof ContentType) ||
-!(item.content.type instanceof Text ||
+  !(item.content instanceof ContentType) ||
+  !(item.content.type instanceof Text ||
   (item.content.type instanceof XmlElement && protectedNodes.has(item.content.type.nodeName))) ||
-item.content.type._length === 0
+  item.content.type._length === 0
 
 /**
  * @param {object} [options]
