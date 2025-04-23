@@ -66,6 +66,7 @@ export const isVisible = (item, snapshot) =>
  * @property {Y.PermanentUserData|null} [YSyncOpts.permanentUserData]
  * @property {ProsemirrorMapping} [YSyncOpts.mapping]
  * @property {function} [YSyncOpts.onFirstRender] Fired when the content from Yjs is initially rendered to ProseMirror
+ * @property {function(any, Error): boolean | null} [YSyncOpts.handleNodeCreationError] Called when a node cannot be created from a Yjs type. Return false to continue with default behavior (removing the node), true to handle the error.
  */
 
 /**
@@ -105,7 +106,8 @@ export const ySyncPlugin = (yXmlFragment, {
   colorMapping = new Map(),
   permanentUserData = null,
   onFirstRender = () => {},
-  mapping
+  mapping,
+  handleNodeCreationError = null
 } = {}) => {
   let initialContentChanged = false
   const binding = new ProsemirrorBinding(yXmlFragment, mapping)
@@ -133,7 +135,8 @@ export const ySyncPlugin = (yXmlFragment, {
           addToHistory: true,
           colors,
           colorMapping,
-          permanentUserData
+          permanentUserData,
+          handleNodeCreationError
         }
       },
       apply: (tr, pluginState) => {
@@ -415,7 +418,11 @@ export class ProsemirrorBinding {
         createNodeFromYElement(
           /** @type {Y.XmlElement} */ (t),
           this.prosemirrorView.state.schema,
-          this
+          this,
+          undefined,
+          undefined,
+          undefined,
+          ySyncPluginKey.getState(this.prosemirrorView.state).handleNodeCreationError
         )
       ).filter((n) => n !== null)
       // @ts-ignore
@@ -440,7 +447,11 @@ export class ProsemirrorBinding {
         createNodeFromYElement(
           /** @type {Y.XmlElement} */ (t),
           this.prosemirrorView.state.schema,
-          this
+          this,
+          undefined,
+          undefined,
+          undefined,
+          ySyncPluginKey.getState(this.prosemirrorView.state).handleNodeCreationError
         )
       ).filter((n) => n !== null)
       // @ts-ignore
@@ -719,6 +730,7 @@ const createNodeIfNotExists = (
  * @param {Y.Snapshot} [snapshot]
  * @param {Y.Snapshot} [prevSnapshot]
  * @param {function('removed' | 'added', Y.ID):any} [computeYChange]
+ * @param {function(any, Error): boolean | null} [handleNodeCreationError]
  * @return {PModel.Node | null} Returns node if node could be created. Otherwise it deletes the yjs type and returns null
  */
 export const createNodeFromYElement = (
@@ -727,7 +739,8 @@ export const createNodeFromYElement = (
   meta,
   snapshot,
   prevSnapshot,
-  computeYChange
+  computeYChange,
+  handleNodeCreationError
 ) => {
   const children = []
   /**
@@ -767,7 +780,8 @@ export const createNodeFromYElement = (
         meta,
         snapshot,
         prevSnapshot,
-        computeYChange
+        computeYChange,
+        handleNodeCreationError
       )
       if (ns !== null) {
         ns.forEach((textchild) => {
@@ -801,11 +815,13 @@ export const createNodeFromYElement = (
     meta.mapping.set(el, node)
     return node
   } catch (e) {
-    // an error occured while creating the node. This is probably a result of a concurrent action.
-    /** @type {Y.Doc} */ (el.doc).transact((transaction) => {
-      /** @type {Y.Item} */ (el._item).delete(transaction)
-    }, ySyncPluginKey)
-    meta.mapping.delete(el)
+    if (typeof handleNodeCreationError !== 'function' || !handleNodeCreationError(el, e)) {
+      // an error occured while creating the node. This is probably a result of a concurrent action.
+      /** @type {Y.Doc} */ (el.doc).transact((transaction) => {
+        /** @type {Y.Item} */ (el._item).delete(transaction)
+      }, ySyncPluginKey)
+      meta.mapping.delete(el)
+    }
     return null
   }
 }
@@ -818,6 +834,7 @@ export const createNodeFromYElement = (
  * @param {Y.Snapshot} [snapshot]
  * @param {Y.Snapshot} [prevSnapshot]
  * @param {function('removed' | 'added', Y.ID):any} [computeYChange]
+ * @param {function(any, Error): boolean | null} [handleNodeCreationError]
  * @return {Array<PModel.Node>|null}
  */
 const createTextNodesFromYText = (
@@ -826,7 +843,8 @@ const createTextNodesFromYText = (
   _meta,
   snapshot,
   prevSnapshot,
-  computeYChange
+  computeYChange,
+  handleNodeCreationError
 ) => {
   const nodes = []
   const deltas = text.toDelta(snapshot, prevSnapshot, computeYChange)
@@ -837,9 +855,11 @@ const createTextNodesFromYText = (
     }
   } catch (e) {
     // an error occured while creating the node. This is probably a result of a concurrent action.
-    /** @type {Y.Doc} */ (text.doc).transact((transaction) => {
-      /** @type {Y.Item} */ (text._item).delete(transaction)
-    }, ySyncPluginKey)
+    if (typeof handleNodeCreationError !== 'function' || !handleNodeCreationError(text, e)) {
+      /** @type {Y.Doc} */ (text.doc).transact((transaction) => {
+        /** @type {Y.Item} */ (text._item).delete(transaction)
+      }, ySyncPluginKey)
+    }
     return null
   }
   // @ts-ignore
