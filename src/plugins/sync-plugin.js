@@ -46,7 +46,7 @@ export const isVisible = (item, snapshot) =>
     ? !item.deleted
     : (snapshot.sv.has(item.id.client) && /** @type {number} */
       (snapshot.sv.get(item.id.client)) > item.id.clock &&
-      !Y.isDeleted(snapshot.ds, item.id))
+      !snapshot.ds.hasId(item.id))
 
 /**
  * Either a node if type is YXmlElement or an Array of text nodes if YXmlText
@@ -402,7 +402,7 @@ export class ProsemirrorBinding {
    */
   renderSnapshot (snapshot, prevSnapshot) {
     if (!prevSnapshot) {
-      prevSnapshot = Y.createSnapshot(Y.createDeleteSet(), new Map())
+      prevSnapshot = Y.createSnapshot(Y.createIdSet(), new Map())
     }
     this.prosemirrorView.dispatch(
       this._tr.setMeta(ySyncPluginKey, { snapshot, prevSnapshot })
@@ -528,7 +528,7 @@ export class ProsemirrorBinding {
         const pud = pluginState.permanentUserData
         if (pud) {
           pud.dss.forEach((ds) => {
-            Y.iterateDeletedStructs(transaction, ds, (_item) => {})
+            Y.iterateStructsByIdSet(transaction, ds, (_item) => {})
           })
         }
         /**
@@ -606,7 +606,7 @@ export class ProsemirrorBinding {
        * @param {Y.AbstractType<any>} type
        */
       const delType = (_, type) => this.mapping.delete(type)
-      Y.iterateDeletedStructs(
+      Y.iterateStructsByIdSet(
         transaction,
         transaction.deleteSet,
         (struct) => {

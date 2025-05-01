@@ -22,7 +22,7 @@ export default [{
     format: 'cjs',
     sourcemap: true
   }],
-  external: id => /^(lib0|y-protocols|prosemirror|yjs)/.test(id)
+  external: id => /^(lib0|@y|prosemirror|yjs)/.test(id)
 }, {
   input: './tests/index.js',
   output: {
