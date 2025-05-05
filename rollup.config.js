@@ -52,20 +52,4 @@ export default [{
     }),
     commonjs()
   ]
-}, {
-  input: './tests/index.node.js',
-  output: {
-    name: 'test',
-    file: 'dist/test.cjs',
-    format: 'cjs',
-    sourcemap: true
-  },
-  plugins: [
-    // debugResolve,
-    nodeResolve({
-      mainFields: ['module', 'main']
-    }),
-    commonjs()
-  ],
-  external: id => /^(lib0|prosemirror|fs|path|jsdom|isomorphic)/.test(id)
 }]
