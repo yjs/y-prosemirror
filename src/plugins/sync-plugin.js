@@ -272,7 +272,10 @@ const restoreRelativeSelection = (tr, relSel, binding) => {
         binding.mapping
       )
       if (anchor !== null && head !== null) {
-        tr.setSelection(TextSelection.between(tr.doc.resolve(anchor), tr.doc.resolve(head)))
+        const maxsize = tr.doc.content.size - 1
+        const clampedAnchor = math.min(math.max(anchor, 0), maxsize)
+        const clampedHead = math.min(math.max(head, 0), maxsize)
+        tr.setSelection(TextSelection.between(tr.doc.resolve(clampedAnchor), tr.doc.resolve(clampedHead)))
       }
     }
   }
