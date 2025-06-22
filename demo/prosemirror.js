@@ -32,7 +32,7 @@ window.addEventListener('load', () => {
           'Mod-y': redo,
           'Mod-Shift-z': redo
         })
-      ].concat(exampleSetup({ schema }))
+      ].concat(exampleSetup({ schema, history: false }))
     })
   })
   document.body.insertBefore(editorContainer, null)

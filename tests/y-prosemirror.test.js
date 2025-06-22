@@ -14,6 +14,7 @@ import {
   ySyncPlugin,
   ySyncPluginKey,
   yUndoPlugin,
+  yUndoPluginKey,
   yXmlFragmentToProsemirrorJSON
 } from '../src/y-prosemirror.js'
 import { EditorState, Plugin, TextSelection } from 'prosemirror-state'
@@ -356,6 +357,40 @@ export const testAddToHistory = (_tc) => {
     yxml.length === 2 && yxml.get(0).length === 1,
     'insertion was *not* undone'
   )
+}
+
+/**
+ * Reproducing #190
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testCursorPositionAfterUndoOnEndText = (_tc) => {
+  const ydoc = new Y.Doc()
+  const view = createNewProsemirrorViewWithUndoManager(ydoc)
+  view.dispatch(
+    view.state.tr.insert(
+      0,
+      /** @type {any} */ (schema.node(
+        'paragraph',
+        undefined,
+        schema.text('123')
+      ))
+    )
+  )
+  const yxml = ydoc.get('prosemirror')
+  t.assert(
+    yxml.length === 2 && yxml.get(0).length === 1,
+    'contains inserted content'
+  )
+  view.dispatch(view.state.tr.setSelection(TextSelection.between(view.state.doc.resolve(4), view.state.doc.resolve(4))))
+  const undoManager = yUndoPluginKey.getState(view.state)?.undoManager
+  undoManager.stopCapturing()
+  // clear undo manager
+  view.dispatch(
+    view.state.tr.delete(3, 4)
+  )
+  undo(view.state)
+  t.assert(view.state.selection.anchor === 4)
 }
 
 /**
