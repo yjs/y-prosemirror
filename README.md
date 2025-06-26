@@ -214,6 +214,72 @@ document changes that aren't initiated by the user.
 tr.setMeta("addToHistory", false)
 ```
 
+---
+
+## Publishing to GitHub Registry
+
+This package is published to GitHub Package Registry as `@channel-io/y-stitchkit`.
+
+### Prerequisites
+
+1. **GitHub Personal Access Token**: Generate a token with `write:packages` and `read:packages` permissions
+
+   - Go to GitHub Settings > Developer settings > Personal access tokens > Tokens (classic)
+   - Generate new token with `write:packages`, `read:packages`, and `repo` scopes
+
+2. **NPM Authentication**: Configure npm to use GitHub registry for @channel-io scope
+   ```bash
+   npm login --scope=@channel-io --registry=https://npm.pkg.github.com
+   # Use your GitHub username and the personal access token as password
+   ```
+
+### Manual Publishing Steps
+
+1. **Build the package**:
+
+   ```bash
+   npm run dist
+   ```
+
+2. **Update version** (if needed):
+
+   ```bash
+   npm version patch|minor|major
+   ```
+
+3. **Publish to GitHub Registry**:
+   ```bash
+   npm publish
+   ```
+
+### Installing the Package
+
+To install this package in other projects:
+
+1. **Configure npm registry** for @channel-io scope (in your project):
+
+   ```bash
+   npm config set @channel-io:registry https://npm.pkg.github.com
+   ```
+
+2. **Create or update `.npmrc`** in your project root:
+
+   ```
+   @channel-io:registry=https://npm.pkg.github.com
+   //npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
+   ```
+
+3. **Install the package**:
+
+   ```bash
+   npm install @channel-io/y-stitchkit
+   ```
+
+4. **Usage**:
+   ```js
+   import { ySyncPlugin, yCursorPlugin, yUndoPlugin } from "@channel-io/y-stitchkit"
+   ```
+
 ### License
 
 [The MIT License](./LICENSE) © Kevin Jahns
