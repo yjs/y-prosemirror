@@ -1,46 +1,41 @@
 {
-  "name": "y-prosemirror",
-  "version": "1.3.6",
-  "description": "Prosemirror bindings for Yjs",
-  "main": "./dist/y-prosemirror.cjs",
-  "module": "./src/y-prosemirror.js",
+  "name": "y-stitchkit",
+  "version": "1.3.5",
+  "description": "Stitchkit prosemirror bindings for Yjs",
+  "main": "./dist/y-stitchkit.cjs",
+  "module": "./src/y-stitchkit.js",
   "type": "module",
-  "types": "./dist/src/y-prosemirror.d.ts",
+  "types": "./dist/src/y-stitchkit.d.ts",
   "sideEffects": false,
-  "funding": {
-    "type": "GitHub Sponsors ❤",
-    "url": "https://github.com/sponsors/dmonad"
-  },
   "scripts": {
     "clean": "rm -rf dist",
-    "dist": "npm run clean && rollup -c && tsc",
+    "dist": "npm run clean && rollup -c",
     "test": "npm run lint && rollup -c && node dist/test.cjs",
     "lint": "standard && tsc",
     "watch": "rollup -wc",
     "debug": "concurrently '0serve -o test.html' 'npm run watch'",
     "preversion": "npm run lint && npm run dist && npm run test",
-    "start": "concurrently '0serve -o demo/prosemirror.html' 'npm run watch'"
+    "start": "concurrently '0serve -o demo/prosemirror.html' 'npm run watch'",
+    "prepare": "yarn dist"
   },
   "exports": {
     ".": {
-      "types": "./dist/src/y-prosemirror.d.ts",
-      "import": "./src/y-prosemirror.js",
-      "require": "./dist/y-prosemirror.cjs"
+      "types": "./dist/src/y-stitchkit.d.ts",
+      "import": "./dist/y-stitchkit.js",
+      "require": "./dist/y-stitchkit.cjs"
     }
   },
   "files": [
     "dist/*",
-    "!dist/test.*",
-    "src/*"
+    "!dist/test.*"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yjs/y-prosemirror.git"
+    "url": "git+https://github.com/channel-io/y-stitchkit.git"
   },
   "keywords": [
     "Yjs"
   ],
-  "author": "Kevin Jahns <kevin.jahns@protonmail.com>",
   "license": "MIT",
   "standard": {
     "ignore": [
@@ -54,27 +49,20 @@
   },
   "homepage": "https://github.com/yjs/y-prosemirror#readme",
   "dependencies": {
-    "lib0": "^0.2.109"
+    "lib0": "^0.2.100"
   },
   "peerDependencies": {
-    "prosemirror-model": "^1.7.1",
-    "prosemirror-state": "^1.2.3",
-    "prosemirror-view": "^1.9.10",
+    "@stitchkit/pm": "0.1.0-alpha.4",
     "y-protocols": "^1.0.1",
     "yjs": "^13.5.38"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^21.0.1",
     "@rollup/plugin-node-resolve": "^13.0.6",
-    "concurrently": "^4.1.0",
+    "@stitchkit/pm": "0.1.0-alpha.4",
     "http-server": "^0.12.3",
     "jsdom": "^15.1.1",
     "prosemirror-example-setup": "^1.2.1",
-    "prosemirror-model": "^1.18.1",
-    "prosemirror-schema-basic": "^1.2.0",
-    "prosemirror-state": "^1.4.1",
-    "prosemirror-transform": "^1.6.0",
-    "prosemirror-view": "^1.26.2",
     "rollup": "^2.59.0",
     "standard": "^17.0.0",
     "typescript": "^5.4.5",

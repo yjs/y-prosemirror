@@ -1,11 +1,11 @@
-import { PluginKey } from 'prosemirror-state' // eslint-disable-line
+import { PluginKey } from "@stitchkit/pm/state" // eslint-disable-line
 
 /**
  * The unique prosemirror plugin key for syncPlugin
  *
  * @public
  */
-export const ySyncPluginKey = new PluginKey('y-sync')
+export const ySyncPluginKey = new PluginKey("y-sync")
 
 /**
  * The unique prosemirror plugin key for undoPlugin
@@ -13,11 +13,11 @@ export const ySyncPluginKey = new PluginKey('y-sync')
  * @public
  * @type {PluginKey<import('./undo-plugin').UndoPluginState>}
  */
-export const yUndoPluginKey = new PluginKey('y-undo')
+export const yUndoPluginKey = new PluginKey("y-undo")
 
 /**
  * The unique prosemirror plugin key for cursorPlugin
  *
  * @public
  */
-export const yCursorPluginKey = new PluginKey('yjs-cursor')
+export const yCursorPluginKey = new PluginKey("yjs-cursor")

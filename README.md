@@ -1,15 +1,23 @@
-# y-prosemirror
+# y-stitchkit
 
 > [ProseMirror](http://prosemirror.net/) Binding for [Yjs](https://github.com/yjs/yjs) - [Demo](https://demos.yjs.dev/prosemirror/prosemirror.html)
 
 This binding maps a Y.XmlFragment to the ProseMirror state.
 
+## Why was this package forked from y-prosemirror?
+
+We forked y-prosemirror to create a stitchkit-specific package with changes we needed for stitchkit-related features. These modifications were too specific to be merged upstream or would have added maintenance overhead for the y-prosemirror maintainers.
+
+Where feasible, we contribute improvements and fixes back to y-prosemirror to support the broader ecosystem.
+
+This package is designed for use with `stitchkit` and is not intended as a general-purpose Yjs binding for ProseMirror.
+
 ## Features
 
-* Sync ProseMirror state
-* Shared Cursors
-* Shared Undo / Redo (each client has its own undo-/redo-history)
-* Successfully recovers when concurrents edit result in an invalid document schema
+- Sync ProseMirror state
+- Shared Cursors
+- Shared Undo / Redo (each client has its own undo-/redo-history)
+- Successfully recovers when concurrents edit result in an invalid document schema
 
 ### Example
 
@@ -47,7 +55,7 @@ Also look [here](https://github.com/yjs/yjs-demos/tree/master/prosemirror) for a
 The shared cursors depend on the Awareness instance that is exported by most providers. The [Awareness protocol](https://github.com/yjs/y-protocols#awareness-protocol) handles non-permanent data like the number of users, their user names, their cursor location, and their colors. You can change the name and color of the user like this:
 
 ```js
-example.binding.awareness.setLocalStateField('user', { color: '#008833', name: 'My real name' })
+example.binding.awareness.setLocalStateField("user", { color: "#008833", name: "My real name" })
 ```
 
 In order to render cursor information you need to embed custom CSS for the user icon. This is a template that you can use for styling cursor information.
@@ -57,8 +65,14 @@ In order to render cursor information you need to embed custom CSS for the user 
 .ProseMirror > .ProseMirror-yjs-cursor:first-child {
   margin-top: 16px;
 }
-.ProseMirror p:first-child, .ProseMirror h1:first-child, .ProseMirror h2:first-child, .ProseMirror h3:first-child, .ProseMirror h4:first-child, .ProseMirror h5:first-child, .ProseMirror h6:first-child {
-  margin-top: 16px
+.ProseMirror p:first-child,
+.ProseMirror h1:first-child,
+.ProseMirror h2:first-child,
+.ProseMirror h3:first-child,
+.ProseMirror h4:first-child,
+.ProseMirror h5:first-child,
+.ProseMirror h6:first-child {
+  margin-top: 16px;
 }
 /* This gives the remote user caret. The colors are automatically overwritten*/
 .ProseMirror-yjs-cursor {
@@ -96,31 +110,31 @@ You can also overwrite the default Widget dom by specifying a cursor builder in 
 /**
  * This function receives the remote users "user" awareness state.
  */
-export const myCursorBuilder = user => {
-  const cursor = document.createElement('span')
-  cursor.classList.add('ProseMirror-yjs-cursor')
-  cursor.setAttribute('style', `border-color: ${user.color}`)
-  const userDiv = document.createElement('div')
-  userDiv.setAttribute('style', `background-color: ${user.color}`)
+export const myCursorBuilder = (user) => {
+  const cursor = document.createElement("span")
+  cursor.classList.add("ProseMirror-yjs-cursor")
+  cursor.setAttribute("style", `border-color: ${user.color}`)
+  const userDiv = document.createElement("div")
+  userDiv.setAttribute("style", `background-color: ${user.color}`)
   userDiv.insertBefore(document.createTextNode(user.name), null)
   cursor.insertBefore(userDiv, null)
   return cursor
 }
 
-const prosemirrorView = new EditorView(document.querySelector('#editor'), {
+const prosemirrorView = new EditorView(document.querySelector("#editor"), {
   state: EditorState.create({
     schema,
     plugins: [
-        ySyncPlugin(type),
-        yCursorPlugin(provider.awareness, { cursorBuilder: myCursorBuilder }),
-        yUndoPlugin(),
-        keymap({
-          'Mod-z': undo,
-          'Mod-y': redo,
-          'Mod-Shift-z': redo
-        })
-      ].concat(exampleSetup({ schema }))
-  })
+      ySyncPlugin(type),
+      yCursorPlugin(provider.awareness, { cursorBuilder: myCursorBuilder }),
+      yUndoPlugin(),
+      keymap({
+        "Mod-z": undo,
+        "Mod-y": redo,
+        "Mod-Shift-z": redo,
+      }),
+    ].concat(exampleSetup({ schema })),
+  }),
 })
 ```
 
@@ -159,7 +173,7 @@ const ydoc = prosemirrorJSONToYDoc(schema, {
 ```
 
 ```js
-import { yDocToProsemirror } from 'y-prosemirror'
+import { yDocToProsemirror } from "y-prosemirror"
 
 // apply binary updates from elsewhere
 const ydoc = new Y.Doc()
@@ -172,7 +186,7 @@ Because JSON is a common usecase there is an equivalent method that outputs JSON
 directly, this method does not require the Prosemirror schema.
 
 ```js
-import { yDocToProsemirrorJSON } from 'y-prosemirror'
+import { yDocToProsemirrorJSON } from "y-prosemirror"
 
 // apply binary updates from elsewhere
 const ydoc = new Y.Doc()
@@ -197,7 +211,7 @@ to false to prevent that transaction from being rolled back by undo. This can be
 document changes that aren't initiated by the user.
 
 ```js
-tr.setMeta("addToHistory", false);
+tr.setMeta("addToHistory", false)
 ```
 
 ### License

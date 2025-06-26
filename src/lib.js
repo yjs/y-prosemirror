@@ -1,11 +1,11 @@
-import { updateYFragment, createNodeFromYElement, yattr2markname, createEmptyMeta } from './plugins/sync-plugin.js' // eslint-disable-line
-import { ySyncPluginKey } from './plugins/keys.js'
-import * as Y from 'yjs'
-import { EditorView } from 'prosemirror-view' // eslint-disable-line
-import { Node, Schema, Fragment } from 'prosemirror-model' // eslint-disable-line
-import * as error from 'lib0/error'
-import * as map from 'lib0/map'
-import * as eventloop from 'lib0/eventloop'
+import { updateYFragment, createNodeFromYElement, yattr2markname, createEmptyMeta } from "./plugins/sync-plugin.js" // eslint-disable-line
+import { ySyncPluginKey } from "./plugins/keys.js"
+import * as Y from "yjs"
+import { EditorView } from "@stitchkit/pm/view" // eslint-disable-line
+import { Node, Schema, Fragment } from "@stitchkit/pm/model" // eslint-disable-line
+import * as error from "lib0/error"
+import * as map from "lib0/map"
+import * as eventloop from "lib0/eventloop"
 
 /**
  * Either a node if type is YXmlElement or an Array of text nodes if YXmlText
@@ -53,8 +53,7 @@ export const setMeta = (view, key, value) => {
  */
 export const absolutePositionToRelativePosition = (pos, type, mapping) => {
   if (pos === 0) {
-    // if the type is later populated, we want to retain the 0 position (hence assoc=-1)
-    return Y.createRelativePositionFromTypeIndex(type, 0, type.length === 0 ? -1 : 0)
+    return Y.createRelativePositionFromTypeIndex(type, 0, -1)
   }
   /**
    * @type {any}
@@ -63,7 +62,7 @@ export const absolutePositionToRelativePosition = (pos, type, mapping) => {
   while (n !== null && type !== n) {
     if (n instanceof Y.XmlText) {
       if (n._length >= pos) {
-        return Y.createRelativePositionFromTypeIndex(n, pos, type.length === 0 ? -1 : 0)
+        return Y.createRelativePositionFromTypeIndex(n, pos, -1)
       } else {
         pos -= n._length
       }
@@ -87,7 +86,11 @@ export const absolutePositionToRelativePosition = (pos, type, mapping) => {
       } else {
         if (pos === 1 && n._length === 0 && pNodeSize > 1) {
           // edge case, should end in this paragraph
-          return new Y.RelativePosition(n._item === null ? null : n._item.id, n._item === null ? Y.findRootTypeKey(n) : null, null)
+          return new Y.RelativePosition(
+            n._item === null ? null : n._item.id,
+            n._item === null ? Y.findRootTypeKey(n) : null,
+            null
+          )
         }
         pos -= pNodeSize
         if (n._item !== null && n._item.next !== null) {
@@ -96,7 +99,11 @@ export const absolutePositionToRelativePosition = (pos, type, mapping) => {
           if (pos === 0) {
             // set to end of n.parent
             n = n._item === null ? n : n._item.parent
-            return new Y.RelativePosition(n._item === null ? null : n._item.id, n._item === null ? Y.findRootTypeKey(n) : null, null)
+            return new Y.RelativePosition(
+              n._item === null ? null : n._item.id,
+              n._item === null ? Y.findRootTypeKey(n) : null,
+              null
+            )
           }
           do {
             n = /** @type {Y.Item} */ (n._item).parent
@@ -113,11 +120,12 @@ export const absolutePositionToRelativePosition = (pos, type, mapping) => {
     if (n === null) {
       throw error.unexpectedCase()
     }
-    if (pos === 0 && n.constructor !== Y.XmlText && n !== type) { // TODO: set to <= 0
+    if (pos === 0 && n.constructor !== Y.XmlText && n !== type) {
+      // TODO: set to <= 0
       return createRelativePosition(n._item.parent, n._item)
     }
   }
-  return Y.createRelativePositionFromTypeIndex(type, type._length, type.length === 0 ? -1 : 0)
+  return Y.createRelativePositionFromTypeIndex(type, type._length, -1)
 }
 
 const createRelativePosition = (type, item) => {
@@ -199,13 +207,10 @@ export const relativePositionToAbsolutePosition = (y, documentType, relPos, mapp
  * @param {Schema} schema
  */
 export const yXmlFragmentToProseMirrorFragment = (yXmlFragment, schema) => {
-  const fragmentContent = yXmlFragment.toArray().map((t) =>
-    createNodeFromYElement(
-      /** @type {Y.XmlElement} */ (t),
-      schema,
-      createEmptyMeta()
-    )
-  ).filter((n) => n !== null)
+  const fragmentContent = yXmlFragment
+    .toArray()
+    .map((t) => createNodeFromYElement(/** @type {Y.XmlElement} */ (t), schema, createEmptyMeta()))
+    .filter((n) => n !== null)
   return Fragment.fromArray(fragmentContent)
 }
 
@@ -229,13 +234,10 @@ export const yXmlFragmentToProseMirrorRootNode = (yXmlFragment, schema) =>
  */
 export const initProseMirrorDoc = (yXmlFragment, schema) => {
   const meta = createEmptyMeta()
-  const fragmentContent = yXmlFragment.toArray().map((t) =>
-    createNodeFromYElement(
-      /** @type {Y.XmlElement} */ (t),
-      schema,
-      meta
-    )
-  ).filter((n) => n !== null)
+  const fragmentContent = yXmlFragment
+    .toArray()
+    .map((t) => createNodeFromYElement(/** @type {Y.XmlElement} */ (t), schema, meta))
+    .filter((n) => n !== null)
   const doc = schema.topNodeType.create(null, Fragment.fromArray(fragmentContent))
   return { doc, meta, mapping: meta.mapping }
 }
@@ -251,7 +253,7 @@ export const initProseMirrorDoc = (yXmlFragment, schema) => {
  * @param {string} xmlFragment
  * @return {Y.Doc}
  */
-export function prosemirrorToYDoc (doc, xmlFragment = 'prosemirror') {
+export function prosemirrorToYDoc(doc, xmlFragment = "prosemirror") {
   const ydoc = new Y.Doc()
   const type = /** @type {Y.XmlFragment} */ (ydoc.get(xmlFragment, Y.XmlFragment))
   if (!type.doc) {
@@ -277,7 +279,7 @@ export function prosemirrorToYDoc (doc, xmlFragment = 'prosemirror') {
  *   populated from the prosemirror state; otherwise a new XmlFragment will be created.
  * @return {Y.XmlFragment}
  */
-export function prosemirrorToYXmlFragment (doc, xmlFragment) {
+export function prosemirrorToYXmlFragment(doc, xmlFragment) {
   const type = xmlFragment || new Y.XmlFragment()
   const ydoc = type.doc ? type.doc : { transact: (transaction) => transaction(undefined) }
   updateYFragment(ydoc, type, doc, { mapping: new Map(), isOMark: new Map() })
@@ -296,7 +298,7 @@ export function prosemirrorToYXmlFragment (doc, xmlFragment) {
  * @param {string} xmlFragment
  * @return {Y.Doc}
  */
-export function prosemirrorJSONToYDoc (schema, state, xmlFragment = 'prosemirror') {
+export function prosemirrorJSONToYDoc(schema, state, xmlFragment = "prosemirror") {
   const doc = Node.fromJSON(schema, state)
   return prosemirrorToYDoc(doc, xmlFragment)
 }
@@ -314,7 +316,7 @@ export function prosemirrorJSONToYDoc (schema, state, xmlFragment = 'prosemirror
  *   populated from the prosemirror state; otherwise a new XmlFragment will be created.
  * @return {Y.XmlFragment}
  */
-export function prosemirrorJSONToYXmlFragment (schema, state, xmlFragment) {
+export function prosemirrorJSONToYXmlFragment(schema, state, xmlFragment) {
   const doc = Node.fromJSON(schema, state)
   return prosemirrorToYXmlFragment(doc, xmlFragment)
 }
@@ -328,7 +330,7 @@ export function prosemirrorJSONToYXmlFragment (schema, state, xmlFragment) {
  * @param {Y.Doc} ydoc
  * @return {Node}
  */
-export function yDocToProsemirror (schema, ydoc) {
+export function yDocToProsemirror(schema, ydoc) {
   const state = yDocToProsemirrorJSON(ydoc)
   return Node.fromJSON(schema, state)
 }
@@ -343,7 +345,7 @@ export function yDocToProsemirror (schema, ydoc) {
  * @param {Y.XmlFragment} xmlFragment
  * @return {Node}
  */
-export function yXmlFragmentToProsemirror (schema, xmlFragment) {
+export function yXmlFragmentToProsemirror(schema, xmlFragment) {
   const state = yXmlFragmentToProsemirrorJSON(xmlFragment)
   return Node.fromJSON(schema, state)
 }
@@ -358,10 +360,7 @@ export function yXmlFragmentToProsemirror (schema, xmlFragment) {
  * @param {string} xmlFragment
  * @return {Record<string, any>}
  */
-export function yDocToProsemirrorJSON (
-  ydoc,
-  xmlFragment = 'prosemirror'
-) {
+export function yDocToProsemirrorJSON(ydoc, xmlFragment = "prosemirror") {
   return yXmlFragmentToProsemirrorJSON(ydoc.getXmlFragment(xmlFragment))
 }
 
@@ -373,13 +372,13 @@ export function yDocToProsemirrorJSON (
  * @param {Y.XmlFragment} xmlFragment The fragment, which must be part of a Y.Doc.
  * @return {Record<string, any>}
  */
-export function yXmlFragmentToProsemirrorJSON (xmlFragment) {
+export function yXmlFragmentToProsemirrorJSON(xmlFragment) {
   const items = xmlFragment.toArray()
 
   /**
    * @param {Y.AbstractType} item
    */
-  const serialize = item => {
+  const serialize = (item) => {
     /**
      * @type {Object} NodeObject
      * @property {string} NodeObject.type
@@ -391,29 +390,31 @@ export function yXmlFragmentToProsemirrorJSON (xmlFragment) {
     // TODO: Must be a better way to detect text nodes than this
     if (item instanceof Y.XmlText) {
       const delta = item.toDelta()
-      response = delta.map(/** @param {any} d */ (d) => {
-        const text = {
-          type: 'text',
-          text: d.insert
+      response = delta.map(
+        /** @param {any} d */ (d) => {
+          const text = {
+            type: "text",
+            text: d.insert,
+          }
+          if (d.attributes) {
+            text.marks = Object.keys(d.attributes).map((type_) => {
+              const attrs = d.attributes[type_]
+              const type = yattr2markname(type_)
+              const mark = {
+                type,
+              }
+              if (Object.keys(attrs)) {
+                mark.attrs = attrs
+              }
+              return mark
+            })
+          }
+          return text
         }
-        if (d.attributes) {
-          text.marks = Object.keys(d.attributes).map((type_) => {
-            const attrs = d.attributes[type_]
-            const type = yattr2markname(type_)
-            const mark = {
-              type
-            }
-            if (Object.keys(attrs)) {
-              mark.attrs = attrs
-            }
-            return mark
-          })
-        }
-        return text
-      })
+      )
     } else if (item instanceof Y.XmlElement) {
       response = {
-        type: item.nodeName
+        type: item.nodeName,
       }
 
       const attrs = item.getAttributes()
@@ -434,7 +435,7 @@ export function yXmlFragmentToProsemirrorJSON (xmlFragment) {
   }
 
   return {
-    type: 'doc',
-    content: items.map(serialize)
+    type: "doc",
+    content: items.map(serialize),
   }
 }

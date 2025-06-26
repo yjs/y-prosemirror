@@ -1,15 +1,11 @@
-import * as Y from 'yjs'
-import { Decoration, DecorationSet } from "prosemirror-view"; // eslint-disable-line
-import { Plugin } from "prosemirror-state"; // eslint-disable-line
-import { Awareness } from "y-protocols/awareness"; // eslint-disable-line
-import {
-  absolutePositionToRelativePosition,
-  relativePositionToAbsolutePosition,
-  setMeta
-} from '../lib.js'
-import { yCursorPluginKey, ySyncPluginKey } from './keys.js'
+import * as Y from "yjs"
+import { Decoration, DecorationSet } from "@stitchkit/pm/view" // eslint-disable-line
+import { Plugin } from "@stitchkit/pm/state" // eslint-disable-line
+import { Awareness } from "y-protocols/awareness" // eslint-disable-line
+import { absolutePositionToRelativePosition, relativePositionToAbsolutePosition, setMeta } from "../lib.js"
+import { yCursorPluginKey, ySyncPluginKey } from "./keys.js"
 
-import * as math from 'lib0/math'
+import * as math from "lib0/math"
 
 /**
  * Default awareness state filter
@@ -28,14 +24,14 @@ export const defaultAwarenessStateFilter = (currentClientId, userClientId, _user
  * @return {HTMLElement}
  */
 export const defaultCursorBuilder = (user) => {
-  const cursor = document.createElement('span')
-  cursor.classList.add('ProseMirror-yjs-cursor')
-  cursor.setAttribute('style', `border-color: ${user.color}`)
-  const userDiv = document.createElement('div')
-  userDiv.setAttribute('style', `background-color: ${user.color}`)
+  const cursor = document.createElement("span")
+  cursor.classList.add("ProseMirror-yjs-cursor")
+  cursor.setAttribute("style", `border-color: ${user.color}`)
+  const userDiv = document.createElement("div")
+  userDiv.setAttribute("style", `background-color: ${user.color}`)
   userDiv.insertBefore(document.createTextNode(user.name), null)
-  const nonbreakingSpace1 = document.createTextNode('\u2060')
-  const nonbreakingSpace2 = document.createTextNode('\u2060')
+  const nonbreakingSpace1 = document.createTextNode("\u2060")
+  const nonbreakingSpace2 = document.createTextNode("\u2060")
   cursor.insertBefore(nonbreakingSpace1, null)
   cursor.insertBefore(userDiv, null)
   cursor.insertBefore(nonbreakingSpace2, null)
@@ -51,7 +47,7 @@ export const defaultCursorBuilder = (user) => {
 export const defaultSelectionBuilder = (user) => {
   return {
     style: `background-color: ${user.color}70`,
-    class: 'ProseMirror-yjs-selection'
+    class: "ProseMirror-yjs-selection",
   }
 }
 
@@ -65,20 +61,11 @@ const rxValidColor = /^#[0-9a-fA-F]{6}$/
  * @param {(user: { name: string, color: string }, clientId: number) => import('prosemirror-view').DecorationAttrs} createSelection
  * @return {any} DecorationSet
  */
-export const createDecorations = (
-  state,
-  awareness,
-  awarenessFilter,
-  createCursor,
-  createSelection
-) => {
+export const createDecorations = (state, awareness, awarenessFilter, createCursor, createSelection) => {
   const ystate = ySyncPluginKey.getState(state)
   const y = ystate.doc
   const decorations = []
-  if (
-    ystate.snapshot != null || ystate.prevSnapshot != null ||
-    ystate.binding.mapping.size === 0
-  ) {
+  if (ystate.snapshot != null || ystate.prevSnapshot != null || ystate.binding.mapping.size === 0) {
     // do not render cursors while snapshot is active
     return DecorationSet.create(state.doc, [])
   }
@@ -90,10 +77,10 @@ export const createDecorations = (
     if (aw.cursor != null) {
       const user = aw.user || {}
       if (user.color == null) {
-        user.color = '#ffa500'
+        user.color = "#ffa500"
       } else if (!rxValidColor.test(user.color)) {
         // We only support 6-digit RGB colors in y-prosemirror
-        console.warn('A user uses an unsupported color format', user)
+        console.warn("A user uses an unsupported color format", user)
       }
       if (user.name == null) {
         user.name = `User: ${clientId}`
@@ -116,8 +103,8 @@ export const createDecorations = (
         head = math.min(head, maxsize)
         decorations.push(
           Decoration.widget(head, () => createCursor(user, clientId), {
-            key: clientId + '',
-            side: 10
+            key: clientId + "",
+            side: 10,
           })
         )
         const from = math.min(anchor, head)
@@ -125,7 +112,7 @@ export const createDecorations = (
         decorations.push(
           Decoration.inline(from, to, createSelection(user, clientId), {
             inclusiveEnd: true,
-            inclusiveStart: false
+            inclusiveStart: false,
           })
         )
       }
@@ -154,44 +141,29 @@ export const yCursorPlugin = (
     awarenessStateFilter = defaultAwarenessStateFilter,
     cursorBuilder = defaultCursorBuilder,
     selectionBuilder = defaultSelectionBuilder,
-    getSelection = (state) => state.selection
+    getSelection = (state) => state.selection,
   } = {},
-  cursorStateField = 'cursor'
+  cursorStateField = "cursor"
 ) =>
   new Plugin({
     key: yCursorPluginKey,
     state: {
-      init (_, state) {
-        return createDecorations(
-          state,
-          awareness,
-          awarenessStateFilter,
-          cursorBuilder,
-          selectionBuilder
-        )
+      init(_, state) {
+        return createDecorations(state, awareness, awarenessStateFilter, cursorBuilder, selectionBuilder)
       },
-      apply (tr, prevState, _oldState, newState) {
+      apply(tr, prevState, _oldState, newState) {
         const ystate = ySyncPluginKey.getState(newState)
         const yCursorState = tr.getMeta(yCursorPluginKey)
-        if (
-          (ystate && ystate.isChangeOrigin) ||
-          (yCursorState && yCursorState.awarenessUpdated)
-        ) {
-          return createDecorations(
-            newState,
-            awareness,
-            awarenessStateFilter,
-            cursorBuilder,
-            selectionBuilder
-          )
+        if ((ystate && ystate.isChangeOrigin) || (yCursorState && yCursorState.awarenessUpdated)) {
+          return createDecorations(newState, awareness, awarenessStateFilter, cursorBuilder, selectionBuilder)
         }
         return prevState.map(tr.mapping, tr.doc)
-      }
+      },
     },
     props: {
       decorations: (state) => {
         return yCursorPluginKey.getState(state)
-      }
+      },
     },
     view: (view) => {
       const awarenessListener = () => {
@@ -209,33 +181,19 @@ export const yCursorPlugin = (
           /**
            * @type {Y.RelativePosition}
            */
-          const anchor = absolutePositionToRelativePosition(
-            selection.anchor,
-            ystate.type,
-            ystate.binding.mapping
-          )
+          const anchor = absolutePositionToRelativePosition(selection.anchor, ystate.type, ystate.binding.mapping)
           /**
            * @type {Y.RelativePosition}
            */
-          const head = absolutePositionToRelativePosition(
-            selection.head,
-            ystate.type,
-            ystate.binding.mapping
-          )
+          const head = absolutePositionToRelativePosition(selection.head, ystate.type, ystate.binding.mapping)
           if (
             current.cursor == null ||
-            !Y.compareRelativePositions(
-              Y.createRelativePositionFromJSON(current.cursor.anchor),
-              anchor
-            ) ||
-            !Y.compareRelativePositions(
-              Y.createRelativePositionFromJSON(current.cursor.head),
-              head
-            )
+            !Y.compareRelativePositions(Y.createRelativePositionFromJSON(current.cursor.anchor), anchor) ||
+            !Y.compareRelativePositions(Y.createRelativePositionFromJSON(current.cursor.head), head)
           ) {
             awareness.setLocalStateField(cursorStateField, {
               anchor,
-              head
+              head,
             })
           }
         } else if (
@@ -251,17 +209,17 @@ export const yCursorPlugin = (
           awareness.setLocalStateField(cursorStateField, null)
         }
       }
-      awareness.on('change', awarenessListener)
-      view.dom.addEventListener('focusin', updateCursorInfo)
-      view.dom.addEventListener('focusout', updateCursorInfo)
+      awareness.on("change", awarenessListener)
+      view.dom.addEventListener("focusin", updateCursorInfo)
+      view.dom.addEventListener("focusout", updateCursorInfo)
       return {
         update: updateCursorInfo,
         destroy: () => {
-          view.dom.removeEventListener('focusin', updateCursorInfo)
-          view.dom.removeEventListener('focusout', updateCursorInfo)
-          awareness.off('change', awarenessListener)
+          view.dom.removeEventListener("focusin", updateCursorInfo)
+          view.dom.removeEventListener("focusout", updateCursorInfo)
+          awareness.off("change", awarenessListener)
           awareness.setLocalStateField(cursorStateField, null)
-        }
+        },
       }
-    }
+    },
   })

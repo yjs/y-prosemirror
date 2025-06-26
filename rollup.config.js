@@ -1,5 +1,5 @@
-import nodeResolve from '@rollup/plugin-node-resolve'
-import commonjs from '@rollup/plugin-commonjs'
+import nodeResolve from "@rollup/plugin-node-resolve"
+import commonjs from "@rollup/plugin-commonjs"
 
 /**
  * in order to use Yjs' testing framework, we need to depend on the bare-bone (untransformed) Yjs bundle
@@ -14,58 +14,71 @@ const debugResolve = {
 }
 */
 
-export default [{
-  input: './src/y-prosemirror.js',
-  output: [{
-    name: 'Y',
-    file: 'dist/y-prosemirror.cjs',
-    format: 'cjs',
-    sourcemap: true
-  }],
-  external: id => /^(lib0|y-protocols|prosemirror|yjs)/.test(id)
-}, {
-  input: './tests/index.js',
-  output: {
-    name: 'test',
-    file: 'dist/test.js',
-    format: 'iife',
-    sourcemap: true
+export default [
+  {
+    input: "./src/y-stitchkit.js",
+    output: [
+      {
+        name: "Y",
+        file: "dist/y-stitchkit.cjs",
+        format: "cjs",
+        sourcemap: true,
+      },
+      {
+        name: "Y",
+        file: "dist/y-stitchkit.js",
+        format: "es",
+        sourcemap: true,
+      },
+    ],
+    external: (id) => /^(lib0|y-protocols|prosemirror|yjs)/.test(id),
   },
-  plugins: [
-    // debugResolve,
-    nodeResolve({
-      mainFields: ['module', 'browser', 'main']
-    }),
-    commonjs()
-  ]
-}, {
-  input: './demo/prosemirror.js',
-  output: {
-    name: 'demo',
-    file: 'demo/dist/prosemirror.js',
-    format: 'iife',
-    sourcemap: true
+  {
+    input: "./tests/index.js",
+    output: {
+      name: "test",
+      file: "dist/test.js",
+      format: "iife",
+      sourcemap: true,
+    },
+    plugins: [
+      // debugResolve,
+      nodeResolve({
+        mainFields: ["module", "browser", "main"],
+      }),
+      commonjs(),
+    ],
   },
-  plugins: [
-    nodeResolve({
-      mainFields: ['module', 'browser', 'main']
-    }),
-    commonjs()
-  ]
-}, {
-  input: './tests/index.node.js',
-  output: {
-    name: 'test',
-    file: 'dist/test.cjs',
-    format: 'cjs',
-    sourcemap: true
+  {
+    input: "./demo/prosemirror.js",
+    output: {
+      name: "demo",
+      file: "demo/dist/prosemirror.js",
+      format: "iife",
+      sourcemap: true,
+    },
+    plugins: [
+      nodeResolve({
+        mainFields: ["module", "browser", "main"],
+      }),
+      commonjs(),
+    ],
   },
-  plugins: [
-    // debugResolve,
-    nodeResolve({
-      mainFields: ['module', 'main']
-    }),
-    commonjs()
-  ],
-  external: id => /^(lib0|prosemirror|fs|path|jsdom|isomorphic)/.test(id)
-}]
+  {
+    input: "./tests/index.node.js",
+    output: {
+      name: "test",
+      file: "dist/test.cjs",
+      format: "cjs",
+      sourcemap: true,
+    },
+    plugins: [
+      // debugResolve,
+      nodeResolve({
+        mainFields: ["module", "main"],
+      }),
+      commonjs(),
+    ],
+    external: (id) => /^(lib0|prosemirror|fs|path|jsdom|isomorphic)/.test(id),
+  },
+]
