@@ -1192,7 +1192,7 @@ export const updateYFragment = (y, yDomFragment, pNode, meta) => {
     }
   }
   // find number of matching elements from right
-  for (; right + left + 1 < minCnt; right++) {
+  for (; right + left < minCnt; right++) {
     const rightY = yChildren[yChildCnt - right - 1]
     const rightP = pChildren[pChildCnt - right - 1]
     if (!mappedIdentity(meta.mapping.get(rightY), rightP)) {
