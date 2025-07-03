@@ -78,7 +78,6 @@
     "rollup": "^2.59.0",
     "standard": "^17.0.0",
     "@y/protocols": "^1.0.6-1",
-    "y-webrtc": "^10.2.0",
     "yjs": "^14.0.0-4"
   },
   "engines": {
