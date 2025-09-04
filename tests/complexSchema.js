@@ -16,11 +16,12 @@ const calcYchangeDomAttrs = (attrs, domAttrs = {}) => {
 export const nodes = {
   // :: NodeSpec The top level document node.
   doc: {
-    content: 'custom paragraph'
+    content: 'block+'
   },
 
   custom: {
     atom: true,
+    group: 'block',
     attrs: { checked: { default: false } },
     parseDOM: [{ tag: 'div' }],
     toDOM () {
@@ -252,16 +253,23 @@ export const marks = {
   ychange: {
     attrs: {
       user: { default: null },
-      state: { default: null }
+      type: { default: null }
     },
     inclusive: false,
     parseDOM: [{ tag: 'ychange' }],
     toDOM (node) {
-      return [
-        'ychange',
-        { ychange_user: node.attrs.user, ychange_state: node.attrs.state },
-        0
-      ]
+      return ['ychange', { ychange_user: node.attrs.user, ychange_type: node.attrs.type }]
+    }
+  },
+
+  comment: {
+    attrs: {
+      id: { default: null }
+    },
+    excludes: '',
+    parseDOM: [{ tag: 'comment' }],
+    toDOM (node) {
+      return ['comment', { comment_id: node.attrs.id }]
     }
   }
 }

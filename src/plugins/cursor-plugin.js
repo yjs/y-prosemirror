@@ -61,8 +61,8 @@ const rxValidColor = /^#[0-9a-fA-F]{6}$/
  * @param {any} state
  * @param {Awareness} awareness
  * @param {function(number, number, any):boolean} awarenessFilter
- * @param {function({ name: string, color: string }):Element} createCursor
- * @param {function({ name: string, color: string }):import('prosemirror-view').DecorationAttrs} createSelection
+ * @param {(user: { name: string, color: string }, clientId: number) => Element} createCursor
+ * @param {(user: { name: string, color: string }, clientId: number) => import('prosemirror-view').DecorationAttrs} createSelection
  * @return {any} DecorationSet
  */
 export const createDecorations = (
@@ -77,7 +77,7 @@ export const createDecorations = (
   const decorations = []
   if (
     ystate.snapshot != null || ystate.prevSnapshot != null ||
-    ystate.binding === null
+    ystate.binding.mapping.size === 0
   ) {
     // do not render cursors while snapshot is active
     return DecorationSet.create(state.doc, [])
@@ -115,7 +115,7 @@ export const createDecorations = (
         anchor = math.min(anchor, maxsize)
         head = math.min(head, maxsize)
         decorations.push(
-          Decoration.widget(head, () => createCursor(user), {
+          Decoration.widget(head, () => createCursor(user, clientId), {
             key: clientId + '',
             side: 10
           })
@@ -123,7 +123,7 @@ export const createDecorations = (
         const from = math.min(anchor, head)
         const to = math.max(anchor, head)
         decorations.push(
-          Decoration.inline(from, to, createSelection(user), {
+          Decoration.inline(from, to, createSelection(user, clientId), {
             inclusiveEnd: true,
             inclusiveStart: false
           })
@@ -142,8 +142,8 @@ export const createDecorations = (
  * @param {Awareness} awareness
  * @param {object} opts
  * @param {function(any, any, any):boolean} [opts.awarenessStateFilter]
- * @param {function(any):HTMLElement} [opts.cursorBuilder]
- * @param {function(any):import('prosemirror-view').DecorationAttrs} [opts.selectionBuilder]
+ * @param {(user: any, clientId: number) => HTMLElement} [opts.cursorBuilder]
+ * @param {(user: any, clientId: number) => import('prosemirror-view').DecorationAttrs} [opts.selectionBuilder]
  * @param {function(any):any} [opts.getSelection]
  * @param {string} [cursorStateField] By default all editor bindings use the awareness 'cursor' field to propagate cursor information.
  * @return {any}
@@ -204,9 +204,6 @@ export const yCursorPlugin = (
         const ystate = ySyncPluginKey.getState(view.state)
         // @note We make implicit checks when checking for the cursor property
         const current = awareness.getLocalState() || {}
-        if (ystate.binding == null) {
-          return
-        }
         if (view.hasFocus()) {
           const selection = getSelection(view.state)
           /**
