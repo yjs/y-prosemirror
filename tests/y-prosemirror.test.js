@@ -14,6 +14,7 @@ import {
   ySyncPlugin,
   ySyncPluginKey,
   yUndoPlugin,
+  yUndoPluginKey,
   yXmlFragmentToProsemirrorJSON
 } from '../src/y-prosemirror.js'
 import { EditorState, Plugin, TextSelection } from 'prosemirror-state'
@@ -309,6 +310,47 @@ export const testInsertDuplication = (_tc) => {
   t.assert(yxml1.toString() === '<paragraph>1122</paragraph><paragraph></paragraph>')
 }
 
+export const testInsertRightMatch = (_tc) => {
+  const ydoc = new Y.Doc()
+  const yXmlFragment = ydoc.get('prosemirror', Y.XmlFragment)
+  const view = createNewProsemirrorView(ydoc)
+  view.dispatch(
+    view.state.tr.insert(
+      0,
+      [
+        schema.node(
+          'heading',
+          { level: 1 },
+          schema.text('Heading 1')
+        ),
+        schema.node(
+          'paragraph',
+          undefined,
+          schema.text('Paragraph 1')
+        )
+      ]
+    )
+  )
+  prosemirrorJSONToYXmlFragment(/** @type {any} */ (schema), view.state.doc.toJSON(), yXmlFragment)
+  const lastP = yXmlFragment.get(yXmlFragment.length - 1)
+  const tr = view.state.tr
+  view.dispatch(
+    tr.insert(
+      tr.doc.child(0).nodeSize + tr.doc.child(1).nodeSize,
+      schema.node(
+        'paragraph',
+        undefined,
+        schema.text('Paragraph 2')
+      )
+    )
+  )
+  const newLastP = yXmlFragment.get(yXmlFragment.length - 1)
+  const new2ndLastP = yXmlFragment.get(yXmlFragment.length - 2)
+  t.assert(lastP === newLastP, 'last paragraph is the same as before')
+  t.assert(new2ndLastP.toString() === '<paragraph>Paragraph 2</paragraph>', '2nd last paragraph is the inserted paragraph')
+  t.assert(lastP.toString() === '<paragraph></paragraph>', 'last paragraph remains empty and is placed at the end')
+}
+
 export const testAddToHistory = (_tc) => {
   const ydoc = new Y.Doc()
   const view = createNewProsemirrorViewWithUndoManager(ydoc)
@@ -356,6 +398,40 @@ export const testAddToHistory = (_tc) => {
     yxml.length === 2 && yxml.get(0).length === 1,
     'insertion was *not* undone'
   )
+}
+
+/**
+ * Reproducing #190
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testCursorPositionAfterUndoOnEndText = (_tc) => {
+  const ydoc = new Y.Doc()
+  const view = createNewProsemirrorViewWithUndoManager(ydoc)
+  view.dispatch(
+    view.state.tr.insert(
+      0,
+      /** @type {any} */ (schema.node(
+        'paragraph',
+        undefined,
+        schema.text('123')
+      ))
+    )
+  )
+  const yxml = ydoc.get('prosemirror')
+  t.assert(
+    yxml.length === 2 && yxml.get(0).length === 1,
+    'contains inserted content'
+  )
+  view.dispatch(view.state.tr.setSelection(TextSelection.between(view.state.doc.resolve(4), view.state.doc.resolve(4))))
+  const undoManager = yUndoPluginKey.getState(view.state)?.undoManager
+  undoManager.stopCapturing()
+  // clear undo manager
+  view.dispatch(
+    view.state.tr.delete(3, 4)
+  )
+  undo(view.state)
+  t.assert(view.state.selection.anchor === 4)
 }
 
 /**

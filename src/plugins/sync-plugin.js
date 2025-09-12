@@ -935,7 +935,7 @@ const equalAttrs = (pattrs, yattrs) => {
   const keys = Object.keys(pattrs).filter((key) => pattrs[key] !== null)
   let eq =
     keys.length ===
-      Object.keys(yattrs).filter((key) => yattrs[key] !== null).length
+      (yattrs == null ? 0 : Object.keys(yattrs).filter((key) => yattrs[key] !== null).length)
   for (let i = 0; i < keys.length && eq; i++) {
     const key = keys[i]
     const l = pattrs[key]
@@ -1214,7 +1214,7 @@ export const updateYFragment = (y, yDomFragment, pNode, meta) => {
     }
   }
   // find number of matching elements from right
-  for (; right + left + 1 < minCnt; right++) {
+  for (; right + left < minCnt; right++) {
     const rightY = yChildren[yChildCnt - right - 1]
     const rightP = pChildren[pChildCnt - right - 1]
     if (!mappedIdentity(meta.mapping.get(rightY), rightP)) {

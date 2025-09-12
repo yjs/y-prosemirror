@@ -53,7 +53,8 @@ export const setMeta = (view, key, value) => {
  */
 export const absolutePositionToRelativePosition = (pos, type, mapping) => {
   if (pos === 0) {
-    return Y.createRelativePositionFromTypeIndex(type, 0, -1)
+    // if the type is later populated, we want to retain the 0 position (hence assoc=-1)
+    return Y.createRelativePositionFromTypeIndex(type, 0, type.length === 0 ? -1 : 0)
   }
   /**
    * @type {any}
@@ -62,7 +63,7 @@ export const absolutePositionToRelativePosition = (pos, type, mapping) => {
   while (n !== null && type !== n) {
     if (n instanceof Y.XmlText) {
       if (n._length >= pos) {
-        return Y.createRelativePositionFromTypeIndex(n, pos, -1)
+        return Y.createRelativePositionFromTypeIndex(n, pos, type.length === 0 ? -1 : 0)
       } else {
         pos -= n._length
       }
@@ -116,7 +117,7 @@ export const absolutePositionToRelativePosition = (pos, type, mapping) => {
       return createRelativePosition(n._item.parent, n._item)
     }
   }
-  return Y.createRelativePositionFromTypeIndex(type, type._length, -1)
+  return Y.createRelativePositionFromTypeIndex(type, type._length, type.length === 0 ? -1 : 0)
 }
 
 const createRelativePosition = (type, item) => {
