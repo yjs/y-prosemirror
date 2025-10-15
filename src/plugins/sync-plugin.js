@@ -964,7 +964,8 @@ const equalYTextPText = (ytext, ptexts) => {
       object.every(d.attributes, (attr, yattrname) => {
         const markname = yattr2markname(yattrname)
         const pmarks = ptexts[i].marks
-        return equalAttrs(attr, pmarks.find(/** @param {any} mark */ mark => mark.type.name === markname)?.attrs)
+        const pmark = pmarks.find(/** @param {any} mark */ mark => mark.type.name === markname)
+        return pmark !== undefined && equalAttrs(attr, pmark.attrs)
       })
     )
 }
