@@ -1,57 +1,53 @@
 /* eslint-env browser */
 
 import * as Y from 'yjs'
-import { WebrtcProvider } from 'y-webrtc'
-import { ySyncPlugin, yCursorPlugin, yUndoPlugin, undo, redo, initProseMirrorDoc } from '../src/y-prosemirror.js'
+import { YEditorView } from '../src/index.js'
 import { EditorState } from 'prosemirror-state'
-import { EditorView } from 'prosemirror-view'
 import { schema } from './schema.js'
 import { exampleSetup } from 'prosemirror-example-setup'
-import { keymap } from 'prosemirror-keymap'
 
-window.addEventListener('load', () => {
+
+/**
+ * @param {Y.Doc} ydoc1
+ * @param {Y.Doc} ydoc2
+ */
+const syncYdocs = (ydoc1, ydoc2) => {
+  Y.applyUpdate(ydoc1, Y.encodeStateAsUpdate(ydoc2))
+  Y.applyUpdate(ydoc2, Y.encodeStateAsUpdate(ydoc1))
+  ydoc1.on('update', update => {
+    Y.applyUpdate(ydoc2, update)
+  })
+  ydoc2.on('update', update => {
+    Y.applyUpdate(ydoc1, update)
+  })
+}
+
+let prevYDoc = null
+
+const createEditor = () => {
   const ydoc = new Y.Doc()
-  const provider = new WebrtcProvider('prosemirror-debug', ydoc)
-  const type = ydoc.getXmlFragment('prosemirror')
-
+  if (prevYDoc) {
+    syncYdocs(prevYDoc, ydoc)
+  }
+  prevYDoc = ydoc
+  const yfragment = ydoc.getXmlFragment('prosemirror')
   const editor = document.createElement('div')
-  editor.setAttribute('id', 'editor')
+  editor.setAttribute('class', 'yeditor')
   const editorContainer = document.createElement('div')
   editorContainer.insertBefore(editor, null)
-  const { doc, mapping } = initProseMirrorDoc(type, schema)
-  const prosemirrorView = new EditorView(editor, {
+  const prosemirrorView = new YEditorView(editor, {
     state: EditorState.create({
-      doc,
       schema,
-      plugins: [
-        ySyncPlugin(type, { mapping }),
-        yCursorPlugin(provider.awareness),
-        yUndoPlugin(),
-        keymap({
-          'Mod-z': undo,
-          'Mod-y': redo,
-          'Mod-Shift-z': redo
-        })
-      ].concat(exampleSetup({ schema, history: false }))
+      plugins: [].concat(exampleSetup({ schema, history: false }))
     })
   })
   document.body.insertBefore(editorContainer, null)
-
-  setTimeout(() => {
-    prosemirrorView.focus()
-  })
-
-  const connectBtn = /** @type {HTMLElement} */ (document.getElementById('y-connect-btn'))
-  connectBtn.addEventListener('click', () => {
-    if (provider.shouldConnect) {
-      provider.disconnect()
-      connectBtn.textContent = 'Connect'
-    } else {
-      provider.connect()
-      connectBtn.textContent = 'Disconnect'
-    }
-  })
-
+  prosemirrorView.bindYType(yfragment)
   // @ts-ignore
-  window.example = { provider, ydoc, type, prosemirrorView }
+  window.example = { ydoc, type: yfragment, prosemirrorView }
+}
+
+window.addEventListener('load', () => {
+  createEditor()
+  createEditor()
 })
