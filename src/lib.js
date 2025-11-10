@@ -24,6 +24,9 @@ const updateMetas = () => {
   const ups = /** @type {Map<EditorView, Map<any, any>>} */ (viewsToUpdate)
   viewsToUpdate = null
   ups.forEach((metas, view) => {
+    if (view.isDestroyed) {
+      return
+    }
     const tr = view.state.tr
     const syncState = ySyncPluginKey.getState(view.state)
     if (syncState && syncState.binding && !syncState.binding.isDestroyed) {
