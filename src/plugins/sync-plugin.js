@@ -257,7 +257,7 @@ const restoreRelativeSelection = (tr, relSel, binding) => {
         relSel.anchor,
         binding.mapping
       )
-      tr.setSelection(NodeSelection.create(tr.doc, anchor))
+      tr.setSelection(createSafeNodeSelection(tr, anchor))
     } else {
       const anchor = relativePositionToAbsolutePosition(
         binding.doc,
@@ -276,6 +276,23 @@ const restoreRelativeSelection = (tr, relSel, binding) => {
         tr.setSelection(sel)
       }
     }
+  }
+}
+
+/**
+ * @param {import('prosemirror-state').Transaction} tr
+ * @param {number} pos
+ * @returns {import('prosemirror-state').Selection}
+ * 
+ * Creates a NodeSelection if the position points to a valid node, otherwise
+ * creates a TextSelection near the position.
+ */
+const createSafeNodeSelection = (tr, pos) => {
+  const $pos = tr.doc.resolve(pos);
+  if ($pos.nodeAfter) {
+    return NodeSelection.create(tr.doc, pos);
+  } else {
+    return TextSelection.near($pos);
   }
 }
 
