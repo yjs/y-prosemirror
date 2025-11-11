@@ -17,7 +17,7 @@ import {
   yUndoPluginKey,
   yXmlFragmentToProsemirrorJSON
 } from '../src/y-prosemirror.js'
-import { EditorState, Plugin, TextSelection } from 'prosemirror-state'
+import { EditorState, Plugin, TextSelection, NodeSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { Schema } from 'prosemirror-model'
 import * as basicSchema from 'prosemirror-schema-basic'
@@ -803,6 +803,93 @@ export const testRepeatGenerateProsemirrorChanges40 = (tc) => {
  */
 export const testRepeatGenerateProsemirrorChanges70 = (tc) => {
   checkResult(applyRandomTests(tc, pmChanges, 70, createNewProsemirrorView))
+}
+
+/**
+ * @param {t.TestCase} _tc
+ */
+export const testRestoreSelectionForDeletedInlineNode = (_tc) => {
+  const ydoc = new Y.Doc()
+  const schemaWithInlineAtom = new Schema({
+    nodes: Object.assign({}, basicSchema.nodes, {
+      inlineatom: {
+        inline: true,
+        group: 'inline',
+        atom: true,
+        selectable: true,
+        parseDOM: [{ tag: 'inline-atom' }],
+        toDOM () { return ['inline-atom'] }
+      }
+    }),
+    marks: basicSchema.marks
+  })
+
+  const view = createNewProsemirrorViewWithSchema(ydoc, schemaWithInlineAtom)
+
+  view.dispatch(
+    view.state.tr.insert(
+      0,
+      schemaWithInlineAtom.node('paragraph', undefined, [
+        schemaWithInlineAtom.text('a'),
+        schemaWithInlineAtom.node('inlineatom'),
+        schemaWithInlineAtom.text('b')
+      ])
+    )
+  )
+
+  // compute the absolute position of the inline atom node inside the doc
+  const para = view.state.doc.child(0)
+  let pos = 1
+  for (let i = 0; i < para.childCount; i++) {
+    const child = para.child(i)
+    if (child.type.name === 'inlineatom') break
+    pos += child.nodeSize
+  }
+
+  view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)))
+
+  const node = view.state.doc.nodeAt(pos)
+  const nodeSize = node ? node.nodeSize : 1
+  view.dispatch(view.state.tr.delete(pos, pos + nodeSize))
+
+  const sel = view.state.selection
+  t.assert(!(sel instanceof NodeSelection), 'selection should not be a NodeSelection')
+  t.assert(sel instanceof TextSelection, 'selection should be a TextSelection')
+  t.assert(sel.anchor >= 0 && sel.anchor <= view.state.doc.content.size, 'selection anchor within bounds')
+}
+
+export const testRestoreSelectionForDeletedBlockNode = async (_tc) => {
+  const ydoc = new Y.Doc()
+  const view = createNewComplexProsemirrorView(ydoc)
+
+  view.dispatch(
+    view.state.tr.insert(
+      0,
+      [
+        complexSchema.node('paragraph', undefined, complexSchema.text('before')),
+        complexSchema.node('custom'),
+        complexSchema.node('paragraph', undefined, complexSchema.text('after'))
+      ]
+    )
+  )
+
+  // compute the absolute position of the custom block node inside the doc
+  const doc = view.state.doc
+  let pos = 1
+  for (let i = 0; i < doc.childCount; i++) {
+    const child = doc.child(i)
+    if (child.type.name === 'custom') break
+    pos += child.nodeSize
+  }
+
+  view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)))
+
+  const node = view.state.doc.nodeAt(pos)
+  const nodeSize = node ? node.nodeSize : 1
+  view.dispatch(view.state.tr.delete(pos, pos + nodeSize))
+
+  const sel = view.state.selection
+  t.assert(sel instanceof NodeSelection, 'selection should be a NodeSelection for block node')
 }
 
 /**
