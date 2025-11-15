@@ -8,11 +8,11 @@ import * as array from 'lib0/array'
 
 import { EditorView } from 'prosemirror-view'
 import { Node, Schema } from 'prosemirror-model'
-import { ReplaceStep, Transform } from 'prosemirror-transform'
+import { ReplaceStep } from 'prosemirror-transform'
 import { EditorState } from 'prosemirror-state'
 
 /**
- * @typedef {delta.Delta<string,{ [key:string]:any },any,any,any>} ProsemirrorDelta
+ * @typedef {delta.DeltaBuilder<string,{ [key:string]:any },any,any,any>} ProsemirrorDelta
  */
 
 export class YEditorView extends EditorView {
@@ -25,15 +25,17 @@ export class YEditorView extends EditorView {
       ...props,
       dispatchTransaction: tr => {
         // Get the new state by applying the transaction
-        let newState = this.state.apply(tr)
+        const newState = this.state.apply(tr)
         this.mux(() => {
           if (tr.docChanged) {
             /**
              * @type {ProsemirrorDelta}
              */
-            let d = delta.create()
-            let doc = tr.before
+            const d = delta.create()
+            const doc = tr.before
             tr.steps.forEach(step => {
+              // For some steps, we can create a direct mapping from the step to the delta, but for others, we need to apply the step to the document
+              // Look into prosemirror-suggest-changes to see if it is useful, they had some mapping of each step type too
               /**
                * @type {ProsemirrorDelta}
                */
@@ -134,8 +136,7 @@ const addNodesToDelta = (d, ns) => {
 /**
  * @param {Node} n
  */
-const nodeToDelta = n => addNodesToDelta(delta.create(n.type.name).setMany(n.attrs), n.content.content)
-
+const nodeToDelta = n => addNodesToDelta(delta.create(n.type.name, n.attrs), n.content.content)
 
 /**
  * @param {EditorState} pstate
@@ -147,10 +148,30 @@ const pstateToDelta = pstate => {
   addNodesToDelta(d, pc)
   return d
 }
+/**
+ * Count the number of delta positions in a parent node.
+ * Delta positions are counted such that:
+ *  - 1: for a non-text node
+ *  - text.length: for a text node
+ * @param {Node} node
+ * @return {number}
+ */
+function countDeltaPositions (node) {
+  // TODO how do you distinguish between wanting to delete 4 characters or 4 nodes?
+  let deltaCount = 0
+  node.content.content.forEach(child => {
+    if (child.isText) {
+      deltaCount += child.text.length
+    } else {
+      deltaCount += 1
+    }
+  })
+  return deltaCount
+}
 
 /**
  *
- * @template {Transform} TR
+ * @template {import('prosemirror-state').Transaction} TR
  *
  * @param {TR} tr
  * @param {ProsemirrorDelta} d
@@ -158,7 +179,7 @@ const pstateToDelta = pstate => {
  * @param {{ i: number }} currPos
  * @return {TR}
  */
-const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
+export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
   const schema = tr.doc.type.schema
   let currParentIndex = 0
   let nOffset = 0
@@ -171,7 +192,7 @@ const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
         const pc = pchildren[currParentIndex]
         if (pc.isText) {
           if (i + nOffset < pc.nodeSize) {
-            nOffset += i            
+            nOffset += i
             currPos.i += i
             i = 0
           } else {
@@ -188,7 +209,7 @@ const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
       }
     } else if (delta.$modifyOp.check(op)) {
       currPos.i++
-      deltaToPSteps(tr, op.modify, pchildren[currParentIndex++], currPos)
+      deltaToPSteps(tr, op.value, pchildren[currParentIndex++], currPos)
       currPos.i++
     } else if (delta.$insertOp.check(op)) {
       const newPChildren = op.insert.map(ins => deltaToPNode(ins, schema))
@@ -200,18 +221,22 @@ const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
     } else if (delta.$deleteOp.check(op)) {
       for (let remainingDelLen = op.delete; remainingDelLen > 0;) {
         const pc = pchildren[currParentIndex]
+        if (pc === undefined) {
+          throw new Error('delete operation is out of bounds')
+        }
         if (pc.isText) {
           const delLen = math.min(pc.nodeSize - nOffset, remainingDelLen)
           tr.delete(currPos.i, currPos.i + delLen)
           nOffset += delLen
           if (nOffset === pc.nodeSize) {
+            // TODO this can't actually "jump out" of the current node
             // jump to next node
             nOffset = 0
             currParentIndex++
           }
           remainingDelLen -= delLen
         } else {
-          tr.delete(currPos.i, pc.nodeSize)
+          tr.delete(currPos.i, currPos.i + pc.nodeSize)
           currParentIndex++
           remainingDelLen--
         }
@@ -226,4 +251,231 @@ const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
  * @param {Schema} schema
  * @return {Node}
  */
-const deltaToPNode = (d, schema) => schema.node(d.name, d.attrs, list.toArray(d.children).map(c => delta.$insertOp.check(c) ? c.insert.map(cn => deltaToPNode(cn, schema)) : (delta.$textOp.check(c) ? [schema.text(c.insert)] : [])).flat(1))
+const deltaToPNode = (d, schema) => {
+  return schema.node(d.name, d.attrs, list.toArray(d.children).map(c => delta.$insertOp.check(c) ? c.insert.map(cn => deltaToPNode(cn, schema)) : (delta.$textOp.check(c) ? [schema.text(c.insert)] : [])).flat(1))
+}
+
+// <p> hello world </p> <p> hello world! </p>
+// <p> hello world! </p>
+
+//
+
+/**
+ * @param {import('prosemirror-state').Transaction} tr
+ * @return {ProsemirrorDelta}
+ */
+export const trToDelta = (tr) => {
+  /**
+   * @type {ProsemirrorDelta}
+   */
+  const d = delta.create()
+  tr.steps.forEach((step, i) => {
+    d.apply(stepToDelta(step, tr.docs[i]))
+  })
+
+  return d
+}
+
+/**
+ * @param {import('prosemirror-transform').Step} step
+ * @param {import('prosemirror-model').Node} beforeDoc
+ * @return {ProsemirrorDelta}
+ */
+export const stepToDelta = (step, beforeDoc) => {
+  const stepResult = step.apply(beforeDoc)
+  if (stepResult.failed) {
+    throw new Error('step failed to apply')
+  }
+  const afterDoc = stepResult.doc
+  const stepMap = step.getMap()
+
+  /**
+   * @type {ProsemirrorDelta}
+   */
+  const d = delta.create()
+
+  // For ReplaceStep, we can also get the step's from/to positions directly
+  if (step instanceof ReplaceStep) {
+    console.log('ReplaceStep positions:', {
+      from: step.from,
+      to: step.to,
+      replacedSize: step.to - step.from,
+      sliceSize: step.slice.size
+    })
+  }
+
+  // stepMap.forEach provides the start & end positions for each change made by the step
+  // oldStart, oldEnd: positions in the old document (beforeDoc) that were changed
+  // newStart, newEnd: corresponding positions in the new document (afterDoc)
+  stepMap.forEach((oldStart, oldEnd, newStart, newEnd) => {
+    const oldDeltaPath = pmToDeltaPath(beforeDoc, oldStart)
+    const { parentDelta, currentOp } = deltaPathToDelta(oldDeltaPath)
+
+    console.log('parentDelta', parentDelta.toJSON())
+    console.log('currentOp', currentOp.toJSON())
+
+    // Extract the change information for this range
+    const change = {
+      // Positions in the old document (before the step)
+      oldStart,
+      oldEnd,
+      // Positions in the new document (after the step)
+      newStart,
+      newEnd,
+      // Size of the deleted content in the old document
+      deletedSize: oldEnd - oldStart,
+      // Size of the inserted content in the new document
+      insertedSize: newEnd - newStart
+    }
+
+    // When oldStart !== oldEnd, content was deleted from the old document
+    const hasDeletes = change.deletedSize > 0
+    // When newStart !== newEnd, content was inserted into the new document
+    const hasInserts = change.insertedSize > 0
+
+    if (hasDeletes) {
+      const deletedNodes = beforeDoc.slice(oldStart, oldEnd)
+      console.log('Deleted:', {
+        content: deletedNodes.toString(),
+        start: oldStart,
+        end: oldEnd,
+        size: change.deletedSize
+      })
+      let deletedSize = 0
+      deletedNodes.content.forEach(n => {
+        if (n.isText) {
+          deletedSize += n.text.length
+        } else {
+          // TODO this is difficult to get right, since we can't get the currentOp's parent delta
+          // I need to delete the next sibling of the parent node, ideally I'd have a wat to traverse up the delta tree to get the parent delta
+          deletedSize += 1
+        }
+      })
+      currentOp.delete(deletedSize)
+    }
+    if (hasInserts) {
+      const insertedNodes = afterDoc.slice(newStart, newEnd)
+      console.log('Inserted:', {
+        content: insertedNodes.content.content.toString(),
+        start: newStart,
+        end: newEnd,
+        size: change.insertedSize
+      })
+      addNodesToDelta(currentOp, insertedNodes.content.content)
+    }
+    d.apply(parentDelta)
+  })
+
+  return d
+}
+
+/**
+ * This function is used to find the delta offset for a given prosemirror offset in a node.
+ * Given the following document:
+ * <doc><p>Hello world</p><blockquote><p>Hello world!</p></blockquote></doc>
+ * The delta structure would look like this:
+ *  0: p
+ *   - 0: text("Hello world")
+ *  1: blockquote
+ *   - 0: p
+ *     - 0: text("Hello world!")
+ * So the prosemirror position 10 would be within the delta offset path: 0, 0 and have an offset into the text node of 9 (since it is the 9th character in the text node).
+ *
+ * So the return value would be [0, 9], which is the path of: p, text("Hello wor")
+ *
+ * @param {Node} node
+ * @param {number} searchPmOffset The p offset to find the delta offset for
+ * @return {number[]} The delta offset path for the search pm offset
+ */
+export function pmToDeltaPath (node, searchPmOffset = 0) {
+  if (searchPmOffset === 0) {
+    // base case
+    return [0]
+  }
+
+  const resolvedOffset = node.resolve(searchPmOffset)
+  const depth = resolvedOffset.depth
+  const path = []
+  if (depth === 0) {
+    // if the offset is at the root node, return the index of the node
+    return [resolvedOffset.index(0)]
+  }
+  // otherwise, add the index of each parent node to the path
+  for (let d = 0; d < depth; d++) {
+    path.push(resolvedOffset.index(d))
+  }
+
+  // add any offset into the parent node to the path
+  path.push(resolvedOffset.parentOffset)
+
+  return path
+}
+
+/**
+ * Inverse of {@link pmToDeltaPath}
+ * @param {number[]} deltaPath
+ * @param {Node} node
+ * @return {number} The prosemirror offset for the delta path
+ */
+export function deltaPathToPm (deltaPath, node) {
+  let pmOffset = 0
+  let curNode = node
+
+  // Special case: if path has only one element, it's a child index at depth 0
+  if (deltaPath.length === 1) {
+    const childIndex = deltaPath[0]
+    // Add sizes of all children before the target index
+    for (let j = 0; j < childIndex; j++) {
+      pmOffset += curNode.children[j].nodeSize
+    }
+    return pmOffset
+  }
+
+  // Handle all elements except the last (which is an offset)
+  for (let i = 0; i < deltaPath.length - 1; i++) {
+    const childIndex = deltaPath[i]
+    // Add sizes of all children before the target child
+    for (let j = 0; j < childIndex; j++) {
+      pmOffset += curNode.children[j].nodeSize
+    }
+    // Add 1 for the opening tag of the target child, then navigate into it
+    pmOffset += 1
+    curNode = curNode.children[childIndex]
+  }
+
+  // Last element is an offset within the current node
+  pmOffset += deltaPath[deltaPath.length - 1]
+
+  return pmOffset
+}
+
+/**
+ * @param {number[]} deltaPath
+ * @return {{ parentDelta: ProsemirrorDelta, currentOp: ProsemirrorDelta }}
+ */
+export function deltaPathToDelta (deltaPath) {
+  if (deltaPath.length === 0) {
+    const currentOp = delta.create()
+    const parentDelta = currentOp
+    return { parentDelta, currentOp }
+  }
+
+  // The last element becomes the retain for currentOp
+  const lastIndex = deltaPath.length - 1
+  /**
+   * @type {ProsemirrorDelta}
+   */
+  const currentOp = delta.create().retain(deltaPath[lastIndex])
+
+  // Build parentDelta by iterating backwards through all elements except the last
+  // Each element becomes a retain, and we nest modifies
+  /**
+   * @type {ProsemirrorDelta}
+   */
+  let parentDelta = currentOp
+  for (let i = lastIndex - 1; i >= 0; i--) {
+    parentDelta = delta.create().retain(deltaPath[i]).modify(parentDelta)
+  }
+
+  return { parentDelta, currentOp }
+}

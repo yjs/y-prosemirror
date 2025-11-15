@@ -1,5 +1,5 @@
 // import * as prosemirror from './y-prosemirror.test.js'
-import * as delta from './delta.test.js'
+import * as tr from './tr.test.js'
 
 import { runTests } from 'lib0/testing'
 import { isBrowser, isNode } from 'lib0/environment'
@@ -9,10 +9,11 @@ if (isBrowser) {
   log.createVConsole(document.body)
 }
 runTests({
-  delta
+  tr
 }).then(success => {
   /* istanbul ignore next */
   if (isNode) {
+    // @ts-ignore
     process.exit(success ? 0 : 1)
   }
 })
