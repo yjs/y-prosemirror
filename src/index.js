@@ -69,7 +69,8 @@ export class YEditorView extends EditorView {
     const initialPDelta = pstateToDelta(this.state)
     console.log('initialPDelta', initialPDelta.isDone)
     const d = ytype.getContent(Y.noAttributionsManager, { deep: true })
-    console.log(JSON.stringify(d.toJSON(), null, 2))
+    // TODO getContent returns a done delta, so I need to slice it to create a new one & rebase it to the initialPDelta
+    // TODO ideally their would be a `.clone()` method for this. Also unclear why it needs to be marked as done?
     const initialYDelta = /** @type {ProsemirrorDelta} */ (d).slice(0, d.childCnt).rebase(initialPDelta, true)
     this.y.applyDelta(initialPDelta)
     this.dispatch(deltaToPSteps(this.state.tr, initialYDelta))
