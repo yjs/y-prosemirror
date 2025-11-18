@@ -1,15 +1,12 @@
-import * as Y from 'yjs'
 import * as delta from 'lib0/delta'
-import * as error from 'lib0/error'
-import * as math from 'lib0/math'
 import * as list from 'lib0/list'
+import * as math from 'lib0/math'
 import * as mux from 'lib0/mutex'
-import * as array from 'lib0/array'
+import * as Y from 'yjs'
 
-import { EditorView } from 'prosemirror-view'
-import { Node, Schema } from 'prosemirror-model'
-import { ReplaceStep } from 'prosemirror-transform'
+import { Node, NodeRange, Schema } from 'prosemirror-model'
 import { EditorState } from 'prosemirror-state'
+import { EditorView } from 'prosemirror-view'
 
 /**
  * @typedef {delta.DeltaBuilder<string,{ [key:string]:any },any,any,any>} ProsemirrorDelta
@@ -28,51 +25,10 @@ export class YEditorView extends EditorView {
         const newState = this.state.apply(tr)
         this.mux(() => {
           if (tr.docChanged) {
-            /**
-             * @type {ProsemirrorDelta}
-             */
-            const d = delta.create()
-            const doc = tr.before
-            tr.steps.forEach(step => {
-              // For some steps, we can create a direct mapping from the step to the delta, but for others, we need to apply the step to the document
-              // Look into prosemirror-suggest-changes to see if it is useful, they had some mapping of each step type too
-              /**
-               * @type {ProsemirrorDelta}
-               */
-              let sd = delta.create()
-              // @ts-ignore
-              const from = doc.resolve(step.from)
-              // @ts-ignore
-              const to = doc.resolve(step.to)
-              if (step instanceof ReplaceStep) {
-                const fromOffset = from.parentOffset
-                const toOffset = to.parentOffset
-                sd.retain(fromOffset).delete(toOffset - fromOffset)
-                if (!step.slice.openStart) {
-                  addNodesToDelta(sd, step.slice.content.content)
-                }
-              } else {
-                error.unexpectedCase()
-              }
-              const fromPath = /** @type {any} */ (from).path
-              let i = fromPath.length - 5
-              debugger
-              if (step.slice.openStart && step.slice.openEnd) {
-                sd.delete(from.parent.nodeSize - from.parentOffset - 2)
-                const p = fromPath[i]
-                sd = delta.create().retain(p).modify(sd)
-                const tmpNewStart = nodeToDelta(array.last(step.slice.content.content))
-                tmpNewStart.apply(addNodesToDelta(delta.create(), from.parent.slice(from.parentOffset).content.content))
-                sd.insert([tmpNewStart])
-                i -= 3
-              }
-              for (; i > 0; i -= 3) {
-                const p = fromPath[i]
-                sd = delta.create().retain(p).modify(sd)
-              }
-              d.apply(sd)
-            })
+            const d = trToDelta(tr)
             console.log('editor received steps', tr.steps, 'and and applied delta to ytyp', d.toJSON())
+
+            // TODO having some issues with applying the delta to the ytype
             this.y?.applyDelta(d)
           }
         })
@@ -111,7 +67,10 @@ export class YEditorView extends EditorView {
     this.y?.unobserveDeep(this._observer)
     this.y = ytype
     const initialPDelta = pstateToDelta(this.state)
-    const initialYDelta = /** @type {ProsemirrorDelta} */ (ytype.getContent(Y.noAttributionsManager, { deep: true })).rebase(initialPDelta, true)
+    console.log('initialPDelta', initialPDelta.isDone)
+    const d = ytype.getContent(Y.noAttributionsManager, { deep: true })
+    console.log(JSON.stringify(d.toJSON(), null, 2))
+    const initialYDelta = /** @type {ProsemirrorDelta} */ (d).slice(0, d.childCnt).rebase(initialPDelta, true)
     this.y.applyDelta(initialPDelta)
     this.dispatch(deltaToPSteps(this.state.tr, initialYDelta))
     ytype.observeDeep(this._observer)
@@ -121,9 +80,14 @@ export class YEditorView extends EditorView {
 /**
  * @param {ProsemirrorDelta} d
  * @param {readonly Node[]} ns
+ * @param {number} insertMax
  */
-const addNodesToDelta = (d, ns) => {
+const addNodesToDelta = (d, ns, insertMax = Number.POSITIVE_INFINITY) => {
   ns.forEach(n => {
+    if (insertMax <= 0) {
+      return
+    }
+    insertMax--
     if (n.isText) {
       d.insert(n.text)
     } else {
@@ -135,8 +99,9 @@ const addNodesToDelta = (d, ns) => {
 
 /**
  * @param {Node} n
+ * @param {number} insertMax
  */
-const nodeToDelta = n => addNodesToDelta(delta.create(n.type.name, n.attrs), n.content.content)
+const nodeToDelta = (n, insertMax = Number.POSITIVE_INFINITY) => addNodesToDelta(delta.create(n.type.name, n.attrs), n.content.content, insertMax)
 
 /**
  * @param {EditorState} pstate
@@ -147,26 +112,6 @@ const pstateToDelta = pstate => {
   const pc = pstate.doc.content.content
   addNodesToDelta(d, pc)
   return d
-}
-/**
- * Count the number of delta positions in a parent node.
- * Delta positions are counted such that:
- *  - 1: for a non-text node
- *  - text.length: for a text node
- * @param {Node} node
- * @return {number}
- */
-function countDeltaPositions (node) {
-  // TODO how do you distinguish between wanting to delete 4 characters or 4 nodes?
-  let deltaCount = 0
-  node.content.content.forEach(child => {
-    if (child.isText) {
-      deltaCount += child.text.length
-    } else {
-      deltaCount += 1
-    }
-  })
-  return deltaCount
 }
 
 /**
@@ -255,11 +200,6 @@ const deltaToPNode = (d, schema) => {
   return schema.node(d.name, d.attrs, list.toArray(d.children).map(c => delta.$insertOp.check(c) ? c.insert.map(cn => deltaToPNode(cn, schema)) : (delta.$textOp.check(c) ? [schema.text(c.insert)] : [])).flat(1))
 }
 
-// <p> hello world </p> <p> hello world! </p>
-// <p> hello world! </p>
-
-//
-
 /**
  * @param {import('prosemirror-state').Transaction} tr
  * @return {ProsemirrorDelta}
@@ -268,9 +208,20 @@ export const trToDelta = (tr) => {
   /**
    * @type {ProsemirrorDelta}
    */
-  const d = delta.create()
+  let d = delta.create()
   tr.steps.forEach((step, i) => {
-    d.apply(stepToDelta(step, tr.docs[i]))
+    const stepDelta = stepToDelta(step, tr.docs[i])
+
+    console.log('stepDelta', JSON.stringify(stepDelta.toJSON(), null, 2))
+    console.log('d', JSON.stringify(d.toJSON(), null, 2))
+    if (d.childCnt === 0) {
+      // TODO there is a bug with applying a delta to an empty delta, it should just return the second arg
+      d = stepDelta
+    } else {
+      // TODO what is with the types here?
+      d = delta.diff(d, stepDelta)
+    }
+    console.log('d', JSON.stringify(d.toJSON(), null, 2))
   })
 
   return d
@@ -294,78 +245,51 @@ export const stepToDelta = (step, beforeDoc) => {
    */
   const d = delta.create()
 
-  // For ReplaceStep, we can also get the step's from/to positions directly
-  if (step instanceof ReplaceStep) {
-    console.log('ReplaceStep positions:', {
-      from: step.from,
-      to: step.to,
-      replacedSize: step.to - step.from,
-      sliceSize: step.slice.size
-    })
-  }
-
   // stepMap.forEach provides the start & end positions for each change made by the step
   // oldStart, oldEnd: positions in the old document (beforeDoc) that were changed
   // newStart, newEnd: corresponding positions in the new document (afterDoc)
   stepMap.forEach((oldStart, oldEnd, newStart, newEnd) => {
-    const oldDeltaPath = pmToDeltaPath(beforeDoc, oldStart)
-    const { parentDelta, currentOp } = deltaPathToDelta(oldDeltaPath)
+    const hasDeletes = oldEnd - oldStart > 0
+    const hasInserts = newEnd - newStart > 0
 
-    console.log('parentDelta', parentDelta.toJSON())
-    console.log('currentOp', currentOp.toJSON())
-
-    // Extract the change information for this range
-    const change = {
-      // Positions in the old document (before the step)
-      oldStart,
-      oldEnd,
-      // Positions in the new document (after the step)
-      newStart,
-      newEnd,
-      // Size of the deleted content in the old document
-      deletedSize: oldEnd - oldStart,
-      // Size of the inserted content in the new document
-      insertedSize: newEnd - newStart
+    let oldBlockRange = beforeDoc.resolve(oldStart).blockRange(beforeDoc.resolve(oldEnd))
+    let newBlockRange = afterDoc.resolve(newStart).blockRange(afterDoc.resolve(newEnd))
+    if (hasInserts && !hasDeletes) {
+      // purely an insert, so the old block range is invalid (null)
+      oldBlockRange = beforeDoc.resolve(stepMap.invert().map(newStart)).blockRange(beforeDoc.resolve(stepMap.invert().map(newEnd)))
+    }
+    if (hasDeletes && !hasInserts) {
+      // purely a delete, so the new block range is invalid (null)
+      newBlockRange = afterDoc.resolve(stepMap.map(oldStart)).blockRange(afterDoc.resolve(stepMap.map(oldEnd)))
     }
 
-    // When oldStart !== oldEnd, content was deleted from the old document
-    const hasDeletes = change.deletedSize > 0
-    // When newStart !== newEnd, content was inserted into the new document
-    const hasInserts = change.insertedSize > 0
+    const oldDelta = deltaForBlockRange(oldBlockRange)
+    const newDelta = deltaForBlockRange(newBlockRange)
+    const diffD = delta.diff(oldDelta, newDelta)
+    const { parentDelta } = deltaPathToDelta(pmToDeltaPath(beforeDoc, oldBlockRange?.start || newBlockRange?.start || 0))
 
-    if (hasDeletes) {
-      const deletedNodes = beforeDoc.slice(oldStart, oldEnd)
-      console.log('Deleted:', {
-        content: deletedNodes.toString(),
-        start: oldStart,
-        end: oldEnd,
-        size: change.deletedSize
-      })
-      let deletedSize = 0
-      deletedNodes.content.forEach(n => {
-        if (n.isText) {
-          deletedSize += n.text.length
-        } else {
-          // TODO this is difficult to get right, since we can't get the currentOp's parent delta
-          // I need to delete the next sibling of the parent node, ideally I'd have a wat to traverse up the delta tree to get the parent delta
-          deletedSize += 1
-        }
-      })
-      currentOp.delete(deletedSize)
-    }
-    if (hasInserts) {
-      const insertedNodes = afterDoc.slice(newStart, newEnd)
-      console.log('Inserted:', {
-        content: insertedNodes.content.content.toString(),
-        start: newStart,
-        end: newEnd,
-        size: change.insertedSize
-      })
-      addNodesToDelta(currentOp, insertedNodes.content.content)
-    }
+    // TODO I wanted to just add my ops at the end of the parentDelta, but didn't know how to actually do that
+    diffD.children.forEach(child => {
+      list.pushEnd(parentDelta.children, child.clone())
+    })
+
     d.apply(parentDelta)
   })
 
+  return d
+}
+
+/**
+ *
+ * @param {NodeRange | null} blockRange
+ */
+function deltaForBlockRange (blockRange) {
+  if (blockRange === null) {
+    return delta.create()
+  }
+  const { startIndex, endIndex, parent } = blockRange
+  const d = delta.create()
+  addNodesToDelta(d, parent.content.content.slice(startIndex, endIndex))
   return d
 }
 

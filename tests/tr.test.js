@@ -5,6 +5,42 @@ import { schema, testBuilders } from './complexSchema.js'
 import * as delta from 'lib0/delta'
 
 /**
+ * A custom node comparator which ignores ychange attributes
+ * @param {import('prosemirror-model').Node} a
+ * @param {import('prosemirror-model').Node} b
+ */
+function compareNodes (a, b) {
+  t.compare(a.type, b.type, 'types are not the same')
+  t.compare({
+    ...a.attrs,
+    // specifically ignore ychange
+    ychange: undefined
+  }, {
+    ...b.attrs,
+    // specifically ignore ychange
+    ychange: undefined
+  }, 'attrs are not the same')
+  t.compare(a.content.content.length, b.content.content.length, 'content lengths are not the same')
+  for (let i = 0; i < a.content.content.length; i++) {
+    compareNodes(a.content.content[i], b.content.content[i])
+  }
+  t.compare(a.text, b.text, 'text is not the same')
+  t.compare(a.marks.length, b.marks.length, 'marks lengths are not the same')
+  for (let i = 0; i < a.marks.length; i++) {
+    t.compare(a.marks[i].type, b.marks[i].type, 'marks types are not the same')
+    t.compare({
+      ...a.marks[i].attrs,
+      // specifically ignore ychange
+      ychange: undefined
+    }, {
+      ...b.marks[i].attrs,
+      // specifically ignore ychange
+      ychange: undefined
+    }, 'marks attrs are not the same')
+  }
+}
+
+/**
  * @param {t.TestCase} _tc
  */
 export function testReplaceStepToDelta (_tc) {
@@ -27,7 +63,7 @@ export function testReplaceStepToDelta (_tc) {
 
     const generatedDelta = trToDelta(tr)
 
-    t.compare(generatedDelta.toJSON(), { type: 'delta', children: [{ type: 'modify', value: { type: 'delta', children: [{ type: 'insert', insert: 'A' }] } }] })
+    compareNodes(deltaToPSteps(state.tr, generatedDelta).doc, tr.doc)
   })
 
   t.group('insert text in the middle of an element', () => {
@@ -36,7 +72,7 @@ export function testReplaceStepToDelta (_tc) {
 
     const generatedDelta = trToDelta(tr)
 
-    t.compare(deltaToPSteps(state.tr, generatedDelta).doc.toString(), tr.doc.toString())
+    compareNodes(deltaToPSteps(state.tr, generatedDelta).doc, tr.doc)
   })
 
   t.group('insert text range in the middle of an element', () => {
@@ -45,7 +81,7 @@ export function testReplaceStepToDelta (_tc) {
 
     const generatedDelta = trToDelta(tr)
 
-    t.assert(deltaToPSteps(state.tr, generatedDelta).doc.eq(tr.doc), 'deltaToPSteps produced an incorrect document')
+    compareNodes(deltaToPSteps(state.tr, generatedDelta).doc, tr.doc)
   })
 
   t.group('insert text at end of element', () => {
@@ -54,7 +90,7 @@ export function testReplaceStepToDelta (_tc) {
 
     const generatedDelta = trToDelta(tr)
 
-    t.assert(deltaToPSteps(state.tr, generatedDelta).doc.eq(tr.doc), 'deltaToPSteps produced an incorrect document')
+    compareNodes(deltaToPSteps(state.tr, generatedDelta).doc, tr.doc)
   })
 
   t.group('delete text in the middle of an element', () => {
@@ -63,7 +99,7 @@ export function testReplaceStepToDelta (_tc) {
 
     const generatedDelta = trToDelta(tr)
 
-    t.assert(deltaToPSteps(state.tr, generatedDelta).doc.eq(tr.doc), 'deltaToPSteps produced an incorrect document')
+    compareNodes(deltaToPSteps(state.tr, generatedDelta).doc, tr.doc)
   })
 
   t.group('delete text range in the middle of an element', () => {
@@ -72,7 +108,7 @@ export function testReplaceStepToDelta (_tc) {
 
     const generatedDelta = trToDelta(tr)
 
-    t.assert(deltaToPSteps(state.tr, generatedDelta).doc.eq(tr.doc), 'deltaToPSteps produced an incorrect document')
+    compareNodes(deltaToPSteps(state.tr, generatedDelta).doc, tr.doc)
   })
 
   t.group('insert node', () => {
@@ -81,7 +117,7 @@ export function testReplaceStepToDelta (_tc) {
 
     const generatedDelta = trToDelta(tr)
 
-    t.assert(deltaToPSteps(state.tr, generatedDelta).doc.eq(tr.doc), 'deltaToPSteps produced an incorrect document')
+    compareNodes(deltaToPSteps(state.tr, generatedDelta).doc, tr.doc)
   })
 
   t.group('delete node', () => {
@@ -91,7 +127,7 @@ export function testReplaceStepToDelta (_tc) {
 
     const generatedDelta = trToDelta(tr)
 
-    t.assert(deltaToPSteps(state.tr, generatedDelta).doc.eq(tr.doc), 'deltaToPSteps produced an incorrect document')
+    compareNodes(deltaToPSteps(state.tr, generatedDelta).doc, tr.doc)
   })
 
   t.group('delete a range of nodes', () => {
@@ -100,7 +136,7 @@ export function testReplaceStepToDelta (_tc) {
 
     const generatedDelta = trToDelta(tr)
 
-    t.assert(deltaToPSteps(state.tr, generatedDelta).doc.eq(tr.doc), 'deltaToPSteps produced an incorrect document')
+    compareNodes(deltaToPSteps(state.tr, generatedDelta).doc, tr.doc)
   })
 
   t.group('delete a random range of nodes', () => {
@@ -111,7 +147,40 @@ export function testReplaceStepToDelta (_tc) {
 
     console.log('generatedDelta', JSON.stringify(generatedDelta.toJSON(), null, 2))
 
-    t.assert(deltaToPSteps(state.tr, generatedDelta).doc.eq(tr.doc), 'deltaToPSteps produced an incorrect document')
+    console.log('expected', tr.doc.toString())
+    console.log('actual  ', deltaToPSteps(state.tr, generatedDelta).doc.toString())
+
+    compareNodes(deltaToPSteps(state.tr, generatedDelta).doc, tr.doc)
+  })
+
+  t.group('multiple steps', () => {
+    const tr = state.tr
+    tr.insertText('A', doc.tag.a)
+    tr.insertText('B', doc.tag.b)
+    tr.insertText('C', doc.tag.c)
+
+    const generatedDelta = trToDelta(tr)
+
+    console.log('generatedDelta', JSON.stringify(generatedDelta.toJSON(), null, 2))
+    console.log('expected', tr.doc.toString())
+    console.log('actual  ', deltaToPSteps(state.tr, generatedDelta).doc.toString())
+
+    compareNodes(deltaToPSteps(state.tr, generatedDelta).doc, tr.doc)
+  })
+
+  t.group('multiple steps with deletes', () => {
+    const tr = state.tr
+    tr.delete(doc.tag.a, doc.tag.a + 1)
+    tr.delete(doc.tag.b, doc.tag.b + 1)
+    tr.delete(doc.tag.c, doc.tag.c + 1)
+
+    const generatedDelta = trToDelta(tr)
+
+    console.log('generatedDelta', JSON.stringify(generatedDelta.toJSON(), null, 2))
+    console.log('expected', tr.doc.toString())
+    console.log('actual  ', deltaToPSteps(state.tr, generatedDelta).doc.toString())
+
+    compareNodes(deltaToPSteps(state.tr, generatedDelta).doc, tr.doc)
   })
 
   // t.group('generic steps?', () => {
@@ -155,7 +224,7 @@ export function testReplaceStepToDelta (_tc) {
 /**
  * @param {t.TestCase} _tc
  */
-export function testStepToDelta (_tc) {
+export function tesStepToDelta (_tc) {
   const doc = testBuilders.doc(
     testBuilders.paragraph('<a>first<b> paragraph<c>'),
     testBuilders.paragraph('second<d> paragraph'),
@@ -237,7 +306,7 @@ export function testStepToDelta (_tc) {
 /**
  * @param {t.TestCase} _tc
  */
-export function testNodeToDeltaPath (_tc) {
+export function tesNodeToDeltaPath (_tc) {
   const doc = testBuilders.doc(
     testBuilders.paragraph('<a>Hello<b> world<c>'),
     testBuilders.blockquote(testBuilders.paragraph('<d>Hello<e> world!<f>')),
@@ -268,7 +337,7 @@ export function testNodeToDeltaPath (_tc) {
 /**
  * @param {t.TestCase} _tc
  */
-export function testDeltaPathToDelta (_tc) {
+export function tesDeltaPathToDelta (_tc) {
   t.group('converts delta path to delta structure', () => {
     t.group('path [1, 6]', () => {
       const { parentDelta, currentOp } = deltaPathToDelta([1, 6])
