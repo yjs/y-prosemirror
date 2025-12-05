@@ -2,7 +2,9 @@ import * as t from 'lib0/testing'
 import * as ypm from '../src/index.js'
 import * as basicSchema from 'prosemirror-schema-basic'
 import * as Y from 'yjs'
+import { EditorState } from 'prosemirror-state'
 import { Node, Schema } from 'prosemirror-model'
+import * as delta from 'lib0/delta'
 
 const schema = new Schema({
   nodes: basicSchema.nodes,
@@ -11,7 +13,6 @@ const schema = new Schema({
 
 const createProsemirrorView = () => {
   const view = new ypm.YEditorView(null, {
-    // @ts-ignore
     state: EditorState.create({
       schema
     })
@@ -20,26 +21,83 @@ const createProsemirrorView = () => {
 }
 
 /**
- * @param {t.TestCase} _tc
+ * @param {ypm.YEditorView} pm
  */
-export const testEmptyParagraph = (_tc) => {
-  const ydoc = new Y.Doc()
-  const view = createProsemirrorView()
-  view.dispatch(
-    view.state.tr.insert(
-      0,
-      /** @type {any} */ (schema.node(
-        'paragraph',
-        undefined,
-        schema.text('123')
-      ))
-    ).insert(0, /** @type {any} */ (schema.node(
-      'paragraph',
-      undefined,
-      schema.text('456')
-    ))).insert(1, schema.text('xyz')).delete(2, 3)
-  )
-
-  const yxml = ydoc.get('prosemirror')
+const validate = pm => {
+  const ycontent = pm.y.getContentDeep()
+  ycontent.name = 'doc'
+  const pcontent = ypm.nodeToDelta(pm.state.doc)
+  t.compare(ycontent, pcontent)
 }
 
+/**
+ * @typedef {object} YPMTestConf
+ * @property {import('prosemirror-state').Transaction} YPMTest.tr
+ * @property {ypm.YEditorView} YPMTest.view
+ * @property {Y.XmlFragment} YPMTest.ytype
+ * @property {import('prosemirror-state').Transaction} YPMTest.tr2
+ * @property {ypm.YEditorView} YPMTest.view2
+ * @property {Y.XmlFragment} YPMTest.ytype2
+ */
+
+/**
+ * @param {Array<(opts:YPMTestConf)=>(delta.DeltaAny|import('prosemirror-state').Transaction|null)>} changes
+ */
+const testHelper = (changes) => {
+  /**
+   * @param {t.TestCase} _tc
+   */
+  return _tc => {
+    // sync two ydocs
+    const ydoc = new Y.Doc()
+    const ydoc2 = new Y.Doc()
+    ydoc.on('update', update => {
+      Y.applyUpdate(ydoc2, update)
+    })
+    ydoc2.on('update', update => {
+      Y.applyUpdate(ydoc, update)
+    })
+    const view = createProsemirrorView()
+    const ytype = ydoc.getXmlFragment('prosemirror')
+    ytype.applyDelta(delta.create().insert([delta.create('heading',{level:1},'Hello World!'), delta.create('paragraph', {}, 'Lorem ipsum..')]))
+    view.bindYType(ytype)
+    const view2 = createProsemirrorView()
+    view2.bindYType(ydoc2.getXmlFragment('prosemirror'))
+    changes.forEach(change => {
+      const ytype = view.y
+      const tr = change({
+        tr: view.state.tr,
+        view,
+        ytype,
+        tr2: view2.state.tr,
+        view2,
+        ytype2: view2.y
+      })
+      if (delta.$deltaAny.check(tr)) {
+        ytype.applyDelta(tr)
+      } else if (tr != null) {
+        view.dispatch(tr)
+      }
+      validate(view)
+      validate(view2)
+      t.compare(ytype.getContentDeep(), view2.y.getContentDeep())
+    })
+    console.log('final pm document:', view.state.doc.toJSON())
+  }
+}
+
+export const testBase = testHelper([])
+
+export const testDeleteRangeOverPartialNodes = testHelper([
+  ({tr}) => tr.insert(0, schema.node('paragraph',undefined,schema.text('789'))).insert(0, schema.node('paragraph',undefined,schema.text('456'))).insert(0, schema.node('paragraph',undefined,schema.text('123'))),
+  ({tr}) => tr.delete(2, 12)
+])
+
+export const testDeleteRangeOverPartialNodes2 = testHelper([
+  () => delta.create(null, {}, [delta.create('paragraph',{},'123'), delta.create('paragraph',{},'456'), delta.create('paragraph', {}, '789')]),
+  ({tr}) => tr.delete(2, 12)
+])
+
+export const testFormatting = testHelper([
+  ({tr}) => tr.addMark(7, 12, schema.mark('strong'))
+])

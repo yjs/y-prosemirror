@@ -14,7 +14,7 @@
   "scripts": {
     "clean": "rm -rf dist",
     "dist": "npm run clean && rollup -c && tsc",
-    "test": "npm run lint && node ./tests/index.node.js",
+    "test": "node ./tests/index.node.js",
     "lint": "standard && tsc",
     "watch": "rollup -wc",
     "debug": "concurrently '0serve -o test.html' 'npm run watch'",
@@ -54,14 +54,14 @@
   },
   "homepage": "https://github.com/yjs/y-prosemirror#readme",
   "dependencies": {
-    "lib0": "^0.2.115-0"
+    "lib0": "^0.2.115-4"
   },
   "peerDependencies": {
     "@y/protocols": "^1.0.6-1",
     "prosemirror-model": "^1.7.1",
     "prosemirror-state": "^1.2.3",
     "prosemirror-view": "^1.9.10",
-    "yjs": "^14.0.0-9"
+    "yjs": "^14.0.0-14"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^28.0.8",
@@ -75,12 +75,13 @@
     "prosemirror-model": "^1.18.1",
     "prosemirror-schema-basic": "^1.2.0",
     "prosemirror-state": "^1.4.1",
+    "prosemirror-test-builder": "1.1.1",
     "prosemirror-transform": "^1.6.0",
     "prosemirror-view": "^1.26.2",
     "rollup": "^4.52.5",
     "standard": "^17.0.0",
     "typescript": "^5.9.3",
-    "yjs": "^14.0.0-9"
+    "yjs": "^14.0.0-14"
   },
   "engines": {
     "npm": ">=8.0.0",
