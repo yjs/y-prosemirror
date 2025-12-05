@@ -101,3 +101,7 @@ export const testDeleteRangeOverPartialNodes2 = testHelper([
 export const testFormatting = testHelper([
   ({tr}) => tr.addMark(7, 12, schema.mark('strong'))
 ])
+
+export const testBaseInsert = testHelper([
+  ({tr}) => tr.insert(16, schema.text('XXX'))
+])

@@ -71,14 +71,13 @@ export class YEditorView extends EditorView {
     this.y?.unobserveDeep(this._observer)
     this.y = ytype
     const initialPDelta = nodeToDelta(this.state.doc)
-    console.log('initialPDelta', initialPDelta.isDone)
     /**
      * @type {ProsemirrorDelta}
      */
     const d = ytype.getContent(Y.noAttributionsManager, { deep: true })
     const initDelta = delta.diff(initialPDelta.done(), d)
     this.mux(() => {
-      this.dispatch(deltaToPSteps(this.state.tr, initDelta))
+      this.dispatch(deltaToPSteps(this.state.tr, initDelta.done()))
     })
     ytype.observeDeep(this._observer)
   }
@@ -413,7 +412,7 @@ export const deltaModifyNodeAt = (node, pmOffset, mod) => {
   const dpath = pmToDeltaPath(node, pmOffset)
   let currentOp = delta.create($prosemirrorDelta)
   const lastIndex = dpath.length - 1
-  currentOp.retain(lastIndex > 0 ? dpath[lastIndex] : 0)
+  currentOp.retain(lastIndex >= 0 ? dpath[lastIndex] : 0)
   mod(currentOp)
   for (let i = lastIndex - 1; i >= 0; i--) {
     currentOp = /** @type {delta.DeltaBuilderAny} */ (delta.create($prosemirrorDelta).retain(dpath[i]).modify(currentOp))
