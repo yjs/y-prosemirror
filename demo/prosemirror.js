@@ -6,7 +6,6 @@ import { EditorState } from 'prosemirror-state'
 import { schema } from './schema.js'
 import { exampleSetup } from 'prosemirror-example-setup'
 
-
 /**
  * @param {Y.Doc} ydoc1
  * @param {Y.Doc} ydoc2

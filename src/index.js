@@ -1,15 +1,19 @@
 import * as delta from 'lib0/delta'
-import * as list from 'lib0/list'
 import * as math from 'lib0/math'
 import * as mux from 'lib0/mutex'
 import * as Y from 'yjs'
+import * as s from 'lib0/schema'
+import * as object from 'lib0/object'
+import * as error from 'lib0/error'
 
-import { Node, NodeRange, Schema } from 'prosemirror-model'
-import { EditorState } from 'prosemirror-state'
+import { Node, NodeRange } from 'prosemirror-model'
 import { EditorView } from 'prosemirror-view'
+import { AddMarkStep, RemoveMarkStep, AttrStep, AddNodeMarkStep, ReplaceStep, ReplaceAroundStep } from 'prosemirror-transform'
+
+const $prosemirrorDelta = delta.$delta({ name: s.$string, attrs: s.$record(s.$string,s.$any), text: true, recursive: true })
 
 /**
- * @typedef {delta.DeltaBuilder<string,{ [key:string]:any },any,any,any>} ProsemirrorDelta
+ * @typedef {s.Unwrap<$prosemirrorDelta>} ProsemirrorDelta
  */
 
 export class YEditorView extends EditorView {
@@ -66,64 +70,76 @@ export class YEditorView extends EditorView {
   bindYType (ytype) {
     this.y?.unobserveDeep(this._observer)
     this.y = ytype
-    const initialPDelta = pstateToDelta(this.state)
+    const initialPDelta = nodeToDelta(this.state.doc)
     console.log('initialPDelta', initialPDelta.isDone)
+    /**
+     * @type {ProsemirrorDelta}
+     */
     const d = ytype.getContent(Y.noAttributionsManager, { deep: true })
-    // TODO getContent returns a done delta, so I need to slice it to create a new one & rebase it to the initialPDelta
-    // TODO ideally their would be a `.clone()` method for this. Also unclear why it needs to be marked as done?
-    const initialYDelta = /** @type {ProsemirrorDelta} */ (d).slice(0, d.childCnt).rebase(initialPDelta, true)
-    this.y.applyDelta(initialPDelta)
-    this.dispatch(deltaToPSteps(this.state.tr, initialYDelta))
+    const initDelta = delta.diff(initialPDelta.done(), d)
+    this.mux(() => {
+      this.dispatch(deltaToPSteps(this.state.tr, initDelta))
+    })
     ytype.observeDeep(this._observer)
   }
 }
 
 /**
- * @param {ProsemirrorDelta} d
- * @param {readonly Node[]} ns
- * @param {number} insertMax
+ * @param {readonly import('prosemirror-model').Mark[]} marks
  */
-const addNodesToDelta = (d, ns, insertMax = Number.POSITIVE_INFINITY) => {
+const marksToFormattingAttributes = marks => {
+  if (marks.length === 0) return null
+  /**
+   * @type {{[key:string]:any}}
+   */
+  const formatting = {}
+  marks.forEach(mark => {
+    formatting[mark.type.name] = mark.attrs
+  })
+  return formatting
+}
+
+/**
+ * @param {{[key:string]:any}} formatting
+ * @param {import('prosemirror-model').Schema} schema
+ */
+const formattingAttributesToMarks = (formatting, schema) => object.map(formatting, (v,k) => schema.mark(k, v))
+
+/**
+ * @param {Array<Node>} ns
+ */
+export const nodesToDelta = ns => {
+  /**
+   * @type {delta.DeltaBuilderAny}
+   */
+  const d = delta.create($prosemirrorDelta)
   ns.forEach(n => {
-    if (insertMax <= 0) {
-      return
-    }
-    insertMax--
-    if (n.isText) {
-      d.insert(n.text)
-    } else {
-      d.insert([nodeToDelta(n)])
-    }
+    d.insert(n.isText ? n.text : [nodeToDelta(n)], marksToFormattingAttributes(n.marks))
   })
   return d
 }
 
 /**
  * @param {Node} n
- * @param {number} insertMax
  */
-const nodeToDelta = (n, insertMax = Number.POSITIVE_INFINITY) => addNodesToDelta(delta.create(n.type.name, n.attrs), n.content.content, insertMax)
-
-/**
- * @param {EditorState} pstate
- * @return {ProsemirrorDelta}
- */
-const pstateToDelta = pstate => {
-  const d = delta.create()
-  const pc = pstate.doc.content.content
-  addNodesToDelta(d, pc)
+export const nodeToDelta = n => {
+  /**
+   * @type {delta.DeltaBuilderAny}
+   */
+  const d = delta.create(n.type.name, $prosemirrorDelta)
+  d.setMany(n.attrs)
+  n.content.content.forEach(c => {
+    d.insert(c.isText ? c.text : [nodeToDelta(c)], marksToFormattingAttributes(c.marks))
+  })
   return d
 }
 
 /**
- *
- * @template {import('prosemirror-state').Transaction} TR
- *
- * @param {TR} tr
+ * @param {import('prosemirror-state').Transaction} tr
  * @param {ProsemirrorDelta} d
  * @param {Node} pnode
  * @param {{ i: number }} currPos
- * @return {TR}
+ * @return {import('prosemirror-state').Transaction}
  */
 export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
   const schema = tr.doc.type.schema
@@ -137,6 +153,17 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
       while (i > 0) {
         const pc = pchildren[currParentIndex]
         if (pc.isText) {
+          if (op.format != null) {
+            const from = currPos.i
+            const to = currPos.i + math.min(pc.nodeSize - nOffset, i)
+            object.forEach(op.format, (v, k) => {
+              if (v == null) {
+                tr.removeMark(from, to, schema.marks[k])
+              } else {
+                tr.addMark(from, to, schema.mark(k, v))
+              }
+            })
+          }
           if (i + nOffset < pc.nodeSize) {
             nOffset += i
             currPos.i += i
@@ -148,6 +175,13 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
             nOffset = 0
           }
         } else {
+          object.forEach(op.format, (v, k) => {
+            if (v == null) {
+              tr.removeNodeMark(currPos.i, schema.marks[k])
+            } else {
+              tr.addNodeMark(currPos.i, schema.mark(k, v))
+            }
+          })
           currParentIndex++
           currPos.i += pc.nodeSize
           i--
@@ -158,11 +192,11 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
       deltaToPSteps(tr, op.value, pchildren[currParentIndex++], currPos)
       currPos.i++
     } else if (delta.$insertOp.check(op)) {
-      const newPChildren = op.insert.map(ins => deltaToPNode(ins, schema))
+      const newPChildren = op.insert.map(ins => deltaToPNode(ins, schema, op.format))
       tr.insert(currPos.i, newPChildren)
       currPos.i += newPChildren.reduce((s, c) => c.nodeSize + s, 0)
     } else if (delta.$textOp.check(op)) {
-      tr.insert(currPos.i, schema.text(op.insert))
+      tr.insert(currPos.i, schema.text(op.insert, formattingAttributesToMarks(op.format, schema)))
       currPos.i += op.length
     } else if (delta.$deleteOp.check(op)) {
       for (let remainingDelLen = op.delete; remainingDelLen > 0;) {
@@ -194,11 +228,17 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
 
 /**
  * @param {ProsemirrorDelta} d
- * @param {Schema} schema
+ * @param {import('prosemirror-model').Schema} schema
+ * @param {delta.FormattingAttributes} dformat
  * @return {Node}
  */
-const deltaToPNode = (d, schema) => {
-  return schema.node(d.name, d.attrs, list.toArray(d.children).map(c => delta.$insertOp.check(c) ? c.insert.map(cn => deltaToPNode(cn, schema)) : (delta.$textOp.check(c) ? [schema.text(c.insert)] : [])).flat(1))
+const deltaToPNode = (d, schema, dformat) => {
+  const attrs = {}
+  for (const attr of d.attrs) {
+    attrs[attr.key] = attr.value
+  }
+  const dc = d.children.map(c => delta.$insertOp.check(c) ? c.insert.map(cn => deltaToPNode(cn, schema, c.format)) : (delta.$textOp.check(c) ? [schema.text(c.insert, formattingAttributesToMarks(c.format, schema))] : []))
+  return schema.node(d.name, attrs, dc.flat(1), formattingAttributesToMarks(dformat, schema))
 }
 
 /**
@@ -206,27 +246,56 @@ const deltaToPNode = (d, schema) => {
  * @return {ProsemirrorDelta}
  */
 export const trToDelta = (tr) => {
-  /**
-   * @type {ProsemirrorDelta}
-   */
-  let d = delta.create()
+  let d = delta.create($prosemirrorDelta)
   tr.steps.forEach((step, i) => {
     const stepDelta = stepToDelta(step, tr.docs[i])
 
     console.log('stepDelta', JSON.stringify(stepDelta.toJSON(), null, 2))
     console.log('d', JSON.stringify(d.toJSON(), null, 2))
-    if (d.childCnt === 0) {
-      // TODO there is a bug with applying a delta to an empty delta, it should just return the second arg
-      d = stepDelta
-    } else {
-      // TODO what is with the types here?
-      d = delta.diff(d, stepDelta)
-    }
-    console.log('d', JSON.stringify(d.toJSON(), null, 2))
+    d.apply(stepDelta)
   })
-
-  return d
+  return d.done()
 }
+
+const _stepToDelta = s.match({ beforeDoc: Node, afterDoc: Node })
+    .if(AddMarkStep, (step, { beforeDoc }) =>
+      deltaModifyNodeAt(beforeDoc, step.from, d => { d.retain(step.to - step.from, marksToFormattingAttributes([step.mark])) })
+    )
+    .if(RemoveMarkStep, (step, { beforeDoc }) =>
+      deltaModifyNodeAt(beforeDoc, step.from, d => { d.retain(step.to - step.from, { [step.mark.type.name]: null }) })
+    )
+    .if([ReplaceStep,ReplaceAroundStep], (step, { beforeDoc, afterDoc }) => {
+      const d = delta.create($prosemirrorDelta)
+      const stepMap = step.getMap()
+      // stepMap.forEach provides the start & end positions for each change made by the step
+      // oldStart, oldEnd: positions in the old document (beforeDoc) that were changed
+      // newStart, newEnd: corresponding positions in the new document (afterDoc)
+      stepMap.forEach((oldStart, oldEnd, newStart, newEnd) => {
+        const hasDeletes = oldEnd - oldStart > 0
+        const hasInserts = newEnd - newStart > 0
+        let oldBlockRange = beforeDoc.resolve(oldStart).blockRange(beforeDoc.resolve(oldEnd))
+        let newBlockRange = afterDoc.resolve(newStart).blockRange(afterDoc.resolve(newEnd))
+        if (hasInserts && !hasDeletes) {
+          // purely an insert, so the old block range is invalid (null)
+          oldBlockRange = beforeDoc.resolve(stepMap.invert().map(newStart)).blockRange(beforeDoc.resolve(stepMap.invert().map(newEnd)))
+        }
+        if (hasDeletes && !hasInserts) {
+          // purely a delete, so the new block range is invalid (null)
+          newBlockRange = afterDoc.resolve(stepMap.map(oldStart)).blockRange(afterDoc.resolve(stepMap.map(oldEnd)))
+        }
+        const oldDelta = deltaForBlockRange(oldBlockRange)
+        const newDelta = deltaForBlockRange(newBlockRange)
+        const diffD = delta.diff(oldDelta, newDelta)
+        const stepDelta = deltaModifyNodeAt(beforeDoc, oldBlockRange?.start || newBlockRange?.start || 0, d => { d.append(diffD) })
+        d.apply(stepDelta)
+      })
+      return d
+    })
+    .else(_step => {
+      // unknown step kind
+      error.unexpectedCase()
+    })
+    .done()
 
 /**
  * @param {import('prosemirror-transform').Step} step
@@ -238,45 +307,7 @@ export const stepToDelta = (step, beforeDoc) => {
   if (stepResult.failed) {
     throw new Error('step failed to apply')
   }
-  const afterDoc = stepResult.doc
-  const stepMap = step.getMap()
-
-  /**
-   * @type {ProsemirrorDelta}
-   */
-  const d = delta.create()
-
-  // stepMap.forEach provides the start & end positions for each change made by the step
-  // oldStart, oldEnd: positions in the old document (beforeDoc) that were changed
-  // newStart, newEnd: corresponding positions in the new document (afterDoc)
-  stepMap.forEach((oldStart, oldEnd, newStart, newEnd) => {
-    const hasDeletes = oldEnd - oldStart > 0
-    const hasInserts = newEnd - newStart > 0
-
-    let oldBlockRange = beforeDoc.resolve(oldStart).blockRange(beforeDoc.resolve(oldEnd))
-    let newBlockRange = afterDoc.resolve(newStart).blockRange(afterDoc.resolve(newEnd))
-    if (hasInserts && !hasDeletes) {
-      // purely an insert, so the old block range is invalid (null)
-      oldBlockRange = beforeDoc.resolve(stepMap.invert().map(newStart)).blockRange(beforeDoc.resolve(stepMap.invert().map(newEnd)))
-    }
-    if (hasDeletes && !hasInserts) {
-      // purely a delete, so the new block range is invalid (null)
-      newBlockRange = afterDoc.resolve(stepMap.map(oldStart)).blockRange(afterDoc.resolve(stepMap.map(oldEnd)))
-    }
-
-    const oldDelta = deltaForBlockRange(oldBlockRange)
-    const newDelta = deltaForBlockRange(newBlockRange)
-    const diffD = delta.diff(oldDelta, newDelta)
-    const { parentDelta } = deltaPathToDelta(pmToDeltaPath(beforeDoc, oldBlockRange?.start || newBlockRange?.start || 0))
-
-    // TODO I wanted to just add my ops at the end of the parentDelta, but didn't know how to actually do that
-    diffD.children.forEach(child => {
-      list.pushEnd(parentDelta.children, child.clone())
-    })
-
-    d.apply(parentDelta)
-  })
-
+  const d = _stepToDelta(step, { beforeDoc, afterDoc: stepResult.doc })
   return d
 }
 
@@ -289,9 +320,7 @@ function deltaForBlockRange (blockRange) {
     return delta.create()
   }
   const { startIndex, endIndex, parent } = blockRange
-  const d = delta.create()
-  addNodesToDelta(d, parent.content.content.slice(startIndex, endIndex))
-  return d
+  return nodesToDelta(parent.content.content.slice(startIndex, endIndex))
 }
 
 /**
@@ -375,32 +404,19 @@ export function deltaPathToPm (deltaPath, node) {
 }
 
 /**
- * @param {number[]} deltaPath
- * @return {{ parentDelta: ProsemirrorDelta, currentOp: ProsemirrorDelta }}
+ * @param {Node} node
+ * @param {number} pmOffset
+ * @param {(d:delta.DeltaBuilderAny)=>any} mod
+ * @return {ProsemirrorDelta}
  */
-export function deltaPathToDelta (deltaPath) {
-  if (deltaPath.length === 0) {
-    const currentOp = delta.create()
-    const parentDelta = currentOp
-    return { parentDelta, currentOp }
-  }
-
-  // The last element becomes the retain for currentOp
-  const lastIndex = deltaPath.length - 1
-  /**
-   * @type {ProsemirrorDelta}
-   */
-  const currentOp = delta.create().retain(deltaPath[lastIndex])
-
-  // Build parentDelta by iterating backwards through all elements except the last
-  // Each element becomes a retain, and we nest modifies
-  /**
-   * @type {ProsemirrorDelta}
-   */
-  let parentDelta = currentOp
+export const deltaModifyNodeAt = (node, pmOffset, mod) => {
+  const dpath = pmToDeltaPath(node, pmOffset)
+  let currentOp = delta.create($prosemirrorDelta)
+  const lastIndex = dpath.length - 1
+  currentOp.retain(lastIndex > 0 ? dpath[lastIndex] : 0)
+  mod(currentOp)
   for (let i = lastIndex - 1; i >= 0; i--) {
-    parentDelta = delta.create().retain(deltaPath[i]).modify(parentDelta)
+    currentOp = /** @type {delta.DeltaBuilderAny} */ (delta.create($prosemirrorDelta).retain(dpath[i]).modify(currentOp))
   }
-
-  return { parentDelta, currentOp }
+  return currentOp
 }

@@ -1,5 +1,5 @@
 import { Schema } from 'prosemirror-model'
-import { builders } from 'prosemirror-test-builder'
+// import { builders } from 'prosemirror-test-builder'
 
 const brDOM = ['br']
 
@@ -260,4 +260,4 @@ export const marks = {
 // `spec.nodes` and `spec.marks` [properties](#model.Schema.spec).
 export const schema = new Schema({ nodes, marks })
 
-export const testBuilders = builders(schema)
+// export const testBuilders = builders(schema)
