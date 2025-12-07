@@ -3,8 +3,9 @@ import * as ypm from '../src/index.js'
 import * as basicSchema from 'prosemirror-schema-basic'
 import * as Y from 'yjs'
 import { EditorState } from 'prosemirror-state'
-import { Node, Schema } from 'prosemirror-model'
+import { Fragment, Schema, Slice } from 'prosemirror-model'
 import * as delta from 'lib0/delta'
+import { ReplaceAroundStep } from 'prosemirror-transform'
 
 const schema = new Schema({
   nodes: basicSchema.nodes,
@@ -27,7 +28,7 @@ const validate = pm => {
   const ycontent = pm.y.getContentDeep()
   ycontent.name = 'doc'
   const pcontent = ypm.nodeToDelta(pm.state.doc)
-  t.compare(ycontent, pcontent)
+  t.compare(ycontent, pcontent.done(false))
 }
 
 /**
@@ -59,6 +60,8 @@ const testHelper = (changes) => {
     })
     const view = createProsemirrorView()
     const ytype = ydoc.getXmlFragment('prosemirror')
+    // never change this structure!
+    // <heading>[1]Hello World![13]</heading>[14]<paragraph>[15]Lorem [21]ipsum..[28]</paragraph>[29]
     ytype.applyDelta(delta.create().insert([delta.create('heading',{level:1},'Hello World!'), delta.create('paragraph', {}, 'Lorem ipsum..')]))
     view.bindYType(ytype)
     const view2 = createProsemirrorView()
@@ -104,4 +107,12 @@ export const testFormatting = testHelper([
 
 export const testBaseInsert = testHelper([
   ({tr}) => tr.insert(16, schema.text('XXX'))
+])
+
+export const testReplaceAround = testHelper([
+  ({tr}) => tr.step(new ReplaceAroundStep(14, 29, 14, 29, new Slice(Fragment.from(schema.nodes.blockquote.create()), 0, 0), 1, true))
+])
+
+export const testAttrStep = testHelper([
+  ({tr}) => tr.setNodeAttribute(0, 'level', 2)
 ])
