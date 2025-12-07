@@ -67,7 +67,7 @@
     "@rollup/plugin-commonjs": "^28.0.8",
     "@rollup/plugin-node-resolve": "^16.0.3",
     "@y/protocols": "^1.0.6-1",
-    "@y/websocket": "^4.0.0-0",
+    "@y/websocket": "^4.0.0-2",
     "concurrently": "^4.1.0",
     "http-server": "^0.12.3",
     "jsdom": "^15.1.1",

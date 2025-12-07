@@ -5,48 +5,108 @@ import { YEditorView } from '../src/index.js'
 import { EditorState } from 'prosemirror-state'
 import { schema } from './schema.js'
 import { exampleSetup } from 'prosemirror-example-setup'
+import { WebsocketProvider } from '@y/websocket'
+import * as random from 'lib0/random'
+import * as error from 'lib0/error'
+
+const roomName = 'pm-suggestion-demo-2'
 
 /**
- * @param {Y.Doc} ydoc1
- * @param {Y.Doc} ydoc2
+ * @type {HTMLInputElement?}
  */
-const syncYdocs = (ydoc1, ydoc2) => {
-  Y.applyUpdate(ydoc1, Y.encodeStateAsUpdate(ydoc2))
-  Y.applyUpdate(ydoc2, Y.encodeStateAsUpdate(ydoc1))
-  ydoc1.on('update', update => {
-    Y.applyUpdate(ydoc2, update)
-  })
-  ydoc2.on('update', update => {
-    Y.applyUpdate(ydoc1, update)
-  })
+const elemToggleConnect = document.querySelector('#toggle-connect')
+
+/**
+ * @type {HTMLInputElement?}
+ */
+const elemToggleShowSuggestions = document.querySelector('#toggle-show-suggestions')
+/**
+ * @type {HTMLInputElement?}
+ */
+const elemToggleSuggestMode = document.querySelector('#toggle-suggest-mode')
+if (elemToggleShowSuggestions == null || elemToggleSuggestMode == null || elemToggleConnect == null) error.unexpectedCase()
+
+if (localStorage.getItem('should-connect') != null) {
+  elemToggleConnect.checked = localStorage.getItem('should-connect') === 'true'
 }
 
-let prevYDoc = null
+elemToggleShowSuggestions.addEventListener('change', () => initEditor())
 
-const createEditor = () => {
-  const ydoc = new Y.Doc()
-  if (prevYDoc) {
-    syncYdocs(prevYDoc, ydoc)
+// when in suggestion-mode, we should use a different clientId to reduce some overhead. This is not
+// strictly necessary.
+let otherClientID = random.uint53()
+elemToggleSuggestMode.addEventListener('change', () => {
+  const enabled = elemToggleSuggestMode.checked
+  am.suggestionMode = enabled
+  if (enabled) {
+    elemToggleShowSuggestions.checked = true
+    elemToggleShowSuggestions.disabled = true
+  } else {
+    elemToggleShowSuggestions.disabled = false
   }
-  prevYDoc = ydoc
-  const yfragment = ydoc.getXmlFragment('prosemirror')
+  const nextClientId = otherClientID
+  otherClientID = suggestionDoc.clientID
+  suggestionDoc.clientID = nextClientId
+
+  // Define user name and user name
+  // Check the quill-cursors package on how to change the way cursors are rendered
+  providerYdoc.awareness.setLocalStateField('user', {
+    name: 'Typing Jimmy',
+    color: 'blue'
+  })
+
+  initEditor()
+})
+
+elemToggleConnect.addEventListener('change', () => {
+  if (elemToggleConnect.checked) {
+    providerYdoc.connectBc()
+    providerYdocSuggestions.connectBc()
+  } else {
+    providerYdoc.disconnectBc()
+    providerYdocSuggestions.disconnectBc()
+  }
+  localStorage.setItem('should-connect', elemToggleConnect.checked ? 'true' : 'false')
+})
+
+/*
+ * # Init two Yjs documents.
+ *
+ * The suggestion document is a fork of the original document. By keeping them separate, we can
+ * enforce different permissions on these documents.
+ */
+
+const ydoc = new Y.Doc()
+const providerYdoc = new WebsocketProvider('wss://demos.yjs.dev/ws', roomName, ydoc, { connect: false })
+elemToggleConnect.checked && providerYdoc.connectBc()
+const suggestionDoc = new Y.Doc({ isSuggestionDoc: true })
+const providerYdocSuggestions = new WebsocketProvider('wss://demos.yjs.dev/ws', roomName + '--suggestions', suggestionDoc, { connect: false })
+elemToggleConnect.checked && providerYdocSuggestions.connectBc()
+const am = Y.createAttributionManagerFromDiff(ydoc, suggestionDoc)
+
+/**
+ * @type {YEditorView?}
+ */
+let currentView = null
+
+const initEditor = () => {
+  const withSuggestions = elemToggleShowSuggestions.checked
+  const ypm = (withSuggestions ? suggestionDoc : ydoc).getXmlFragment('prosemirror-s')
+  currentView?.destroy()
+  const ypmContainer = document.querySelector('#ypm-container')
+  ypmContainer.innerHTML = ''
   const editor = document.createElement('div')
   editor.setAttribute('class', 'yeditor')
-  const editorContainer = document.createElement('div')
-  editorContainer.insertBefore(editor, null)
-  const prosemirrorView = new YEditorView(editor, {
+  ypmContainer.insertBefore(editor, null)
+  currentView = new YEditorView(editor, {
     state: EditorState.create({
       schema,
       plugins: [].concat(exampleSetup({ schema, history: false }))
     })
   })
-  document.body.insertBefore(editorContainer, null)
-  prosemirrorView.bindYType(yfragment)
+  currentView.bindYType(ypm, { awareness: providerYdoc.awareness, attributionManager: withSuggestions ? am : null })
   // @ts-ignore
-  window.example = { ydoc, type: yfragment, prosemirrorView }
+  window.example = { suggestionDoc, ydoc, type: ypm, currentView }
 }
 
-window.addEventListener('load', () => {
-  createEditor()
-  createEditor()
-})
+initEditor()

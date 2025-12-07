@@ -25,7 +25,7 @@ const createProsemirrorView = () => {
  * @param {ypm.YEditorView} pm
  */
 const validate = pm => {
-  const ycontent = pm.y.getContentDeep()
+  const ycontent = pm.y.ytype.getContentDeep()
   ycontent.name = 'doc'
   const pcontent = ypm.nodeToDelta(pm.state.doc)
   t.compare(ycontent, pcontent.done(false))
@@ -67,14 +67,14 @@ const testHelper = (changes) => {
     const view2 = createProsemirrorView()
     view2.bindYType(ydoc2.getXmlFragment('prosemirror'))
     changes.forEach(change => {
-      const ytype = view.y
+      const ytype = view.y.ytype
       const tr = change({
         tr: view.state.tr,
         view,
         ytype,
         tr2: view2.state.tr,
         view2,
-        ytype2: view2.y
+        ytype2: view2.y.ytype
       })
       if (delta.$deltaAny.check(tr)) {
         ytype.applyDelta(tr)
@@ -83,7 +83,7 @@ const testHelper = (changes) => {
       }
       validate(view)
       validate(view2)
-      t.compare(ytype.getContentDeep(), view2.y.getContentDeep())
+      t.compare(ytype.getContentDeep(), view2.y.ytype.getContentDeep())
     })
     console.log('final pm document:', view.state.doc.toJSON())
   }

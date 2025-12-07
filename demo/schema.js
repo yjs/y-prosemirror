@@ -2,14 +2,37 @@ import { Schema } from 'prosemirror-model'
 
 const brDOM = ['br']
 
+const colorAddedFallback = '#6eeb83'
+const colorRemovedFallback = '#ec0600a1'
+
+const calcYChangeStyle = ychange => {
+  switch (ychange.type) {
+    case 'removed':
+      return `color:${ychange.color?.dark || colorRemovedFallback}`
+    case 'added':
+      return `background-color:${ychange.color?.light || colorAddedFallback}`
+    case null:
+      return ''
+  }
+}
+
 const calcYchangeDomAttrs = (attrs, domAttrs = {}) => {
   domAttrs = Object.assign({}, domAttrs)
   if (attrs.ychange !== null) {
     domAttrs.ychange_user = attrs.ychange.user
-    domAttrs.ychange_state = attrs.ychange.state
+    domAttrs.ychange_type = attrs.ychange.type
+    domAttrs.ychange_color = attrs.ychange.color?.light || colorAddedFallback
+    domAttrs.style = calcYChangeStyle(attrs.ychange)
   }
   return domAttrs
 }
+
+/**
+ * @param {any} ychange
+ * @param {Array<any>} els
+ */
+const hoverWrapper = (ychange, els) =>
+  ychange === null ? els : [['span', { class: 'ychange-hover', style: `background-color:${ychange.color?.dark}` }, ychange.user || 'Unknown'], ['span', ...els]]
 
 // :: Object
 // [Specs](#model.NodeSpec) for the nodes defined in this schema.
@@ -26,7 +49,14 @@ export const nodes = {
     content: 'inline*',
     group: 'block',
     parseDOM: [{ tag: 'p' }],
-    toDOM (node) { return ['p', calcYchangeDomAttrs(node.attrs), 0] }
+    toDOM (node) {
+      // only render changes if no child nodes
+      const renderChanges = node.content.size === 0
+      const attrs = renderChanges ? calcYchangeDomAttrs(node.attrs) : node.attrs
+      const defChildren = [0]
+      const children = renderChanges ? hoverWrapper(node.attrs.ychange, defChildren) : defChildren
+      return ['p', attrs, ...children]
+    }
   },
 
   // :: NodeSpec A blockquote (`<blockquote>`) wrapping one or more blocks.
@@ -36,7 +66,7 @@ export const nodes = {
     group: 'block',
     defining: true,
     parseDOM: [{ tag: 'blockquote' }],
-    toDOM (node) { return ['blockquote', calcYchangeDomAttrs(node.attrs), 0] }
+    toDOM (node) { return ['blockquote', calcYchangeDomAttrs(node.attrs), ...hoverWrapper(node.attrs.ychange, [0])] }
   },
 
   // :: NodeSpec A horizontal rule (`<hr>`).
@@ -45,7 +75,7 @@ export const nodes = {
     group: 'block',
     parseDOM: [{ tag: 'hr' }],
     toDOM (node) {
-      return ['hr', calcYchangeDomAttrs(node.attrs)]
+      return ['hr', calcYchangeDomAttrs(node.attrs), ...hoverWrapper(node.attrs.ychange, [])]
     }
   },
 
@@ -66,7 +96,7 @@ export const nodes = {
       { tag: 'h4', attrs: { level: 4 } },
       { tag: 'h5', attrs: { level: 5 } },
       { tag: 'h6', attrs: { level: 6 } }],
-    toDOM (node) { return ['h' + node.attrs.level, calcYchangeDomAttrs(node.attrs), 0] }
+    toDOM (node) { return ['h' + node.attrs.level, calcYchangeDomAttrs(node.attrs), ...hoverWrapper(node.attrs.ychange, [0])] }
   },
 
   // :: NodeSpec A code listing. Disallows marks or non-text inline
@@ -80,7 +110,7 @@ export const nodes = {
     code: true,
     defining: true,
     parseDOM: [{ tag: 'pre', preserveWhitespace: 'full' }],
-    toDOM (node) { return ['pre', calcYchangeDomAttrs(node.attrs), ['code', 0]] }
+    toDOM (node) { return ['pre', calcYchangeDomAttrs(node.attrs), ...hoverWrapper(node.attrs.ychange, [['code', 0]])] }
   },
 
   // :: NodeSpec The text node.
@@ -117,7 +147,7 @@ export const nodes = {
         title: node.attrs.title,
         alt: node.attrs.alt
       }
-      return ['img', calcYchangeDomAttrs(node.attrs, domAttrs)]
+      return ['img', calcYchangeDomAttrs(node.attrs, domAttrs), ...hoverWrapper(node.attrs.ychange, [])]
     }
   },
 
@@ -180,22 +210,16 @@ export const marks = {
   ychange: {
     attrs: {
       user: { default: null },
-      state: { default: null }
+      type: { default: null },
+      color: { default: null }
     },
     inclusive: false,
     parseDOM: [{ tag: 'ychange' }],
     toDOM (node) {
-      return ['ychange', { ychange_user: node.attrs.user, ychange_state: node.attrs.state }, 0]
+      return ['ychange', { ychange_user: node.attrs.user, ychange_type: node.attrs.type, style: calcYChangeStyle(node.attrs), ychange_color: node.attrs.color?.light || colorAddedFallback }, ...hoverWrapper(node.attrs, [0])]
     }
   }
 }
 
-// :: Schema
-// This schema rougly corresponds to the document schema used by
-// [CommonMark](http://commonmark.org/), minus the list elements,
-// which are defined in the [`prosemirror-schema-list`](#schema-list)
-// module.
-//
-// To reuse elements from this schema, extend or read from its
-// `spec.nodes` and `spec.marks` [properties](#model.Schema.spec).
+// @ts-ignore
 export const schema = new Schema({ nodes, marks })

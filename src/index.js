@@ -5,6 +5,8 @@ import * as Y from 'yjs'
 import * as s from 'lib0/schema'
 import * as object from 'lib0/object'
 import * as error from 'lib0/error'
+import * as set from 'lib0/set'
+import * as map from 'lib0/map'
 
 import { Node, NodeRange } from 'prosemirror-model'
 import { EditorView } from 'prosemirror-view'
@@ -15,6 +17,46 @@ const $prosemirrorDelta = delta.$delta({ name: s.$string, attrs: s.$record(s.$st
 /**
  * @typedef {s.Unwrap<$prosemirrorDelta>} ProsemirrorDelta
  */
+
+/**
+ * @param {object|null} format
+ * @param {object|null} attribution
+ */
+const attributionToFormat = (format, attribution) => attribution 
+  ? object.assign({}, format, {
+    ychange: attribution.insert 
+      ? { type: 'added', user: attribution.insert?.[0] } 
+      : { type: 'removed', user: attribution.delete?.[0] }
+    })
+  : format
+
+/**
+ * Transform delta with attributions to delta with formats (marks).
+ */
+const deltaAttributionToFormat = s.match()
+  .if(delta.$deltaAny, d => {
+    const r = delta.create(d.name)
+    for (const attr of d.attrs) {
+      r.attrs[attr.key] = attr.clone()
+    }
+    for (const child of d.children) {
+      if (delta.$insertOp.check(child)) {
+        const f = attributionToFormat(child.format, child.attribution)
+        r.insert(child.insert.map(c => delta.$deltaAny.check(c) ? deltaAttributionToFormat(c) : c), f)
+      } else if (delta.$textOp.check(child)) {
+        r.insert(child.insert.slice(), attributionToFormat(child.format, child.attribution))
+      } else if (delta.$deleteOp.check(child)) {
+        r.delete(child.delete)
+      } else if (delta.$retainOp.check(child)) {
+        r.retain(child.retain, attributionToFormat(child.format, child.attribution))
+      } else if (delta.$modifyOp.check(child)) {
+        r.modify(deltaAttributionToFormat(child.value), attributionToFormat(child.format, child.attribution))
+      } else {
+        error.unexpectedCase()
+      }
+    }
+    return r
+  }).done()
 
 export class YEditorView extends EditorView {
   /**
@@ -31,19 +73,15 @@ export class YEditorView extends EditorView {
           if (tr.docChanged) {
             const d = trToDelta(tr)
             console.log('editor received steps', tr.steps, 'and and applied delta to ytyp', d.toJSON())
-
-            // TODO having some issues with applying the delta to the ytype
-            this.y?.applyDelta(d)
+            this.y?.ytype.applyDelta(d, this.y.am)
           }
         })
-        // update view with new state
-        // do it at the end so that triggered changes are applied in the correct order
         this.updateState(newState)
       }
     })
     this.mux = mux.createMutex()
     /**
-     * @type {Y.XmlFragment|null}
+     * @type {{ ytype: Y.XmlFragment, am: Y.AbstractAttributionManager, awareness: any }?}
      */
     this.y = null
     /**
@@ -55,31 +93,66 @@ export class YEditorView extends EditorView {
         /**
          * @type {Y.YEvent<Y.XmlFragment>}
          */
-        const event = events.find(event => event.target === this.y) || new Y.YEvent(this.y, tr, new Set(null))
-        const d = event.deltaDeep
+        const event = events.find(event => event.target === this.y.ytype) || new Y.YEvent(this.y.ytype, tr, new Set(null))
+        const d = this.y.am === Y.noAttributionsManager ? event.deltaDeep : deltaAttributionToFormat(event.getDelta(this.y.am, { deep: true }))
         const ptr = deltaToPSteps(this.state.tr, d)
         console.log('ytype emitted event', d.toJSON(), 'and applied changes to pm', ptr.steps)
         this.dispatch(ptr)
+      }, () => {
+        if (this.y.am !== Y.noAttributionsManager) {
+          const itemsToRender = Y.mergeIdSets([tr.insertSet, tr.deleteSet])
+          /**
+           * @todo this could be automatically be calculated in getContent/getDelta when
+           * itemsToRender is provided
+           * @type {Map<Y.AbstractType, Set<string|null>>}
+           */
+          const modified = new Map()
+          Y.iterateStructsByIdSet(tr, itemsToRender, /** @param {any} item */ item => {
+            while (item instanceof Y.Item) {
+              const parent = /** @type {Y.AbstractType} */ (item.parent)
+              const conf = map.setIfUndefined(modified, parent, set.create)
+              if (conf.has(item.parentSub)) break // has already been marked as modified
+              conf.add(item.parentSub)
+              item = parent._item
+            }
+          })
+          if (modified.has(this.y.ytype)) {
+            setTimeout(() => {
+              this.mux(() => {
+                const d = deltaAttributionToFormat(this.y.ytype.getContent(this.y.am, { itemsToRender, retainInserts: true, deep: true, modified }))
+                const ptr = deltaToPSteps(this.state.tr, d)
+                console.log('attribution fix event: ', d.toJSON(), 'and applied changes to pm', ptr.steps)
+                this.dispatch(ptr)
+              })
+            }, 0)
+          }
+        }
       })
     }
   }
 
   /**
    * @param {Y.XmlFragment} ytype
+   * @param {object} opts
+   * @param {any} [opts.awareness]
+   * @param {Y.AbstractAttributionManager} [opts.attributionManager]
    */
-  bindYType (ytype) {
-    this.y?.unobserveDeep(this._observer)
-    this.y = ytype
+  bindYType (ytype, { awareness = null, attributionManager = Y.noAttributionsManager } = {}) {
+    this.y?.ytype.unobserveDeep(this._observer)
+    this.y = { ytype, awareness, am: attributionManager || Y.noAttributionsManager }
     const initialPDelta = nodeToDelta(this.state.doc)
-    /**
-     * @type {ProsemirrorDelta}
-     */
-    const d = ytype.getContent(Y.noAttributionsManager, { deep: true })
+    const d = deltaAttributionToFormat(ytype.getContent(this.y.am, { deep: true }))
     const initDelta = delta.diff(initialPDelta.done(), d)
     this.mux(() => {
       this.dispatch(deltaToPSteps(this.state.tr, initDelta.done()))
     })
     ytype.observeDeep(this._observer)
+  }
+
+  destroy () {
+    this.y?.ytype.unobserveDeep(this._observer)
+    this.y = null
+    super.destroy()
   }
 }
 
@@ -251,7 +324,6 @@ export const trToDelta = (tr) => {
   let d = delta.create($prosemirrorDelta)
   tr.steps.forEach((step, i) => {
     const stepDelta = stepToDelta(step, tr.docs[i])
-
     console.log('stepDelta', JSON.stringify(stepDelta.toJSON(), null, 2))
     console.log('d', JSON.stringify(d.toJSON(), null, 2))
     d.apply(stepDelta)
