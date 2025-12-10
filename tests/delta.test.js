@@ -1,7 +1,7 @@
 import * as t from 'lib0/testing'
 import * as ypm from '../src/index.js'
 import * as basicSchema from 'prosemirror-schema-basic'
-import * as Y from 'yjs'
+import * as Y from '@y/y'
 import { EditorState } from 'prosemirror-state'
 import { Fragment, Schema, Slice } from 'prosemirror-model'
 import * as delta from 'lib0/delta'

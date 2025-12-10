@@ -11,7 +11,7 @@ import * as set from 'lib0/set'
 import { simpleDiff } from 'lib0/diff'
 import * as error from 'lib0/error'
 import { ySyncPluginKey, yUndoPluginKey } from './keys.js'
-import * as Y from 'yjs'
+import * as Y from '@y/y'
 import {
   absolutePositionToRelativePosition,
   relativePositionToAbsolutePosition

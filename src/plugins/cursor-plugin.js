@@ -1,4 +1,4 @@
-import * as Y from 'yjs'
+import * as Y from '@y/y'
 import { Decoration, DecorationSet } from "prosemirror-view"; // eslint-disable-line
 import { Plugin } from "prosemirror-state"; // eslint-disable-line
 import { Awareness } from "@y/protocols/awareness"; // eslint-disable-line

@@ -1,6 +1,6 @@
 import { updateYFragment, createNodeFromYElement, yattr2markname, createEmptyMeta } from './plugins/sync-plugin.js' // eslint-disable-line
 import { ySyncPluginKey } from './plugins/keys.js'
-import * as Y from 'yjs'
+import * as Y from '@y/y'
 import { EditorView } from 'prosemirror-view' // eslint-disable-line
 import { Node, Schema, Fragment } from 'prosemirror-model' // eslint-disable-line
 import * as error from 'lib0/error'

@@ -1,7 +1,7 @@
 import * as delta from 'lib0/delta'
 import * as math from 'lib0/math'
 import * as mux from 'lib0/mutex'
-import * as Y from 'yjs'
+import * as Y from '@y/y'
 import * as s from 'lib0/schema'
 import * as object from 'lib0/object'
 import * as error from 'lib0/error'

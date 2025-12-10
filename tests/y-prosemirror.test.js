@@ -1,7 +1,7 @@
 import * as t from 'lib0/testing'
 import * as prng from 'lib0/prng'
 import * as math from 'lib0/math'
-import * as Y from 'yjs'
+import * as Y from '@y/y'
 // @ts-ignore
 import { applyRandomTests } from 'yjs/testHelper'
 

@@ -1,12 +1,12 @@
 import { Plugin } from 'prosemirror-state'
 
 import { getRelativeSelection } from './sync-plugin.js'
-import { UndoManager, Item, ContentType, XmlElement, Text } from 'yjs'
+import { UndoManager, Item, ContentType, XmlElement, Text } from '@y/y'
 import { yUndoPluginKey, ySyncPluginKey } from './keys.js'
 
 /**
  * @typedef {Object} UndoPluginState
- * @property {import('yjs').UndoManager} undoManager
+ * @property {import('@y/y').UndoManager} undoManager
  * @property {ReturnType<typeof getRelativeSelection> | null} prevSel
  * @property {boolean} hasUndoOps
  * @property {boolean} hasRedoOps
@@ -43,7 +43,7 @@ export const redoCommand = (state, dispatch) => dispatch == null ? yUndoPluginKe
 export const defaultProtectedNodes = new Set(['paragraph'])
 
 /**
- * @param {import('yjs').Item} item
+ * @param {import('@y/y').Item} item
  * @param {Set<string>} protectedNodes
  * @returns {boolean}
  */
@@ -57,7 +57,7 @@ export const defaultDeleteFilter = (item, protectedNodes) => !(item instanceof I
  * @param {object} [options]
  * @param {Set<string>} [options.protectedNodes]
  * @param {any[]} [options.trackedOrigins]
- * @param {import('yjs').UndoManager | null} [options.undoManager]
+ * @param {import('@y/y').UndoManager | null} [options.undoManager]
  */
 export const yUndoPlugin = ({ protectedNodes = defaultProtectedNodes, trackedOrigins = [], undoManager = null } = {}) => new Plugin({
   key: yUndoPluginKey,

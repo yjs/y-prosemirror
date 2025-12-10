@@ -1,6 +1,6 @@
 /* eslint-env browser */
 
-import * as Y from 'yjs'
+import * as Y from '@y/y'
 import { YEditorView } from '../src/index.js'
 import { EditorState } from 'prosemirror-state'
 import { schema } from './schema.js'
