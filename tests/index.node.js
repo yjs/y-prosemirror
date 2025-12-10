@@ -47,7 +47,7 @@ if (isBrowser) {
   log.createVConsole(document.body)
 }
 runTests({
-  delta,
+  delta
   // prosemirror,
   // tr
 }).then(success => {

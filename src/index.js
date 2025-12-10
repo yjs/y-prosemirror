@@ -8,11 +8,11 @@ import * as error from 'lib0/error'
 import * as set from 'lib0/set'
 import * as map from 'lib0/map'
 
-import { Node, NodeRange } from 'prosemirror-model'
+import { Node } from 'prosemirror-model'
 import { EditorView } from 'prosemirror-view'
 import { AddMarkStep, RemoveMarkStep, AttrStep, AddNodeMarkStep, ReplaceStep, ReplaceAroundStep, RemoveNodeMarkStep, DocAttrStep } from 'prosemirror-transform'
 
-const $prosemirrorDelta = delta.$delta({ name: s.$string, attrs: s.$record(s.$string,s.$any), text: true, recursive: true })
+const $prosemirrorDelta = delta.$delta({ name: s.$string, attrs: s.$record(s.$string, s.$any), text: true, recursive: true })
 
 /**
  * @typedef {s.Unwrap<$prosemirrorDelta>} ProsemirrorDelta
@@ -22,12 +22,12 @@ const $prosemirrorDelta = delta.$delta({ name: s.$string, attrs: s.$record(s.$st
  * @param {object|null} format
  * @param {object|null} attribution
  */
-const attributionToFormat = (format, attribution) => attribution 
+const attributionToFormat = (format, attribution) => attribution
   ? object.assign({}, format, {
-    ychange: attribution.insert 
-      ? { type: 'added', user: attribution.insert?.[0] } 
+    ychange: attribution.insert
+      ? { type: 'added', user: attribution.insert?.[0] }
       : { type: 'removed', user: attribution.delete?.[0] }
-    })
+  })
   : format
 
 /**
@@ -175,7 +175,7 @@ const marksToFormattingAttributes = marks => {
  * @param {{[key:string]:any}} formatting
  * @param {import('prosemirror-model').Schema} schema
  */
-const formattingAttributesToMarks = (formatting, schema) => object.map(formatting, (v,k) => schema.mark(k, v))
+const formattingAttributesToMarks = (formatting, schema) => object.map(formatting, (v, k) => schema.mark(k, v))
 
 /**
  * @param {Array<Node>} ns
@@ -321,7 +321,7 @@ const deltaToPNode = (d, schema, dformat) => {
  * @return {ProsemirrorDelta}
  */
 export const trToDelta = (tr) => {
-  let d = delta.create($prosemirrorDelta)
+  const d = delta.create($prosemirrorDelta)
   tr.steps.forEach((step, i) => {
     const stepDelta = stepToDelta(step, tr.docs[i])
     console.log('stepDelta', JSON.stringify(stepDelta.toJSON(), null, 2))
@@ -332,42 +332,42 @@ export const trToDelta = (tr) => {
 }
 
 const _stepToDelta = s.match({ beforeDoc: Node, afterDoc: Node })
-    .if([ReplaceStep,ReplaceAroundStep], (step, { beforeDoc, afterDoc }) => {
-      const oldStart = beforeDoc.resolve(step.from)
-      const oldEnd = beforeDoc.resolve(step.to)
-      const newStart = afterDoc.resolve(step.from)
-      const newEnd = afterDoc.resolve(step.from + step.slice.size)
-      const oldBlockRange = oldStart.blockRange(oldEnd)
-      const newBlockRange = newStart.blockRange(newEnd)
-      const oldDelta = deltaForBlockRange(oldBlockRange)
-      const newDelta = deltaForBlockRange(newBlockRange)
-      const diffD = delta.diff(oldDelta, newDelta)
-      const stepDelta = deltaModifyNodeAt(beforeDoc, oldBlockRange?.start || newBlockRange?.start || 0, d => { d.append(diffD) })
-      return stepDelta
-    })
-    .if(AddMarkStep, (step, { beforeDoc }) =>
-      deltaModifyNodeAt(beforeDoc, step.from, d => { d.retain(step.to - step.from, marksToFormattingAttributes([step.mark])) })
-    )
-    .if(AddNodeMarkStep, (step, { beforeDoc }) =>
-      deltaModifyNodeAt(beforeDoc, step.pos, d => { d.retain(1, marksToFormattingAttributes([step.mark])) })
-    )
-    .if(RemoveMarkStep, (step, { beforeDoc }) =>
-      deltaModifyNodeAt(beforeDoc, step.from, d => { d.retain(step.to - step.from, { [step.mark.type.name]: null }) })
-    )
-    .if(RemoveNodeMarkStep, (step, { beforeDoc }) =>
-      deltaModifyNodeAt(beforeDoc, step.pos, d => { d.retain(1, { [step.mark.type.name]: null }) })
-    )
-    .if(AttrStep, (step, { beforeDoc }) => 
-      deltaModifyNodeAt(beforeDoc, step.pos, d => { d.modify(delta.create().set(step.attr, step.value)) })
-    )
-    .if(DocAttrStep, step =>
-      delta.create().set(step.attr, step.value)
-    )
-    .else(_step => {
-      // unknown step kind
-      error.unexpectedCase()
-    })
-    .done()
+  .if([ReplaceStep, ReplaceAroundStep], (step, { beforeDoc, afterDoc }) => {
+    const oldStart = beforeDoc.resolve(step.from)
+    const oldEnd = beforeDoc.resolve(step.to)
+    const newStart = afterDoc.resolve(step.from)
+    const newEnd = afterDoc.resolve(step.from + step.slice.size)
+    const oldBlockRange = oldStart.blockRange(oldEnd)
+    const newBlockRange = newStart.blockRange(newEnd)
+    const oldDelta = deltaForBlockRange(oldBlockRange)
+    const newDelta = deltaForBlockRange(newBlockRange)
+    const diffD = delta.diff(oldDelta, newDelta)
+    const stepDelta = deltaModifyNodeAt(beforeDoc, oldBlockRange?.start || newBlockRange?.start || 0, d => { d.append(diffD) })
+    return stepDelta
+  })
+  .if(AddMarkStep, (step, { beforeDoc }) =>
+    deltaModifyNodeAt(beforeDoc, step.from, d => { d.retain(step.to - step.from, marksToFormattingAttributes([step.mark])) })
+  )
+  .if(AddNodeMarkStep, (step, { beforeDoc }) =>
+    deltaModifyNodeAt(beforeDoc, step.pos, d => { d.retain(1, marksToFormattingAttributes([step.mark])) })
+  )
+  .if(RemoveMarkStep, (step, { beforeDoc }) =>
+    deltaModifyNodeAt(beforeDoc, step.from, d => { d.retain(step.to - step.from, { [step.mark.type.name]: null }) })
+  )
+  .if(RemoveNodeMarkStep, (step, { beforeDoc }) =>
+    deltaModifyNodeAt(beforeDoc, step.pos, d => { d.retain(1, { [step.mark.type.name]: null }) })
+  )
+  .if(AttrStep, (step, { beforeDoc }) =>
+    deltaModifyNodeAt(beforeDoc, step.pos, d => { d.modify(delta.create().set(step.attr, step.value)) })
+  )
+  .if(DocAttrStep, step =>
+    delta.create().set(step.attr, step.value)
+  )
+  .else(_step => {
+    // unknown step kind
+    error.unexpectedCase()
+  })
+  .done()
 
 /**
  * @param {import('prosemirror-transform').Step} step
@@ -384,7 +384,7 @@ export const stepToDelta = (step, beforeDoc) => {
 
 /**
  *
- * @param {NodeRange | null} blockRange
+ * @param {import('prosemirror-model').NodeRange | null} blockRange
  */
 function deltaForBlockRange (blockRange) {
   if (blockRange === null) {

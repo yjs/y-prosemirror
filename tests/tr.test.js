@@ -1,3 +1,4 @@
+// @ts-nocheck
 import * as t from 'lib0/testing'
 import { EditorState } from 'prosemirror-state'
 import { deltaPathToDelta, deltaPathToPm, deltaToPSteps, pmToDeltaPath, stepToDelta, trToDelta } from '../src/index.js'

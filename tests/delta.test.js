@@ -62,7 +62,7 @@ const testHelper = (changes) => {
     const ytype = ydoc.getXmlFragment('prosemirror')
     // never change this structure!
     // <heading>[1]Hello World![13]</heading>[14]<paragraph>[15]Lorem [21]ipsum..[28]</paragraph>[29]
-    ytype.applyDelta(delta.create().insert([delta.create('heading',{level:1},'Hello World!'), delta.create('paragraph', {}, 'Lorem ipsum..')]))
+    ytype.applyDelta(delta.create().insert([delta.create('heading', { level: 1 }, 'Hello World!'), delta.create('paragraph', {}, 'Lorem ipsum..')]))
     view.bindYType(ytype)
     const view2 = createProsemirrorView()
     view2.bindYType(ydoc2.getXmlFragment('prosemirror'))
@@ -92,27 +92,27 @@ const testHelper = (changes) => {
 export const testBase = testHelper([])
 
 export const testDeleteRangeOverPartialNodes = testHelper([
-  ({tr}) => tr.insert(0, schema.node('paragraph',undefined,schema.text('789'))).insert(0, schema.node('paragraph',undefined,schema.text('456'))).insert(0, schema.node('paragraph',undefined,schema.text('123'))),
-  ({tr}) => tr.delete(2, 12)
+  ({ tr }) => tr.insert(0, schema.node('paragraph', undefined, schema.text('789'))).insert(0, schema.node('paragraph', undefined, schema.text('456'))).insert(0, schema.node('paragraph', undefined, schema.text('123'))),
+  ({ tr }) => tr.delete(2, 12)
 ])
 
 export const testDeleteRangeOverPartialNodes2 = testHelper([
-  () => delta.create(null, {}, [delta.create('paragraph',{},'123'), delta.create('paragraph',{},'456'), delta.create('paragraph', {}, '789')]),
-  ({tr}) => tr.delete(2, 12)
+  () => delta.create(null, {}, [delta.create('paragraph', {}, '123'), delta.create('paragraph', {}, '456'), delta.create('paragraph', {}, '789')]),
+  ({ tr }) => tr.delete(2, 12)
 ])
 
 export const testFormatting = testHelper([
-  ({tr}) => tr.addMark(7, 12, schema.mark('strong'))
+  ({ tr }) => tr.addMark(7, 12, schema.mark('strong'))
 ])
 
 export const testBaseInsert = testHelper([
-  ({tr}) => tr.insert(16, schema.text('XXX'))
+  ({ tr }) => tr.insert(16, schema.text('XXX'))
 ])
 
 export const testReplaceAround = testHelper([
-  ({tr}) => tr.step(new ReplaceAroundStep(14, 29, 14, 29, new Slice(Fragment.from(schema.nodes.blockquote.create()), 0, 0), 1, true))
+  ({ tr }) => tr.step(new ReplaceAroundStep(14, 29, 14, 29, new Slice(Fragment.from(schema.nodes.blockquote.create()), 0, 0), 1, true))
 ])
 
 export const testAttrStep = testHelper([
-  ({tr}) => tr.setNodeAttribute(0, 'level', 2)
+  ({ tr }) => tr.setNodeAttribute(0, 'level', 2)
 ])
