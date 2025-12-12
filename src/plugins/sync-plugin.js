@@ -456,10 +456,18 @@ export class ProsemirrorBinding {
          * smaller than the previous document, the selection might be
          * out of bound, which would make Prosemirror throw an error.
          */
-        const clampedAnchor = math.min(math.max(sel.anchor, 0), tr.doc.content.size)
-        const clampedHead = math.min(math.max(sel.head, 0), tr.doc.content.size)
+        const maxSize = tr.doc.content.size
+        const clampedAnchor = math.min(math.max(sel.anchor, 0), maxSize)
+        const clampedHead = math.min(math.max(sel.head, 0), maxSize)
 
-        tr.setSelection(TextSelection.create(tr.doc, clampedAnchor, clampedHead))
+        /**
+         * A position within the bounds is not guaranteed to be a valid position
+         * for text cursor. We use `TextSelection.between` to create a valid
+         * selection.
+         */
+        const $clampedAnchor = tr.doc.resolve(clampedAnchor)
+        const $clampedHead = tr.doc.resolve(clampedHead)
+        tr.setSelection(TextSelection.between($clampedAnchor, $clampedHead, -1))
       }
       this.prosemirrorView.dispatch(
         tr.setMeta(ySyncPluginKey, { isChangeOrigin: true, binding: this })
