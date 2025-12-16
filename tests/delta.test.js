@@ -6,26 +6,33 @@ import { EditorState } from 'prosemirror-state'
 import { Fragment, Schema, Slice } from 'prosemirror-model'
 import * as delta from 'lib0/delta'
 import { ReplaceAroundStep } from 'prosemirror-transform'
+import { EditorView } from 'prosemirror-view'
+import { ySyncPluginKey } from '../src/plugins/keys.js'
 
 const schema = new Schema({
   nodes: basicSchema.nodes,
   marks: basicSchema.marks
 })
 
-const createProsemirrorView = () => {
-  const view = new ypm.YEditorView(null, {
+/**
+ * @param {Y.XmlFragment} ytype
+ * @param {Y.AbstractAttributionManager} [attributionManager]
+ */
+const createProsemirrorView = (ytype, attributionManager) => {
+  const view = new EditorView(null, {
     state: EditorState.create({
-      schema
+      schema,
+      plugins: [ypm.syncPlugin(ytype, { attributionManager })]
     })
   })
   return view
 }
 
 /**
- * @param {ypm.YEditorView} pm
+ * @param {EditorView} pm
  */
 const validate = pm => {
-  const ycontent = pm.y.ytype.getContentDeep()
+  const ycontent = ySyncPluginKey.getState(pm.state).ytype.getContentDeep()
   ycontent.name = 'doc'
   const pcontent = ypm.nodeToDelta(pm.state.doc)
   t.compare(ycontent, pcontent.done(false))
@@ -34,10 +41,10 @@ const validate = pm => {
 /**
  * @typedef {object} YPMTestConf
  * @property {import('prosemirror-state').Transaction} YPMTest.tr
- * @property {ypm.YEditorView} YPMTest.view
+ * @property {EditorView} YPMTest.view
  * @property {Y.XmlFragment} YPMTest.ytype
  * @property {import('prosemirror-state').Transaction} YPMTest.tr2
- * @property {ypm.YEditorView} YPMTest.view2
+ * @property {EditorView} YPMTest.view2
  * @property {Y.XmlFragment} YPMTest.ytype2
  */
 
@@ -58,32 +65,32 @@ const testHelper = (changes) => {
     ydoc2.on('update', update => {
       Y.applyUpdate(ydoc, update)
     })
-    const view = createProsemirrorView()
     const ytype = ydoc.getXmlFragment('prosemirror')
     // never change this structure!
     // <heading>[1]Hello World![13]</heading>[14]<paragraph>[15]Lorem [21]ipsum..[28]</paragraph>[29]
     ytype.applyDelta(delta.create().insert([delta.create('heading', { level: 1 }, 'Hello World!'), delta.create('paragraph', {}, 'Lorem ipsum..')]))
-    view.bindYType(ytype)
-    const view2 = createProsemirrorView()
-    view2.bindYType(ydoc2.getXmlFragment('prosemirror'))
+    const view = createProsemirrorView(ytype)
+    const view2 = createProsemirrorView(ydoc2.getXmlFragment('prosemirror'))
     changes.forEach(change => {
-      const ytype = view.y.ytype
+      const ytype = ySyncPluginKey.getState(view.state).ytype
+      const ytype2 = ySyncPluginKey.getState(view2.state).ytype
       const tr = change({
         tr: view.state.tr,
         view,
         ytype,
         tr2: view2.state.tr,
         view2,
-        ytype2: view2.y.ytype
+        ytype2
       })
       if (delta.$deltaAny.check(tr)) {
         ytype.applyDelta(tr)
       } else if (tr != null) {
+        console.log('dispatching transaction', tr)
         view.dispatch(tr)
       }
       validate(view)
       validate(view2)
-      t.compare(ytype.getContentDeep(), view2.y.ytype.getContentDeep())
+      t.compare(ytype.getContentDeep(), ytype2.getContentDeep())
     })
     console.log('final pm document:', view.state.doc.toJSON())
   }
