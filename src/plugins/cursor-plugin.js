@@ -50,7 +50,7 @@ export const defaultCursorBuilder = (user) => {
  */
 export const defaultSelectionBuilder = (user) => {
   return {
-    style: `background-color: ${user.color}70`,
+    style: `background-color: ${user.color}`,
     class: 'ProseMirror-yjs-selection'
   }
 }
