@@ -1,13 +1,14 @@
 /* eslint-env browser */
 
 import * as Y from '@y/y'
-import { YEditorView } from '../src/index.js'
+import { syncPlugin } from '../src/index.js'
 import { EditorState } from 'prosemirror-state'
 import { schema } from './schema.js'
 import { exampleSetup } from 'prosemirror-example-setup'
 import { WebsocketProvider } from '@y/websocket'
 import * as random from 'lib0/random'
 import * as error from 'lib0/error'
+import { EditorView } from 'prosemirror-view'
 
 const roomName = 'pm-suggestion-demo-2'
 
@@ -85,7 +86,7 @@ elemToggleConnect.checked && providerYdocSuggestions.connectBc()
 const am = Y.createAttributionManagerFromDiff(ydoc, suggestionDoc)
 
 /**
- * @type {YEditorView?}
+ * @type {EditorView?}
  */
 let currentView = null
 
@@ -98,13 +99,12 @@ const initEditor = () => {
   const editor = document.createElement('div')
   editor.setAttribute('class', 'yeditor')
   ypmContainer.insertBefore(editor, null)
-  currentView = new YEditorView(editor, {
+  currentView = new EditorView(editor, {
     state: EditorState.create({
       schema,
-      plugins: [].concat(exampleSetup({ schema, history: false }))
+      plugins: [].concat(exampleSetup({ schema, history: false }), syncPlugin(ypm, { awareness: providerYdoc.awareness, attributionManager: withSuggestions ? am : undefined }))
     })
   })
-  currentView.bindYType(ypm, { awareness: providerYdoc.awareness, attributionManager: withSuggestions ? am : null })
   // @ts-ignore
   window.example = { suggestionDoc, ydoc, type: ypm, currentView }
 }
