@@ -352,6 +352,64 @@ export const testInsertRightMatch = (_tc) => {
   t.assert(lastP.toString() === '<paragraph></paragraph>', 'last paragraph remains empty and is placed at the end')
 }
 
+export const testReplaceBoldWithCode = (_tc) => {
+  const ydoc = new Y.Doc()
+  const yXmlFragment = ydoc.get('prosemirror', Y.XmlFragment)
+  const view = createNewProsemirrorView(ydoc) // This already includes ySyncPlugin
+
+  // Insert a paragraph with some text
+  view.dispatch(
+    view.state.tr.insert(
+      0,
+      schema.node(
+        'paragraph',
+        undefined,
+        schema.text('test')
+      )
+    )
+  )
+
+  view.dispatch(view.state.tr.addMark(1, 5, schema.mark('strong')))
+
+  t.compare(
+    JSON.parse(JSON.stringify(view.state.doc.toJSON().content[0].content)),
+    [{
+      type: 'text',
+      marks: [{ type: 'strong' }],
+      text: 'test'
+    }],
+    'invalid view state'
+  )
+
+  t.compare(
+    yXmlFragment.get(0).toString(),
+    '<paragraph><strong>test</strong></paragraph>',
+    'invalid ydoc state'
+  )
+
+  view.dispatch(
+    view.state.tr
+      .removeMark(1, 5, schema.mark('strong'))
+      .addMark(1, 5, schema.mark('code'))
+  )
+
+  t.compare(
+    JSON.parse(JSON.stringify(view.state.doc.toJSON().content[0].content)),
+    [{
+      type: 'text',
+      marks: [{ type: 'code' }],
+      text: 'test'
+    }],
+    'invalid view state'
+  )
+
+  t.compare(
+    yXmlFragment.get(0).toString(),
+    '<paragraph><code>test</code></paragraph>',
+    'invalid ydoc state'
+  )
+}
+
 export const testAddToHistory = (_tc) => {
   const ydoc = new Y.Doc()
   const view = createNewProsemirrorViewWithUndoManager(ydoc)
