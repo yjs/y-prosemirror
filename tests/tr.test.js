@@ -1,7 +1,7 @@
 // @ts-nocheck
 import * as t from 'lib0/testing'
 import { EditorState } from 'prosemirror-state'
-import { deltaPathToDelta, deltaPathToPm, deltaToPSteps, pmToDeltaPath, stepToDelta, trToDelta } from '../src/index.js'
+import { deltaPathToPm, deltaToPSteps, pmToDeltaPath, stepToDelta, trToDelta } from '../src/sync/delta-sync.js'
 import { schema, testBuilders } from './complexSchema.js'
 import * as delta from 'lib0/delta'
 

@@ -32,14 +32,22 @@ const calcYchangeDomAttrs = (attrs, domAttrs = {}) => {
  * @param {Array<any>} els
  */
 const hoverWrapper = (ychange, els) =>
-  ychange === null ? els : [['span', { class: 'ychange-hover', style: `background-color:${ychange.color?.dark}` }, ychange.user || 'Unknown'], ['span', ...els]]
+  ychange === null
+    ? els
+    : [['span', {
+        class: 'ychange-hover',
+        style: `background-color:${ychange.color?.dark || '#123'}`
+      }, 'Unknown'], ['span', ...els]]
 
 // :: Object
 // [Specs](#model.NodeSpec) for the nodes defined in this schema.
 export const nodes = {
   // :: NodeSpec The top level document node.
   doc: {
-    content: 'block*'
+    content: 'block*',
+    // TODO Something that needs to be documented here. We need for prosemirror to respect that we can apply this mark to any node in the document
+    // We can also maybe check whether a mark is allowed on a node, and if not, then don't apply it
+    marks: 'ychange'
   },
 
   // :: NodeSpec A plain paragraph textblock. Represented in the DOM
@@ -216,7 +224,12 @@ export const marks = {
     inclusive: false,
     parseDOM: [{ tag: 'ychange' }],
     toDOM (node) {
-      return ['ychange', { ychange_user: node.attrs.user, ychange_type: node.attrs.type, style: calcYChangeStyle(node.attrs), ychange_color: node.attrs.color?.light || colorAddedFallback }, ...hoverWrapper(node.attrs, [0])]
+      return ['ychange', {
+        ychange_user: 'test', // (node.attrs.user || '').join(', '),
+        ychange_type: node.attrs.type,
+        style: calcYChangeStyle(node.attrs),
+        ychange_color: node.attrs.color?.light || colorAddedFallback
+      }, ...hoverWrapper(node.attrs, [0])]
     }
   }
 }
