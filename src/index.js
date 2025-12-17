@@ -151,6 +151,9 @@ export function syncPlugin (ytype, { awareness = null, attributionManager = Y.no
         return {
           ytype
         }
+      },
+      apply: (_tr, value) => {
+        return value
       }
     },
     view: (view) => {
