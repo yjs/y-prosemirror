@@ -32,7 +32,7 @@ const calcYchangeDomAttrs = (attrs, domAttrs = {}) => {
  * @param {Array<any>} els
  */
 const hoverWrapper = (ychange, els) =>
-  ychange === null ? els : [['span', { class: 'ychange-hover', style: `background-color:${ychange.color?.dark}` }, ychange.user || 'Unknown'], ['span', ...els]]
+  ychange === null ? els : [['span', { class: 'ychange-hover', style: `background-color:${ychange.color?.dark || '#123'}` }, ychange.user.join(', ') || 'Unknown'], ['span', ...els]]
 
 // :: Object
 // [Specs](#model.NodeSpec) for the nodes defined in this schema.
@@ -216,7 +216,7 @@ export const marks = {
     inclusive: false,
     parseDOM: [{ tag: 'ychange' }],
     toDOM (node) {
-      return ['ychange', { ychange_user: node.attrs.user, ychange_type: node.attrs.type, style: calcYChangeStyle(node.attrs), ychange_color: node.attrs.color?.light || colorAddedFallback }, ...hoverWrapper(node.attrs, [0])]
+      return ['ychange', { ychange_user: node.attrs.user.join(', '), ychange_type: node.attrs.type, style: calcYChangeStyle(node.attrs), ychange_color: node.attrs.color?.light || colorAddedFallback }, ...hoverWrapper(node.attrs, [0])]
     }
   }
 }
