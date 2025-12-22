@@ -4,7 +4,8 @@
 
 import { createMutex } from 'lib0/mutex'
 import * as PModel from 'prosemirror-model'
-import { AllSelection, Plugin, TextSelection, NodeSelection } from "prosemirror-state"; // eslint-disable-line
+import { AllSelection, Plugin, TextSelection, NodeSelection, Transaction } from "prosemirror-state"; // eslint-disable-line
+import { DocAttrStep } from 'prosemirror-transform'
 import * as math from 'lib0/math'
 import * as object from 'lib0/object'
 import * as set from 'lib0/set'
@@ -22,6 +23,71 @@ import * as dom from 'lib0/dom'
 import * as eventloop from 'lib0/eventloop'
 import * as map from 'lib0/map'
 import * as utils from '../utils.js'
+
+/**
+ * @param {PModel.Node | undefined} source
+ * @param {PModel.Node | undefined} target
+ * @param {number} sourcePos
+ * @param {Transaction} tr
+ */
+const diffDocs = (source, target, sourcePos, tr) => {
+  const mappedPos = sourcePos === -1 ? { pos: 0, deleted: false } : tr.mapping.mapResult(sourcePos)
+  if (mappedPos.deleted) return
+  const inter = sourcePos === -1 ? tr.doc : tr.doc.resolve(mappedPos.pos).nodeAfter
+  const interSize = sourcePos === -1 ? inter.content.size : inter?.nodeSize ?? 0
+
+  if (!source) {
+    tr.insert(mappedPos.pos, target)
+    return tr
+  }
+
+  if (!target) {
+    tr.delete(mappedPos.pos, mappedPos.pos + inter.nodeSize)
+    return tr
+  }
+
+  if (source.type !== target.type) {
+    tr.replace(
+      mappedPos.pos,
+      mappedPos.pos + interSize,
+      new PModel.Slice(PModel.Fragment.from(target), 0, 0)
+    )
+    return tr
+  }
+
+  if (!source.isText && !source.hasMarkup(target.type, target.attrs, target.marks)) {
+    if (sourcePos === -1) {
+      for (const [attr, value] of Object.entries(target.attrs)) {
+        tr.step(new DocAttrStep(attr, value))
+      }
+    } else {
+      tr.setNodeMarkup(
+        mappedPos.pos,
+        target.type,
+        target.attrs,
+        target.marks
+      )
+    }
+  }
+
+  if ((source.isLeaf || target.isLeaf) && !source.eq(target)) {
+    tr.replace(
+      mappedPos.pos,
+      mappedPos.pos + interSize,
+      new PModel.Slice(PModel.Fragment.from(target), 0, 0)
+    )
+    return tr
+  }
+
+  const childCount = Math.max(source.childCount, target.childCount)
+  let childSourcePos = sourcePos === -1 ? 0 : sourcePos + (source.isBlock ? 1 : 0)
+  for (let i = 0; i < childCount; i++) {
+    diffDocs(source.maybeChild(i), target.maybeChild(i), childSourcePos, tr)
+    childSourcePos += source.maybeChild(i)?.nodeSize ?? 0
+  }
+
+  return tr
+}
 
 /**
  * @typedef {Object} BindingMetadata
@@ -626,11 +692,12 @@ export class ProsemirrorBinding {
         )
       ).filter((n) => n !== null)
       // @ts-ignore
-      let tr = this._tr.replace(
+      const target = this._tr.replace(
         0,
         this.prosemirrorView.state.doc.content.size,
         new PModel.Slice(PModel.Fragment.from(fragmentContent), 0, 0)
-      )
+      ).doc
+      let tr = diffDocs(this.prosemirrorView.state.doc, target, -1, this._tr)
       restoreRelativeSelection(tr, this.beforeTransactionSelection, this)
       tr = tr.setMeta(ySyncPluginKey, { isChangeOrigin: true, isUndoRedoOperation: transaction.origin instanceof Y.UndoManager })
       if (
