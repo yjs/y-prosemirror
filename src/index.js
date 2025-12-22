@@ -19,42 +19,46 @@ const $prosemirrorDelta = delta.$delta({ name: s.$string, attrs: s.$record(s.$st
  * @typedef {s.Unwrap<$prosemirrorDelta>} ProsemirrorDelta
  */
 
+// y-attribution-deletion & y-attribution-insertion & y-attribution-format (or mod?)
+// add attributes (userId: string[], timestamp: number) (see `YAttribution` (ask Kevin))
+// define how an insertion mark works on a node
+// situations like deleted node, yet has inserted content (handle nested content)
+// insertion within a node that was inserted + another user inserted more content into that node (hovers per user likely)
+
 /**
- * @param {object|null} format
- * @param {object|null} attribution
+ * @param {object | null} format
+ * @param {object} attribution
  */
 const attributionToFormat = (format, attribution) => {
-  if (!attribution) {
-    return format
-  }
-    return object.assign({}, format, {
-      ychange: attribution.insert
-        ? { type: 'added', user: attribution.insert?.[0] }
-        : { type: 'removed', user: attribution.delete?.[0] }
-    })
+  return object.assign({}, format, {
+    ychange: attribution.insert
+      ? { type: 'added', user: attribution.insert?.[0] }
+      : { type: 'removed', user: attribution.delete?.[0] }
+  })
 }
 
 /**
  * Transform delta with attributions to delta with formats (marks).
  */
-const deltaAttributionToFormat = s.match()
-  .if(delta.$deltaAny, d => {
+const deltaAttributionToFormat = s.match(s.$function)
+  .if(delta.$deltaAny, (d, func) => {
     const r = delta.create(d.name)
     for (const attr of d.attrs) {
       r.attrs[attr.key] = attr.clone()
     }
     for (const child of d.children) {
+      const format = child.attribution ? func(child.format, child.attribution) : child.format
+      console.log('format', format)
       if (delta.$insertOp.check(child)) {
-        const f = attributionToFormat(child.format, child.attribution)
-        r.insert(child.insert.map(c => delta.$deltaAny.check(c) ? deltaAttributionToFormat(c) : c), f)
+        r.insert(child.insert.map(c => delta.$deltaAny.check(c) ? deltaAttributionToFormat(c, func) : c), format)
       } else if (delta.$textOp.check(child)) {
-        r.insert(child.insert.slice(), attributionToFormat(child.format, child.attribution))
+        r.insert(child.insert.slice(), format)
       } else if (delta.$deleteOp.check(child)) {
         r.delete(child.delete)
       } else if (delta.$retainOp.check(child)) {
-        r.retain(child.retain, attributionToFormat(child.format, child.attribution))
+        r.retain(child.retain, format)
       } else if (delta.$modifyOp.check(child)) {
-        r.modify(deltaAttributionToFormat(child.value), attributionToFormat(child.format, child.attribution))
+        r.modify(deltaAttributionToFormat(child.value, func), format)
       } else {
         error.unexpectedCase()
       }
@@ -67,9 +71,12 @@ const deltaAttributionToFormat = s.match()
  * @param {object} opts
  * @param {import('@y/protocols/awareness').Awareness} [opts.awareness]
  * @param {Y.AbstractAttributionManager} [opts.attributionManager]
+ * @param {typeof attributionToFormat} [opts.mapAttributionToMark]
  * @returns {Plugin}
  */
-export function syncPlugin (ytype, { awareness = null, attributionManager = Y.noAttributionsManager } = {}) {
+export function syncPlugin (ytype, { awareness = null, attributionManager = Y.noAttributionsManager, mapAttributionToMark = attributionToFormat } = {}) {
+  let ignoreTr = false
+  let initialized = false
   const mutex = mux.createMutex()
 
   /**
@@ -78,6 +85,7 @@ export function syncPlugin (ytype, { awareness = null, attributionManager = Y.no
    * @param {()=>void} onInit
    */
   function init (view, onInit) {
+    // TODO ydoc.on('sync') ? we could use this to indicate that the ydoc is ready or not
     console.log('initializing prosemirror state with ydoc')
     if (ytype.length === 0) {
       console.log('ytype is empty, applying initial prosemirror state to ydoc')
@@ -90,7 +98,7 @@ export function syncPlugin (ytype, { awareness = null, attributionManager = Y.no
       console.log('ytype is not empty, applying initial ydoc content to prosemirror state')
       // Initialize the prosemirror state with what is in the ydoc
       const initialPDelta = nodeToDelta(view.state.doc)
-      const d = deltaAttributionToFormat(ytype.getContent(attributionManager, { deep: true }))
+      const d = deltaAttributionToFormat(ytype.getContent(attributionManager, { deep: true }), mapAttributionToMark)
       const initDelta = delta.diff(initialPDelta.done(), d)
 
       console.log('initDelta', initDelta.toJSON())
@@ -108,7 +116,7 @@ export function syncPlugin (ytype, { awareness = null, attributionManager = Y.no
    */
   function getOnChangeHandler (view) {
     return function onChange (events, tr) {
-      if (view.isDestroyed) {
+      if (view.isDestroyed || ignoreTr) {
         return
       }
 
@@ -117,7 +125,7 @@ export function syncPlugin (ytype, { awareness = null, attributionManager = Y.no
          * @type {Y.YEvent<Y.XmlFragment>}
          */
         const event = events.find(event => event.target === ytype) || new Y.YEvent(ytype, tr, new Set(null))
-        const d = attributionManager === Y.noAttributionsManager ? event.deltaDeep : deltaAttributionToFormat(event.getDelta(attributionManager, { deep: true }))
+        const d = attributionManager === Y.noAttributionsManager ? event.deltaDeep : deltaAttributionToFormat(event.getDelta(attributionManager, { deep: true }), mapAttributionToMark)
         const ptr = deltaToPSteps(view.state.tr, d)
         console.log('ytype emitted event', d.toJSON(), 'and applied changes to pm', ptr.steps)
         ptr.setMeta(ySyncPluginKey, { ytypeEvent: true })
@@ -144,7 +152,7 @@ export function syncPlugin (ytype, { awareness = null, attributionManager = Y.no
           if (modified.has(ytype)) {
             setTimeout(() => {
               mutex(() => {
-                const d = deltaAttributionToFormat(ytype.getContent(attributionManager, { itemsToRender, retainInserts: true, deep: true, modified }))
+                const d = deltaAttributionToFormat(ytype.getContent(attributionManager, { itemsToRender, retainInserts: true, deep: true, modified }), mapAttributionToMark)
                 const ptr = deltaToPSteps(view.state.tr, d)
                 ptr.setMeta(ySyncPluginKey, { attributionFix: true })
                 console.log('attribution fix event: ', d.toJSON(), 'and applied changes to pm', ptr.steps)
@@ -160,55 +168,103 @@ export function syncPlugin (ytype, { awareness = null, attributionManager = Y.no
   return new Plugin({
     key: ySyncPluginKey,
     state: {
-      init: () => {
+      init () {
         return {
-          ytype
+          ytype,
+          diff: /** @type {ReturnType<typeof docDiffToDelta> | undefined} */ (undefined)
         }
       },
-      apply: (_tr, value) => {
+      apply (tr, value) {
+        console.log('apply', tr, 'has-meta', tr.getMeta(ySyncPluginKey))
+        if (tr.getMeta(ySyncPluginKey)) {
+          const { transactions } = /** @type {{ transactions: Array<Transaction> }} */ (tr.getMeta(ySyncPluginKey))
+          if (!transactions) {
+            return value
+          }
+          // merge all transactions into a single transform
+          const transform = new Transform(transactions[0].before)
+
+          for (let i = 0; i < transactions.length; i++) {
+            console.log('transactions[i]', transactions[i])
+            for (let j = 0; j < transactions[i].steps.length; j++) {
+              const success = transform.maybeStep(transactions[i].steps[j])
+              if (success.failed) {
+                // step failed, fallback to full diff
+                console.error('[y/prosemirror]: step failed to apply, falling back to a full diff')
+
+                const nextDiff = docDiffToDelta(transactions[0].before, transactions[transactions.length - 1].after)
+                // TODO what should the right behavior here be?
+                return {
+                  ytype: value.ytype,
+                  diff: value.diff ? value.diff.apply(nextDiff) : nextDiff
+                }
+              }
+            }
+          }
+          const nextDiff = trToDelta(transform)
+
+          return {
+            ytype: value.ytype,
+            diff: value.diff ? value.diff.apply(nextDiff) : nextDiff
+          }
+        }
         return value
       }
     },
-    view: (view) => {
-      let initialized = false
+    view (view) {
       const onChange = getOnChangeHandler(view)
       // initialize the prosemirror state with what is in the ydoc
+      // we wait a tick, because in some cases, the view can be immediately destroyed
       const timeoutId = setTimeout(() => init(view, () => {
+        console.log('initialization complete')
         initialized = true
         // subscribe to the ydoc changes, after initialization is complete
         ytype.observeDeep(onChange)
+        console.log('subscribed to ydoc changes')
       }), 0)
 
       return {
-        destroy: () => {
+        update (view, prevState) {
+          if (ignoreTr || !initialized) {
+            return
+          }
+
+          const state = ySyncPluginKey.getState(view.state)
+          console.log(state)
+          if (state.diff) {
+            mutex(() => {
+              ignoreTr = true
+              console.log('and will apply delta to ytype', state.diff.toJSON(), ytype.toJSON())
+              ytype.applyDelta(state.diff, attributionManager)
+              ignoreTr = false
+            })
+            // clear the diff so that we don't apply it again
+            state.diff = undefined
+          }
+        },
+        destroy () {
           // clear the initialization timeout
           clearTimeout(timeoutId)
           if (initialized) {
             // unsubscribe from the ydoc changes
             ytype.unobserveDeep(onChange)
           }
+          initialized = false
         }
       }
     },
-    appendTransaction (transactions, oldState) {
+    appendTransaction (transactions, _oldState, newState) {
+      console.log('transactions', transactions.slice(0))
       transactions = transactions.filter(tr => tr.docChanged && !tr.getMeta(ySyncPluginKey))
-      if (transactions.length === 0) return undefined
+      if (transactions.length === 0 || ignoreTr) return undefined
 
-      // merge all transactions into a single transform
-      const tr = new Transform(oldState.doc)
-
-      for (let i = 0; i < transactions.length; i++) {
-        for (let j = 0; j < transactions[i].steps.length; j++) {
-          tr.step(transactions[i].steps[j])
-        }
-      }
-
-      mutex(() => {
-        const d = trToDelta(tr)
-        console.log('editor received steps', tr.steps, 'and will apply delta to ytype', d.toJSON(), ytype.toJSON())
-        ytype.applyDelta(d, attributionManager)
-      })
+      return newState.tr.setMeta(ySyncPluginKey, { transactions })
     }
+    // TODO to acccount for cases where appendTransaction is called on an ephemeral state, we may not want to apply the delta to the ytype
+    // unless, the editor has actually applied the transaction, perhaps we can return a transaction that has a meta with how to apply the delta? or it returns the delta, and then the state.apply can actually sync it to the ytype?
+    // that actually seems less error prone, and might actually enable us to block syncing in certain cases with just a filterTransaction? That's actually pretty nice!
+    // per transaction, we can actually choose whether we should sync the transaction to the ytype or not, this would allow much more fine-grained control over syncing.
+
   })
 }
 
@@ -373,18 +429,35 @@ const deltaToPNode = (d, schema, dformat) => {
 }
 
 /**
+ * @param {Node} beforeDoc
+ * @param {Node} afterDoc
+ */
+export const docDiffToDelta = (beforeDoc, afterDoc) => {
+  const initialDelta = nodeToDelta(beforeDoc)
+  const finalDelta = nodeToDelta(afterDoc)
+
+  return delta.diff(initialDelta.done(), finalDelta.done())
+}
+
+/**
  * @param {Transform} tr
- * @return {ProsemirrorDelta}
  */
 export const trToDelta = (tr) => {
-  const d = delta.create($prosemirrorDelta)
-  tr.steps.forEach((step, i) => {
-    const stepDelta = stepToDelta(step, tr.docs[i])
-    console.log('stepDelta', JSON.stringify(stepDelta.toJSON(), null, 2))
-    console.log('d', JSON.stringify(d.toJSON(), null, 2))
-    d.apply(stepDelta)
-  })
-  return d.done()
+  // const d = delta.create($prosemirrorDelta)
+  // tr.steps.forEach((step, i) => {
+  //   const stepDelta = stepToDelta(step, tr.docs[i])
+  //   console.log('stepDelta', JSON.stringify(stepDelta.toJSON(), null, 2))
+  //   console.log('d', JSON.stringify(d.toJSON(), null, 2))
+  //   d.apply(stepDelta)
+  // })
+  // return d.done()
+  // Calculate delta from initial and final document states to avoid composition issues with delete operations
+  // This is more reliable than composing step-by-step, which can lose delete operations and cause "Unexpected case" errors
+  // after lib0 upgrades that change delta composition behavior
+  const initialDelta = nodeToDelta(tr.before)
+  const finalDelta = nodeToDelta(tr.doc)
+  const resultDelta = delta.diff(initialDelta.done(), finalDelta.done())
+  return resultDelta
 }
 
 const _stepToDelta = s.match({ beforeDoc: Node, afterDoc: Node })
@@ -392,14 +465,16 @@ const _stepToDelta = s.match({ beforeDoc: Node, afterDoc: Node })
     const oldStart = beforeDoc.resolve(step.from)
     const oldEnd = beforeDoc.resolve(step.to)
     const newStart = afterDoc.resolve(step.from)
-    const newEnd = afterDoc.resolve(step.from + step.slice.size)
+
+    const newEnd = afterDoc.resolve(step instanceof ReplaceAroundStep ? step.getMap().map(step.to) : step.from + step.slice.size)
+
     const oldBlockRange = oldStart.blockRange(oldEnd)
     const newBlockRange = newStart.blockRange(newEnd)
     const oldDelta = deltaForBlockRange(oldBlockRange)
     const newDelta = deltaForBlockRange(newBlockRange)
     const diffD = delta.diff(oldDelta, newDelta)
-      const stepDelta = deltaModifyNodeAt(beforeDoc, oldBlockRange?.start || newBlockRange?.start || 0, d => { d.append(diffD) })
-      return stepDelta
+    const stepDelta = deltaModifyNodeAt(beforeDoc, oldBlockRange?.start || newBlockRange?.start || 0, d => { d.append(diffD) })
+    return stepDelta
   })
   .if(AddMarkStep, (step, { beforeDoc }) =>
     deltaModifyNodeAt(beforeDoc, step.from, d => { d.retain(step.to - step.from, marksToFormattingAttributes([step.mark])) })

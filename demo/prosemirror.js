@@ -83,7 +83,7 @@ elemToggleConnect.checked && providerYdoc.connectBc()
 const suggestionDoc = new Y.Doc({ isSuggestionDoc: true })
 const providerYdocSuggestions = new WebsocketProvider('wss://demos.yjs.dev/ws', roomName + '--suggestions', suggestionDoc, { connect: false })
 elemToggleConnect.checked && providerYdocSuggestions.connectBc()
-const am = Y.createAttributionManagerFromDiff(ydoc, suggestionDoc)
+const am = Y.createAttributionManagerFromDiff(ydoc, suggestionDoc, { attrs: [Y.createAttributionItem('insert', ['nickthesick'])] })
 
 /**
  * @type {EditorView?}
