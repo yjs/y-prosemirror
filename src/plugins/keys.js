@@ -4,7 +4,7 @@ import { PluginKey } from 'prosemirror-state' // eslint-disable-line
  * The unique prosemirror plugin key for syncPlugin
  *
  * @public
- * @type {PluginKey<{ytype: Y.XmlFragment; diff?: import('../index.js').ProsemirrorDelta}>}
+ * @type {PluginKey<import('../index.js').SyncPluginState>}
  */
 export const ySyncPluginKey = new PluginKey('y-sync')
 
