@@ -9,7 +9,6 @@ import * as set from 'lib0/set'
 import * as map from 'lib0/map'
 
 import { Node } from 'prosemirror-model'
-import { EditorView } from 'prosemirror-view'
 import { AddMarkStep, RemoveMarkStep, AttrStep, AddNodeMarkStep, ReplaceStep, ReplaceAroundStep, RemoveNodeMarkStep, DocAttrStep, Transform } from 'prosemirror-transform'
 import { ySyncPluginKey } from './plugins/keys.js'
 import { Plugin } from 'prosemirror-state'
@@ -20,39 +19,69 @@ const $prosemirrorDelta = delta.$delta({ name: s.$string, attrs: s.$record(s.$st
  * @typedef {s.Unwrap<$prosemirrorDelta>} ProsemirrorDelta
  */
 
+// y-attribution-deletion & y-attribution-insertion & y-attribution-format (or mod?)
+// add attributes (userId: string[], timestamp: number) (see `YAttribution` (ask Kevin))
+// define how an insertion mark works on a node
+// situations like deleted node, yet has inserted content (handle nested content)
+// insertion within a node that was inserted + another user inserted more content into that node (hovers per user likely)
+
 /**
- * @param {object|null} format
- * @param {object|null} attribution
+ * @template {import('lib0/delta').Attribution} T
+ * @param {Record<string, unknown> | null} format
+ * @param {T} attribution
+ * @returns {Record<string, unknown> | null}
  */
-const attributionToFormat = (format, attribution) => attribution
-  ? object.assign({}, format, {
-    ychange: attribution.insert
-      ? { type: 'added', user: attribution.insert?.[0] }
-      : { type: 'removed', user: attribution.delete?.[0] }
-  })
-  : format
+const attributionToFormat = (format, attribution) => {
+  /**
+   * @type {Record<string, unknown> | null}
+   */
+  let mergeWith = null
+  if (attribution.insert) {
+    mergeWith = {
+      'y-attribution-insertion': {
+        userIds: attribution.insert ? attribution.insert : null,
+        timestamp: attribution.insertAt ? attribution.insertAt : null
+      }
+    }
+  } else if (attribution.delete) {
+    mergeWith = {
+      'y-attribution-deletion': {
+        userIds: attribution.delete ? attribution.delete : null,
+        timestamp: attribution.deleteAt ? attribution.deleteAt : null
+      }
+    }
+  } else if (attribution.format) {
+    mergeWith = {
+      'y-attribution-format': {
+        userIdsByAttr: attribution.format ? attribution.format : null,
+        timestamp: attribution.formatAt ? attribution.formatAt : null
+      }
+    }
+  }
+  return object.assign({}, format, mergeWith)
+}
 
 /**
  * Transform delta with attributions to delta with formats (marks).
  */
-const deltaAttributionToFormat = s.match()
-  .if(delta.$deltaAny, d => {
+const deltaAttributionToFormat = s.match(s.$function)
+  .if(delta.$deltaAny, (d, func) => {
     const r = delta.create(d.name)
     for (const attr of d.attrs) {
       r.attrs[attr.key] = attr.clone()
     }
     for (const child of d.children) {
+      const format = child.attribution ? func(child.format, child.attribution) : child.format
       if (delta.$insertOp.check(child)) {
-        const f = attributionToFormat(child.format, child.attribution)
-        r.insert(child.insert.map(c => delta.$deltaAny.check(c) ? deltaAttributionToFormat(c) : c), f)
+        r.insert(child.insert.map(c => delta.$deltaAny.check(c) ? deltaAttributionToFormat(c, func) : c), format)
       } else if (delta.$textOp.check(child)) {
-        r.insert(child.insert.slice(), attributionToFormat(child.format, child.attribution))
+        r.insert(child.insert.slice(), format)
       } else if (delta.$deleteOp.check(child)) {
         r.delete(child.delete)
       } else if (delta.$retainOp.check(child)) {
-        r.retain(child.retain, attributionToFormat(child.format, child.attribution))
+        r.retain(child.retain, format)
       } else if (delta.$modifyOp.check(child)) {
-        r.modify(deltaAttributionToFormat(child.value), attributionToFormat(child.format, child.attribution))
+        r.modify(deltaAttributionToFormat(child.value, func), format)
       } else {
         error.unexpectedCase()
       }
@@ -61,233 +90,291 @@ const deltaAttributionToFormat = s.match()
   }).done()
 
 /**
- * @param {Y.XmlFragment} ytype
- * @param {object} opts
- * @param {import('@y/protocols/awareness').Awareness} [opts.awareness]
- * @param {Y.AbstractAttributionManager} [opts.attributionManager]
- * @returns {Plugin}
+ * This class is the state of the sync plugin, it is essentially the public API for the sync plugin
  */
-export function syncPlugin (ytype, { awareness = null, attributionManager = Y.noAttributionsManager } = {}) {
-  const mutex = mux.createMutex()
+export class SyncPluginState {
+  /**
+   * @type {Y.XmlFragment}
+   */
+  ytype
 
   /**
-   * Initialize the prosemirror state with what is in the ydoc
-   * @param {EditorView} view
+   * @type {ProsemirrorDelta | null}
    */
-  function init (view) {
-    if (view.isDestroyed) {
-      return
-    }
-
-    // Initialize the prosemirror state with what is in the ydoc
-    const initialPDelta = nodeToDelta(view.state.doc)
-    const d = deltaAttributionToFormat(ytype.getContent(attributionManager, { deep: true }))
-    const initDelta = delta.diff(initialPDelta.done(), d)
-
-    // TODO this need a mutex?
-    mutex(() => {
-      const tr = deltaToPSteps(view.state.tr, initDelta.done())
-      // TODO revisit all of the meta stuff
-      tr.setMeta(ySyncPluginKey, { init: true })
-      view.dispatch(tr)
-    })
-  }
+  #diff = null
 
   /**
-   * @param {EditorView} view
-   * @returns {function(Array<Y.YEvent<any>>, Y.Transaction): void}
+   * @type {Y.AbstractAttributionManager}
    */
-  function getOnChangeHandler (view) {
-    return function onChange (events, tr) {
-      mutex(() => {
-        /**
-         * @type {Y.YEvent<Y.XmlFragment>}
-         */
-        const event = events.find(event => event.target === ytype) || new Y.YEvent(ytype, tr, new Set(null))
-        const d = attributionManager === Y.noAttributionsManager ? event.deltaDeep : deltaAttributionToFormat(event.getDelta(attributionManager, { deep: true }))
-        const ptr = deltaToPSteps(view.state.tr, d)
-        console.log('ytype emitted event', d.toJSON(), 'and applied changes to pm', ptr.steps)
-        ptr.setMeta(ySyncPluginKey, { ytypeEvent: true })
-        view.dispatch(ptr)
-      }, () => {
-        if (attributionManager !== Y.noAttributionsManager) {
-          const itemsToRender = Y.mergeIdSets([tr.insertSet, tr.deleteSet])
-          /**
-           * @todo this could be automatically be calculated in getContent/getDelta when
-           * itemsToRender is provided
-           * @type {Map<Y.AbstractType, Set<string|null>>}
-           */
-          const modified = new Map()
-          Y.iterateStructsByIdSet(tr, itemsToRender, item => {
-            while (item instanceof Y.Item) {
-              const parent = /** @type {Y.AbstractType} */ (item.parent)
-              const conf = map.setIfUndefined(modified, parent, set.create)
-              if (conf.has(item.parentSub)) break // has already been marked as modified
-              conf.add(item.parentSub)
-              item = parent._item
-            }
-          })
+  #attributionManager
 
-          if (modified.has(ytype)) {
-            setTimeout(() => {
-              mutex(() => {
-                const d = deltaAttributionToFormat(ytype.getContent(attributionManager, { itemsToRender, retainInserts: true, deep: true, modified }))
-                const ptr = deltaToPSteps(view.state.tr, d)
-                ptr.setMeta(ySyncPluginKey, { attributionFix: true })
-                console.log('attribution fix event: ', d.toJSON(), 'and applied changes to pm', ptr.steps)
-                view.dispatch(ptr)
-              })
-            }, 0)
-          }
-        }
-      })
-    }
-  }
-
-  return new Plugin({
-    key: ySyncPluginKey,
-    state: {
-      init: () => {
-        return {
-          ytype
-        }
-      }
-    },
-    view: (view) => {
-      // initialize the prosemirror state with what is in the ydoc
-      const timeoutId = setTimeout(() => init(view), 0)
-
-      const onChange = getOnChangeHandler(view)
-      // subscribe to the ydoc changes
-      ytype.observeDeep(onChange)
-
-      return {
-        destroy: () => {
-          // clear the initialization timeout
-          clearTimeout(timeoutId)
-          // unsubscribe from the ydoc changes
-          ytype.unobserveDeep(onChange)
-        }
-      }
-    },
-    appendTransaction (transactions, oldState) {
-      transactions = transactions.filter(doc => doc.docChanged)
-      if (transactions.length === 0) return undefined
-
-      // merge all transactions into a single transform
-      const tr = new Transform(oldState.doc)
-
-      for (let i = 0; i < transactions.length; i++) {
-        for (let j = 0; j < transactions[i].steps.length; j++) {
-          tr.step(transactions[i].steps[j])
-        }
-      }
-
-      mutex(() => {
-        const d = trToDelta(tr)
-        console.log('editor received steps', tr.steps, 'and and applied delta to ytyp', d.toJSON())
-        ytype.applyDelta(d, attributionManager)
-      })
-    }
-  })
-}
-
-export class YEditorView extends EditorView {
   /**
-   * @param {ConstructorParameters<typeof EditorView>[0]} mnt
-   * @param {ConstructorParameters<typeof EditorView>[1]} props
+   * @type {typeof attributionToFormat}
    */
-  constructor (mnt, props) {
-    super(mnt, {
-      ...props,
-      dispatchTransaction: tr => {
-        // Get the new state by applying the transaction
-        const newState = this.state.apply(tr)
-        this.mux(() => {
-          if (tr.docChanged) {
-            const d = trToDelta(tr)
-            console.log('editor received steps', tr.steps, 'and and applied delta to ytyp', d.toJSON())
-            this.y?.ytype.applyDelta(d, this.y.am)
-          }
-        })
-        this.updateState(newState)
-      }
-    })
-    this.mux = mux.createMutex()
-    /**
-     * @type {{ ytype: Y.XmlFragment, am: Y.AbstractAttributionManager, awareness: any }?}
-     */
-    this.y = null
-    /**
-     * @param {Array<Y.YEvent<any>>} events
-     * @param {Y.Transaction} tr
-     */
-    this._observer = (events, tr) => {
-      this.mux(() => {
-        /**
-         * @type {Y.YEvent<Y.XmlFragment>}
-         */
-        const event = events.find(event => event.target === this.y.ytype) || new Y.YEvent(this.y.ytype, tr, new Set(null))
-        const d = this.y.am === Y.noAttributionsManager ? event.deltaDeep : deltaAttributionToFormat(event.getDelta(this.y.am, { deep: true }))
-        const ptr = deltaToPSteps(this.state.tr, d)
-        console.log('ytype emitted event', d.toJSON(), 'and applied changes to pm', ptr.steps)
-        this.dispatch(ptr)
-      }, () => {
-        if (this.y.am !== Y.noAttributionsManager) {
-          const itemsToRender = Y.mergeIdSets([tr.insertSet, tr.deleteSet])
-          /**
-           * @todo this could be automatically be calculated in getContent/getDelta when
-           * itemsToRender is provided
-           * @type {Map<Y.AbstractType, Set<string|null>>}
-           */
-          const modified = new Map()
-          Y.iterateStructsByIdSet(tr, itemsToRender, /** @param {any} item */ item => {
-            while (item instanceof Y.Item) {
-              const parent = /** @type {Y.AbstractType} */ (item.parent)
-              const conf = map.setIfUndefined(modified, parent, set.create)
-              if (conf.has(item.parentSub)) break // has already been marked as modified
-              conf.add(item.parentSub)
-              item = parent._item
-            }
-          })
-          if (modified.has(this.y.ytype)) {
-            setTimeout(() => {
-              this.mux(() => {
-                const d = deltaAttributionToFormat(this.y.ytype.getContent(this.y.am, { itemsToRender, retainInserts: true, deep: true, modified }))
-                const ptr = deltaToPSteps(this.state.tr, d)
-                console.log('attribution fix event: ', d.toJSON(), 'and applied changes to pm', ptr.steps)
-                this.dispatch(ptr)
-              })
-            }, 0)
-          }
-        }
-      })
-    }
-  }
+  #mapAttributionToMark
+
+  /**
+   * @type {import('prosemirror-view').EditorView | null}
+   */
+  #view = null
+
+  #mutex = mux.createMutex()
 
   /**
    * @param {Y.XmlFragment} ytype
-   * @param {object} opts
-   * @param {any} [opts.awareness]
-   * @param {Y.AbstractAttributionManager} [opts.attributionManager]
+   * @param {Y.AbstractAttributionManager} attributionManager
+   * @param {typeof attributionToFormat} mapAttributionToMark
    */
-  bindYType (ytype, { awareness = null, attributionManager = Y.noAttributionsManager } = {}) {
-    this.y?.ytype.unobserveDeep(this._observer)
-    this.y = { ytype, awareness, am: attributionManager || Y.noAttributionsManager }
-    const initialPDelta = nodeToDelta(this.state.doc)
-    const d = deltaAttributionToFormat(ytype.getContent(this.y.am, { deep: true }))
-    const initDelta = delta.diff(initialPDelta.done(), d)
-    this.mux(() => {
-      this.dispatch(deltaToPSteps(this.state.tr, initDelta.done()))
-    })
-    ytype.observeDeep(this._observer)
+  constructor (ytype, attributionManager, mapAttributionToMark) {
+    this.ytype = ytype
+    this.#attributionManager = attributionManager
+    this.#mapAttributionToMark = mapAttributionToMark || attributionToFormat
   }
 
-  destroy () {
-    this.y?.ytype.unobserveDeep(this._observer)
-    this.y = null
-    super.destroy()
+  /**
+   * @param {import('prosemirror-state').Transaction} tr
+   * @returns {SyncPluginState}
+   * @private
+   */
+  applyTr (tr) {
+    console.log('apply', tr, 'has-meta', tr.getMeta(ySyncPluginKey))
+    if (tr.getMeta(ySyncPluginKey)) {
+      const { transactions } = /** @type {{ transactions: Array<Transaction> }} */ (tr.getMeta(ySyncPluginKey))
+      if (!transactions) {
+        return this
+      }
+      // merge all transactions into a single transform
+      const transform = new Transform(transactions[0].before)
+
+      for (let i = 0; i < transactions.length; i++) {
+        console.log('transactions[i]', transactions[i])
+        for (let j = 0; j < transactions[i].steps.length; j++) {
+          const success = transform.maybeStep(transactions[i].steps[j])
+          if (success.failed) {
+            // step failed, fallback to full diff
+            console.error('[y/prosemirror]: step failed to apply, falling back to a full diff')
+
+            const nextDiff = docDiffToDelta(transactions[0].before, transactions[transactions.length - 1].after)
+            // TODO what should the right behavior here be?
+            this.#diff = this.#diff ? this.#diff.apply(nextDiff) : nextDiff
+            return this
+          }
+        }
+      }
+      const nextDiff = trToDelta(transform)
+
+      this.#diff = this.#diff ? this.#diff.apply(nextDiff) : nextDiff
+    }
+    return this
   }
+
+  /**
+   * This will be `true` if the plugin state is initialized and the view is not destroyed
+   */
+  get initialized () {
+    return this.#view && !this.#view.isDestroyed
+  }
+
+  /**
+   * Apply any pending diffs to the ytype
+   * @private
+   */
+  applyDiff () {
+    if (!this.initialized || !this.#diff) {
+      return
+    }
+    this.#mutex(() => {
+      const diff = this.#diff
+      // clear the diff so that we don't accidentally apply it again
+      this.#diff = null
+      console.log('and will apply delta to ytype', diff.toJSON(), this.ytype.toJSON())
+      this.ytype.doc.transact(() => {
+        this.ytype.applyDelta(diff, this.#attributionManager)
+      }, this)
+    })
+  }
+
+  /**
+   * @type {ReturnType<typeof setTimeout> | undefined}
+   */
+  #initializationTimeoutId = undefined
+
+  /**
+   * Initialize the prosemirror state with what is in the ydoc or vice versa
+   */
+  #init () {
+    // TODO ydoc.on('sync') ? we could use this to indicate that the ydoc is ready or not
+    console.log('initializing prosemirror state with ydoc')
+    if (this.ytype.length === 0) {
+      console.log('ytype is empty, applying initial prosemirror state to ydoc')
+      // TODO likely want to compare the empty initial doc with the ydoc and apply changes the ydoc if there are any
+      // initialize the ydoc with the initial prosemirror state
+      const initialPDelta = nodeToDelta(this.#view.state.doc)
+      console.log('initialPDelta', initialPDelta.toJSON())
+      this.ytype.applyDelta(initialPDelta.done())
+    } else {
+      console.log('ytype is not empty, applying initial ydoc content to prosemirror state')
+      // Initialize the prosemirror state with what is in the ydoc
+      const initialPDelta = nodeToDelta(this.#view.state.doc)
+      const d = deltaAttributionToFormat(this.ytype.getContent(this.#attributionManager, { deep: true }), this.#mapAttributionToMark)
+      const initDelta = delta.diff(initialPDelta.done(), d)
+
+      console.log('initDelta', initDelta.toJSON())
+      const tr = deltaToPSteps(this.#view.state.tr, initDelta.done())
+      // TODO revisit all of the meta stuff
+      tr.setMeta(ySyncPluginKey, { init: true })
+      this.#view.dispatch(tr)
+    }
+  }
+
+  /**
+   * Initialize the plugin state with the view
+   * @note this will start the synchronization of the prosemirror state with the ydoc
+   * @param {import('prosemirror-view').EditorView} view
+   * @private
+   */
+  init (view) {
+    // initialize the prosemirror state with what is in the ydoc
+    // we wait a tick, because in some cases, the view can be immediately destroyed
+    this.#initializationTimeoutId = setTimeout(() => {
+      // Only set the view if we've passed a tick
+      // This gates the initialization of the plugin state until the view is ready
+      this.#view = view
+      this.#init()
+
+      console.log('initialization complete')
+      // subscribe to the ydoc changes, after initialization is complete
+      this.ytype.observeDeep(this.#onYTypeEvent)
+      console.log('subscribed to ydoc changes')
+    }, 0)
+  }
+
+  /**
+   * Destroy the plugin state
+   * @note this will stop the synchronization of the prosemirror state with the ydoc
+   * @private
+   */
+  destroy () {
+    // clear the initialization timeout
+    clearTimeout(this.#initializationTimeoutId)
+    if (this.#view) {
+      // unsubscribe from the ydoc changes
+      this.ytype.unobserveDeep(this.#onYTypeEvent)
+    }
+  }
+
+  /**
+   * This is the event handler for when the ytype changes
+   * @note this must be a stable reference to be unobserved later
+   * @param {Array<Y.YEvent<any>>} events
+   * @param {Y.Transaction} tr
+   */
+  #onYTypeEvent = (events, tr) => {
+    if (!this.initialized || tr.origin === this) {
+      return
+    }
+
+    this.#mutex(() => {
+      /**
+       * @type {Y.YEvent<Y.XmlFragment>}
+       */
+      const event = events.find(event => event.target === this.ytype) || new Y.YEvent(this.ytype, tr, new Set(null))
+      const d = this.#attributionManager === Y.noAttributionsManager
+        ? event.deltaDeep
+        : deltaAttributionToFormat(event.getDelta(this.#attributionManager, { deep: true }), this.#mapAttributionToMark)
+      const ptr = deltaToPSteps(this.#view.state.tr, d)
+      console.log('ytype emitted event', d.toJSON(), 'and applied changes to pm', ptr.steps)
+      ptr.setMeta(ySyncPluginKey, { ytypeEvent: true })
+      this.#view.dispatch(ptr)
+    }, () => {
+      if (this.#attributionManager !== Y.noAttributionsManager) {
+        const itemsToRender = Y.mergeIdSets([tr.insertSet, tr.deleteSet])
+        /**
+         * @todo this could be automatically be calculated in getContent/getDelta when
+         * itemsToRender is provided
+         * @type {Map<Y.AbstractType, Set<string|null>>}
+         */
+        const modified = new Map()
+        Y.iterateStructsByIdSet(tr, itemsToRender, item => {
+          while (item instanceof Y.Item) {
+            const parent = /** @type {Y.AbstractType} */ (item.parent)
+            const conf = map.setIfUndefined(modified, parent, set.create)
+            if (conf.has(item.parentSub)) break // has already been marked as modified
+            conf.add(item.parentSub)
+            item = parent._item
+          }
+        })
+
+        if (modified.has(this.ytype)) {
+          setTimeout(() => {
+            this.#mutex(() => {
+              const d = deltaAttributionToFormat(this.ytype.getContent(this.#attributionManager, {
+                itemsToRender,
+                retainInserts: true,
+                deep: true,
+                modified
+              }), this.#mapAttributionToMark)
+              const ptr = deltaToPSteps(this.#view.state.tr, d)
+              ptr.setMeta(ySyncPluginKey, { attributionFix: true })
+              console.log('attribution fix event: ', d.toJSON(), 'and applied changes to pm', ptr.steps)
+              this.#view.dispatch(ptr)
+            })
+          }, 0)
+        }
+      }
+    })
+  }
+}
+
+/**
+ * @param {Y.XmlFragment} ytype
+ * @param {object} opts
+ * @param {Y.AbstractAttributionManager} [opts.attributionManager]
+ * @param {typeof attributionToFormat} [opts.mapAttributionToMark]
+ * @returns {Plugin}
+ */
+export function syncPlugin (ytype, { attributionManager = Y.noAttributionsManager, mapAttributionToMark = attributionToFormat } = {}) {
+  return new Plugin({
+    key: ySyncPluginKey,
+    state: {
+      init () {
+        return new SyncPluginState(ytype, attributionManager)
+      },
+      apply (tr, value) {
+        return value.applyTr(tr)
+      }
+    },
+    view (view) {
+      const pluginState = ySyncPluginKey.getState(view.state)
+
+      if (!pluginState) {
+        throw new Error('[y/prosemirror]: plugin state not found in view.state')
+      }
+
+      pluginState.init(view)
+
+      return {
+        update () {
+          pluginState.applyDiff()
+        },
+        destroy () {
+          pluginState.destroy()
+        }
+      }
+    },
+    appendTransaction (transactions, _oldState, newState) {
+      console.log('transactions', transactions.slice(0))
+      transactions = transactions.filter(tr => tr.docChanged && !tr.getMeta(ySyncPluginKey))
+      if (transactions.length === 0) return undefined
+
+      return newState.tr.setMeta(ySyncPluginKey, { transactions })
+    }
+    // TODO to acccount for cases where appendTransaction is called on an ephemeral state, we may not want to apply the delta to the ytype
+    // unless, the editor has actually applied the transaction, perhaps we can return a transaction that has a meta with how to apply the delta? or it returns the delta, and then the state.apply can actually sync it to the ytype?
+    // that actually seems less error prone, and might actually enable us to block syncing in certain cases with just a filterTransaction? That's actually pretty nice!
+    // per transaction, we can actually choose whether we should sync the transaction to the ytype or not, this would allow much more fine-grained control over syncing.
+
+  })
 }
 
 /**
@@ -411,7 +498,7 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
       for (let remainingDelLen = op.delete; remainingDelLen > 0;) {
         const pc = pchildren[currParentIndex]
         if (pc === undefined) {
-          throw new Error('delete operation is out of bounds')
+          throw new Error('[y/prosemirror]: delete operation is out of bounds')
         }
         if (pc.isText) {
           const delLen = math.min(pc.nodeSize - nOffset, remainingDelLen)
@@ -451,18 +538,35 @@ const deltaToPNode = (d, schema, dformat) => {
 }
 
 /**
+ * @param {Node} beforeDoc
+ * @param {Node} afterDoc
+ */
+export const docDiffToDelta = (beforeDoc, afterDoc) => {
+  const initialDelta = nodeToDelta(beforeDoc)
+  const finalDelta = nodeToDelta(afterDoc)
+
+  return delta.diff(initialDelta.done(), finalDelta.done())
+}
+
+/**
  * @param {Transform} tr
- * @return {ProsemirrorDelta}
  */
 export const trToDelta = (tr) => {
-  const d = delta.create($prosemirrorDelta)
-  tr.steps.forEach((step, i) => {
-    const stepDelta = stepToDelta(step, tr.docs[i])
-    console.log('stepDelta', JSON.stringify(stepDelta.toJSON(), null, 2))
-    console.log('d', JSON.stringify(d.toJSON(), null, 2))
-    d.apply(stepDelta)
-  })
-  return d.done()
+  // const d = delta.create($prosemirrorDelta)
+  // tr.steps.forEach((step, i) => {
+  //   const stepDelta = stepToDelta(step, tr.docs[i])
+  //   console.log('stepDelta', JSON.stringify(stepDelta.toJSON(), null, 2))
+  //   console.log('d', JSON.stringify(d.toJSON(), null, 2))
+  //   d.apply(stepDelta)
+  // })
+  // return d.done()
+  // Calculate delta from initial and final document states to avoid composition issues with delete operations
+  // This is more reliable than composing step-by-step, which can lose delete operations and cause "Unexpected case" errors
+  // after lib0 upgrades that change delta composition behavior
+  const initialDelta = nodeToDelta(tr.before)
+  const finalDelta = nodeToDelta(tr.doc)
+  const resultDelta = delta.diff(initialDelta.done(), finalDelta.done())
+  return resultDelta
 }
 
 const _stepToDelta = s.match({ beforeDoc: Node, afterDoc: Node })
@@ -470,7 +574,9 @@ const _stepToDelta = s.match({ beforeDoc: Node, afterDoc: Node })
     const oldStart = beforeDoc.resolve(step.from)
     const oldEnd = beforeDoc.resolve(step.to)
     const newStart = afterDoc.resolve(step.from)
-    const newEnd = afterDoc.resolve(step.from + step.slice.size)
+
+    const newEnd = afterDoc.resolve(step instanceof ReplaceAroundStep ? step.getMap().map(step.to) : step.from + step.slice.size)
+
     const oldBlockRange = oldStart.blockRange(oldEnd)
     const newBlockRange = newStart.blockRange(newEnd)
     const oldDelta = deltaForBlockRange(oldBlockRange)
@@ -511,7 +617,7 @@ const _stepToDelta = s.match({ beforeDoc: Node, afterDoc: Node })
 export const stepToDelta = (step, beforeDoc) => {
   const stepResult = step.apply(beforeDoc)
   if (stepResult.failed) {
-    throw new Error('step failed to apply')
+    throw new Error('[y/prosemirror]: step failed to apply')
   }
   return _stepToDelta(step, { beforeDoc, afterDoc: stepResult.doc })
 }

@@ -5,9 +5,10 @@ import * as Y from '@y/y'
 import { EditorState } from 'prosemirror-state'
 import { Fragment, Schema, Slice } from 'prosemirror-model'
 import * as delta from 'lib0/delta'
-import { ReplaceAroundStep } from 'prosemirror-transform'
+import { findWrapping, ReplaceAroundStep } from 'prosemirror-transform'
 import { EditorView } from 'prosemirror-view'
 import { ySyncPluginKey } from '../src/plugins/keys.js'
+import { promise } from 'lib0'
 
 const schema = new Schema({
   nodes: basicSchema.nodes,
@@ -18,13 +19,14 @@ const schema = new Schema({
  * @param {Y.XmlFragment} ytype
  * @param {Y.AbstractAttributionManager} [attributionManager]
  */
-const createProsemirrorView = (ytype, attributionManager) => {
-  const view = new EditorView(null, {
+const createProsemirrorView = async (ytype, attributionManager) => {
+  const view = new EditorView({ mount: document.createElement('div') }, {
     state: EditorState.create({
       schema,
       plugins: [ypm.syncPlugin(ytype, { attributionManager })]
     })
   })
+  await promise.wait(1)
   return view
 }
 
@@ -35,6 +37,12 @@ const validate = pm => {
   const ycontent = ySyncPluginKey.getState(pm.state).ytype.getContentDeep()
   ycontent.name = 'doc'
   const pcontent = ypm.nodeToDelta(pm.state.doc)
+  const ycontentJson = JSON.stringify(ycontent.toJSON ? ycontent.toJSON() : ycontent, null, 2)
+  const pcontentJson = JSON.stringify(pcontent.done(false).toJSON ? pcontent.done(false).toJSON() : pcontent.done(false), null, 2)
+  console.log('\n=== VALIDATION ===')
+  console.log('Y content:', ycontentJson)
+  console.log('P content:', pcontentJson)
+  console.log('Are they equal?', ycontentJson === pcontentJson)
   t.compare(ycontent, pcontent.done(false))
 }
 
@@ -55,7 +63,7 @@ const testHelper = (changes) => {
   /**
    * @param {t.TestCase} _tc
    */
-  return _tc => {
+  return async _tc => {
     // sync two ydocs
     const ydoc = new Y.Doc()
     const ydoc2 = new Y.Doc()
@@ -69,9 +77,10 @@ const testHelper = (changes) => {
     // never change this structure!
     // <heading>[1]Hello World![13]</heading>[14]<paragraph>[15]Lorem [21]ipsum..[28]</paragraph>[29]
     ytype.applyDelta(delta.create().insert([delta.create('heading', { level: 1 }, 'Hello World!'), delta.create('paragraph', {}, 'Lorem ipsum..')]))
-    const view = createProsemirrorView(ytype)
-    const view2 = createProsemirrorView(ydoc2.getXmlFragment('prosemirror'))
-    changes.forEach(change => {
+    const view = await createProsemirrorView(ytype)
+    const view2 = await createProsemirrorView(ydoc2.getXmlFragment('prosemirror'))
+
+    for (const change of changes) {
       const ytype = ySyncPluginKey.getState(view.state).ytype
       const ytype2 = ySyncPluginKey.getState(view2.state).ytype
       const tr = change({
@@ -85,14 +94,14 @@ const testHelper = (changes) => {
       if (delta.$deltaAny.check(tr)) {
         ytype.applyDelta(tr)
       } else if (tr != null) {
-        console.log('dispatching transaction', tr)
         view.dispatch(tr)
       }
+      await promise.wait(1)
       validate(view)
       validate(view2)
       t.compare(ytype.getContentDeep(), ytype2.getContentDeep())
-    })
-    console.log('final pm document:', view.state.doc.toJSON())
+    }
+    console.log('final pm document:', JSON.stringify(view.state.doc.toJSON(), null, 2))
   }
 }
 
@@ -122,4 +131,35 @@ export const testReplaceAround = testHelper([
 
 export const testAttrStep = testHelper([
   ({ tr }) => tr.setNodeAttribute(0, 'level', 2)
+])
+
+export const testMultipleSimpleSteps = testHelper([
+  ({ tr }) => {
+    tr.insertText('abc', 15)
+
+    tr.insertText('def', 13)
+    return tr
+  }
+])
+
+export const testWrapping = testHelper([
+  ({ tr }) => {
+    const blockRange = tr.doc.resolve(15).blockRange(tr.doc.resolve(28))
+
+    const wrapping = findWrapping(blockRange, schema.nodes.blockquote)
+    tr.wrap(blockRange, wrapping)
+    return tr
+  }
+])
+
+export const testMultipleComplexSteps = testHelper([
+  ({ tr }) => {
+    tr.insertText('abc', 16)
+
+    const blockRange = tr.doc.resolve(15).blockRange(tr.doc.resolve(28))
+
+    const wrapping = findWrapping(blockRange, schema.nodes.blockquote)
+    tr.wrap(blockRange, wrapping)
+    return tr
+  }
 ])
