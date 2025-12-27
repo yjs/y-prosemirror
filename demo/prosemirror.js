@@ -1,7 +1,7 @@
 /* eslint-env browser */
 
 import * as Y from '@y/y'
-import { syncPlugin } from '../src/index.js'
+import { syncPlugin, ySyncPluginKey } from '../src/y-prosemirror.js'
 import { EditorState } from 'prosemirror-state'
 import { schema } from './schema.js'
 import { exampleSetup } from 'prosemirror-example-setup'
@@ -9,6 +9,7 @@ import { WebsocketProvider } from '@y/websocket'
 import * as random from 'lib0/random'
 import * as error from 'lib0/error'
 import { EditorView } from 'prosemirror-view'
+import * as object from 'lib0/object'
 
 const roomName = 'pm-suggestion-demo-2'
 
@@ -70,6 +71,15 @@ elemToggleConnect.addEventListener('change', () => {
   localStorage.setItem('should-connect', elemToggleConnect.checked ? 'true' : 'false')
 })
 
+const elemTogglePauseSync = document.querySelector('#toggle-pause-sync')
+
+elemTogglePauseSync.addEventListener('change', () => {
+  if (elemTogglePauseSync.checked) {
+    ySyncPluginKey.getState(currentView.state).pauseSync()
+  } else {
+    ySyncPluginKey.getState(currentView.state).resumeSync()
+  }
+})
 /*
  * # Init two Yjs documents.
  *
@@ -102,7 +112,18 @@ const initEditor = () => {
   currentView = new EditorView(editor, {
     state: EditorState.create({
       schema,
-      plugins: [].concat(exampleSetup({ schema, history: false }), syncPlugin(ypm, { awareness: providerYdoc.awareness, attributionManager: withSuggestions ? am : undefined }))
+      plugins: [].concat(exampleSetup({ schema, history: false }), syncPlugin(ypm, {
+        awareness: providerYdoc.awareness,
+        attributionManager: withSuggestions ? am : undefined,
+        mapAttributionToMark: (format, attribution) => {
+          console.log('format', format, attribution)
+          return object.assign({}, format, {
+            ychange: attribution.insert
+              ? { type: 'added', user: attribution.insert?.[0] }
+              : { type: 'removed', user: attribution.delete?.[0] }
+          })
+        }
+      }))
     })
   })
   // @ts-ignore

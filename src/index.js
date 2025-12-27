@@ -90,6 +90,10 @@ const deltaAttributionToFormat = s.match(s.$function)
   }).done()
 
 /**
+ * @typedef {{type: 'initialized', ytype: Y.XmlFragment} | { type: 'local-update', capturedTransactions: import('prosemirror-state').Transaction[] } | { type: 'remote-update', events: Array<Y.YEvent<Y.XmlFragment>>, ytype: Y.XmlFragment; attributionFix?: true } | { type: 'render-snapshot', snapshot: Y.Snapshot, prevSnapshot: Y.Snapshot } | {type: 'pause-sync'} | {type: 'resume-sync'}} YSyncPluginMeta
+ */
+
+/**
  * This class is the state of the sync plugin, it is essentially the public API for the sync plugin
  */
 export class SyncPluginState {
@@ -97,11 +101,6 @@ export class SyncPluginState {
    * @type {Y.XmlFragment}
    */
   ytype
-
-  /**
-   * @type {ProsemirrorDelta | null}
-   */
-  #diff = null
 
   /**
    * @type {Y.AbstractAttributionManager}
@@ -118,53 +117,118 @@ export class SyncPluginState {
    */
   #view = null
 
+  /**
+   * Get the view that the sync plugin is attached to
+   * @returns {import('prosemirror-view').EditorView}
+   * @private
+   */
+  get view () {
+    if (!this.#view) {
+      throw new Error('[y/prosemirror]: view not set')
+    }
+    return this.#view
+  }
+
   #mutex = mux.createMutex()
 
   /**
-   * @param {Y.XmlFragment} ytype
-   * @param {Y.AbstractAttributionManager} attributionManager
-   * @param {typeof attributionToFormat} mapAttributionToMark
+   * @type {{type: 'sync', pendingDelta: ProsemirrorDelta | null} | {type:'paused'} | {type:'snapshot', snapshot: Y.Snapshot; prevSnapshot: Y.Snapshot}}
    */
-  constructor (ytype, attributionManager, mapAttributionToMark) {
+  #mode = { type: 'sync' }
+
+  /**
+   * @param {object} ctx
+   * @param {Y.XmlFragment} ctx.ytype
+   * @param {Y.AbstractAttributionManager} [ctx.attributionManager]
+   * @param {typeof attributionToFormat} [ctx.mapAttributionToMark]
+   */
+  constructor ({ ytype, attributionManager, mapAttributionToMark }) {
+    if (!ytype) {
+      throw new Error('[y/prosemirror]: ytype not provided')
+    }
     this.ytype = ytype
-    this.#attributionManager = attributionManager
+    this.#attributionManager = attributionManager || Y.noAttributionsManager
     this.#mapAttributionToMark = mapAttributionToMark || attributionToFormat
   }
 
   /**
+   * This takes a prosemirror transaction and attempts to update the internal plugin state
    * @param {import('prosemirror-state').Transaction} tr
    * @returns {SyncPluginState}
    * @private
    */
-  applyTr (tr) {
-    console.log('apply', tr, 'has-meta', tr.getMeta(ySyncPluginKey))
-    if (tr.getMeta(ySyncPluginKey)) {
-      const { transactions } = /** @type {{ transactions: Array<Transaction> }} */ (tr.getMeta(ySyncPluginKey))
-      if (!transactions) {
-        return this
-      }
-      // merge all transactions into a single transform
-      const transform = new Transform(transactions[0].before)
+  onApplyTr (tr) {
+    /** @type {YSyncPluginMeta | undefined} */
+    const pluginMeta = tr.getMeta(ySyncPluginKey)
+    if (!pluginMeta) {
+      return this
+    }
 
-      for (let i = 0; i < transactions.length; i++) {
-        console.log('transactions[i]', transactions[i])
-        for (let j = 0; j < transactions[i].steps.length; j++) {
-          const success = transform.maybeStep(transactions[i].steps[j])
-          if (success.failed) {
-            // step failed, fallback to full diff
-            console.error('[y/prosemirror]: step failed to apply, falling back to a full diff')
+    const pluginState = this.clone()
+    switch (pluginMeta.type) {
+      /**
+       * For an ideal prosemirror binding, we should only commit the state once the view has been updated to the new editor state
+       * Technically, there can be a number of editor state transitions between, but we only care about the state that gets committed to the view
+       * So:
+       *  1. we capture the transactions that are local-updates, in `appendTransaction`
+       *  2. when state.apply(tr) is called, we generate a delta of the changes that we captured (merging any other states we found between such as additional appendTransaction plugins)
+       *  3. when view.updateState(state) is called, we then synchronize that delta back to the ytype to sync the changes to peers
+       *
+       * This allows the sync plugin to be in any order within the prosemirror plugins array, since it will be committed once the view's state has been applied
+       */
+      case 'local-update':{
+        if (this.#mode.type !== 'sync') {
+          // No-op since we are not in sync mode
+          return this
+        }
 
-            const nextDiff = docDiffToDelta(transactions[0].before, transactions[transactions.length - 1].after)
-            // TODO what should the right behavior here be?
-            this.#diff = this.#diff ? this.#diff.apply(nextDiff) : nextDiff
-            return this
+        const { capturedTransactions } = pluginMeta
+
+        // We queue up local-updates by merging all of the transactions that have been captured
+        const transform = new Transform(capturedTransactions[0].before)
+
+        for (let i = 0; i < capturedTransactions.length; i++) {
+          for (let j = 0; j < capturedTransactions[i].steps.length; j++) {
+            const success = transform.maybeStep(capturedTransactions[i].steps[j])
+            if (success.failed) {
+              // step failed, fallback to full diff
+              console.error('[y/prosemirror]: step failed to apply, falling back to a full diff')
+
+              const nextDelta = docDiffToDelta(capturedTransactions[0].before, capturedTransactions[capturedTransactions.length - 1].after)
+              // TODO what should the right behavior here be?
+              pluginState.#mode.pendingDelta = pluginState.#mode.pendingDelta ? pluginState.#mode.pendingDelta.apply(nextDelta) : nextDelta
+              return pluginState
+            }
           }
         }
-      }
-      const nextDiff = trToDelta(transform)
+        // Then trying to derive the delta that they represent
+        const nextDelta = trToDelta(transform)
 
-      this.#diff = this.#diff ? this.#diff.apply(nextDiff) : nextDiff
+        // And, either applying that delta to the already pendingDelta, or promoting that delta to being the next pending delta
+        pluginState.#mode.pendingDelta = this.#mode.pendingDelta ? this.#mode.pendingDelta.apply(nextDelta) : nextDelta
+        return pluginState
+      }
+      case 'render-snapshot':{
+        pluginState.#mode = {
+          type: 'snapshot',
+          snapshot: pluginMeta.snapshot,
+          prevSnapshot: pluginMeta.prevSnapshot
+        }
+        return pluginState
+      }
+      case 'resume-sync': {
+        // Move back to sync mode
+        pluginState.#mode = { type: 'sync' }
+        return pluginState
+      }
+      case 'pause-sync':{
+        // Move to paused mode
+        pluginState.#mode = { type: 'paused' }
+
+        return pluginState
+      }
     }
+
     return this
   }
 
@@ -177,21 +241,60 @@ export class SyncPluginState {
 
   /**
    * Apply any pending diffs to the ytype
+   * @param {import('prosemirror-state').EditorState} prevState
    * @private
    */
-  applyDiff () {
-    if (!this.initialized || !this.#diff) {
+  onViewUpdate (prevState) {
+    if (!this.initialized) {
       return
     }
-    this.#mutex(() => {
-      const diff = this.#diff
-      // clear the diff so that we don't accidentally apply it again
-      this.#diff = null
-      console.log('and will apply delta to ytype', diff.toJSON(), this.ytype.toJSON())
-      this.ytype.doc.transact(() => {
-        this.ytype.applyDelta(diff, this.#attributionManager)
-      }, this)
-    })
+    const prevPluginState = ySyncPluginKey.getState(prevState)
+    switch (this.#mode.type) {
+      case 'snapshot':{
+        if (prevPluginState.#mode.type === 'snapshot') {
+          // Already in snapshot mode, so we don't need to do anything
+          return
+        }
+        // Just transitioned from another mode, so we need to actually apply the snapshot mode
+
+        // Stop observing the ydoc changes, since we are looking at a snapshot in time
+        prevPluginState.ytype.unobserveDeep(prevPluginState.#onYTypeEvent)
+
+        return
+      }
+      case 'sync':{
+        if (prevPluginState.#mode.type === 'paused') {
+          // was just paused, so we need to resume sync
+
+          // Restart the observer for two-way sync again
+          this.ytype.observeDeep(this.#onYTypeEvent)
+          return
+        }
+        if (!this.#mode.pendingDelta) {
+          return
+        }
+        this.#mutex(() => {
+          const d = this.#mode.pendingDelta
+          // clear the delta so that we don't accidentally apply it again
+          this.#mode.pendingDelta = null
+
+          this.ytype.doc.transact(() => {
+            this.ytype.applyDelta(d, this.#attributionManager)
+          }, this)
+        })
+        return
+      }
+      case 'paused':{
+        if (prevPluginState.#mode.type === 'paused') {
+          // Already in paused mode, so we don't need to do anything
+          return
+        }
+        // Just transitioned from another mode, so we need to actually apply the paused mode
+
+        // Stop observing the ydoc changes, since we are looking at a snapshot in time
+        prevPluginState.ytype.unobserveDeep(prevPluginState.#onYTypeEvent)
+      }
+    }
   }
 
   /**
@@ -204,26 +307,28 @@ export class SyncPluginState {
    */
   #init () {
     // TODO ydoc.on('sync') ? we could use this to indicate that the ydoc is ready or not
-    console.log('initializing prosemirror state with ydoc')
     if (this.ytype.length === 0) {
       console.log('ytype is empty, applying initial prosemirror state to ydoc')
       // TODO likely want to compare the empty initial doc with the ydoc and apply changes the ydoc if there are any
       // initialize the ydoc with the initial prosemirror state
-      const initialPDelta = nodeToDelta(this.#view.state.doc)
-      console.log('initialPDelta', initialPDelta.toJSON())
-      this.ytype.applyDelta(initialPDelta.done())
+      this.ytype.doc.transact(() => {
+        pmToFragment(this.view.state.doc, this.ytype)
+      }, this)
     } else {
       console.log('ytype is not empty, applying initial ydoc content to prosemirror state')
       // Initialize the prosemirror state with what is in the ydoc
-      const initialPDelta = nodeToDelta(this.#view.state.doc)
-      const d = deltaAttributionToFormat(this.ytype.getContent(this.#attributionManager, { deep: true }), this.#mapAttributionToMark)
-      const initDelta = delta.diff(initialPDelta.done(), d)
+      const tr = fragmentToTr(this.ytype, this.tr, {
+        attributionManager: this.#attributionManager,
+        mapAttributionToMark: this.#mapAttributionToMark
+      })
 
-      console.log('initDelta', initDelta.toJSON())
-      const tr = deltaToPSteps(this.#view.state.tr, initDelta.done())
-      // TODO revisit all of the meta stuff
-      tr.setMeta(ySyncPluginKey, { init: true })
-      this.#view.dispatch(tr)
+      /** @type {YSyncPluginMeta} */
+      const pluginMeta = {
+        type: 'initialized',
+        ytype: this.ytype
+      }
+      tr.setMeta(ySyncPluginKey, pluginMeta)
+      this.view.dispatch(tr)
     }
   }
 
@@ -242,10 +347,8 @@ export class SyncPluginState {
       this.#view = view
       this.#init()
 
-      console.log('initialization complete')
       // subscribe to the ydoc changes, after initialization is complete
       this.ytype.observeDeep(this.#onYTypeEvent)
-      console.log('subscribed to ydoc changes')
     }, 0)
   }
 
@@ -264,13 +367,14 @@ export class SyncPluginState {
   }
 
   /**
-   * This is the event handler for when the ytype changes
+   * This is the event handler for when the ytype changes, applying remote changes to the editor content
    * @note this must be a stable reference to be unobserved later
-   * @param {Array<Y.YEvent<any>>} events
+   * @param {Array<Y.YEvent<Y.XmlFragment>>} events
    * @param {Y.Transaction} tr
    */
   #onYTypeEvent = (events, tr) => {
-    if (!this.initialized || tr.origin === this) {
+    // bail if: the view is destroyed OR it was us that made the change OR we are not in "sync" mode
+    if (!this.initialized || tr.origin === this || this.#mode.type !== 'sync') {
       return
     }
 
@@ -283,46 +387,138 @@ export class SyncPluginState {
         ? event.deltaDeep
         : deltaAttributionToFormat(event.getDelta(this.#attributionManager, { deep: true }), this.#mapAttributionToMark)
       const ptr = deltaToPSteps(this.#view.state.tr, d)
-      console.log('ytype emitted event', d.toJSON(), 'and applied changes to pm', ptr.steps)
+      // console.log('ytype emitted event', d.toJSON(), 'and applied changes to pm', ptr.steps)
       ptr.setMeta(ySyncPluginKey, { ytypeEvent: true })
       this.#view.dispatch(ptr)
     }, () => {
-      if (this.#attributionManager !== Y.noAttributionsManager) {
-        const itemsToRender = Y.mergeIdSets([tr.insertSet, tr.deleteSet])
-        /**
+      if (this.#attributionManager === Y.noAttributionsManager) {
+        // no attribution fixup needed
+        return
+      }
+      const itemsToRender = Y.mergeIdSets([tr.insertSet, tr.deleteSet])
+      /**
          * @todo this could be automatically be calculated in getContent/getDelta when
          * itemsToRender is provided
          * @type {Map<Y.AbstractType, Set<string|null>>}
          */
-        const modified = new Map()
-        Y.iterateStructsByIdSet(tr, itemsToRender, item => {
-          while (item instanceof Y.Item) {
-            const parent = /** @type {Y.AbstractType} */ (item.parent)
-            const conf = map.setIfUndefined(modified, parent, set.create)
-            if (conf.has(item.parentSub)) break // has already been marked as modified
-            conf.add(item.parentSub)
-            item = parent._item
-          }
-        })
-
-        if (modified.has(this.ytype)) {
-          setTimeout(() => {
-            this.#mutex(() => {
-              const d = deltaAttributionToFormat(this.ytype.getContent(this.#attributionManager, {
-                itemsToRender,
-                retainInserts: true,
-                deep: true,
-                modified
-              }), this.#mapAttributionToMark)
-              const ptr = deltaToPSteps(this.#view.state.tr, d)
-              ptr.setMeta(ySyncPluginKey, { attributionFix: true })
-              console.log('attribution fix event: ', d.toJSON(), 'and applied changes to pm', ptr.steps)
-              this.#view.dispatch(ptr)
-            })
-          }, 0)
+      const modified = new Map()
+      Y.iterateStructsByIdSet(tr, itemsToRender, item => {
+        while (item instanceof Y.Item) {
+          const parent = /** @type {Y.AbstractType} */ (item.parent)
+          const conf = map.setIfUndefined(modified, parent, set.create)
+          if (conf.has(item.parentSub)) break // has already been marked as modified
+          conf.add(item.parentSub)
+          item = parent._item
         }
+      })
+
+      if (modified.has(this.ytype)) {
+        setTimeout(() => {
+          this.#mutex(() => {
+            const d = deltaAttributionToFormat(this.ytype.getContent(this.#attributionManager, {
+              itemsToRender,
+              retainInserts: true,
+              deep: true,
+              modified
+            }), this.#mapAttributionToMark)
+            const ptr = deltaToPSteps(this.tr, d)
+            console.log('attribution fix event: ', d.toJSON(), 'and applied changes to pm', ptr.steps)
+
+            /** @type {YSyncPluginMeta} */
+            const pluginMeta = {
+              type: 'remote-update',
+              events,
+              ytype: this.ytype,
+              attributionFix: true
+            }
+            ptr.setMeta(ySyncPluginKey, pluginMeta)
+            this.view.dispatch(ptr)
+          })
+        }, 0)
       }
     })
+  }
+
+  /**
+   * Create a transaction for changing the prosemirror state.
+   * @private
+   */
+  get tr () {
+    return this.view.state.tr.setMeta('addToHistory', false)
+  }
+
+  /**
+   * Pause the synchronization of the prosemirror state with the ydoc
+   */
+  pauseSync () {
+    /** @type {YSyncPluginMeta} */
+    const pluginMeta = {
+      type: 'pause-sync'
+    }
+    this.view.dispatch(this.tr.setMeta(ySyncPluginKey, pluginMeta))
+  }
+
+  /**
+   * Resume the synchronization of the prosemirror state with the ydoc
+   */
+  resumeSync () {
+    // TODO, can implement a keepChanges flag to keep the changes that were made while paused
+    if (this.mode !== 'paused') {
+      return
+    }
+    // Take whatever is in the ytype now, and make that the new document state
+    const tr = fragmentToTr(this.ytype, this.tr, {
+      attributionManager: this.#attributionManager,
+      mapAttributionToMark: this.#mapAttributionToMark
+    })
+    /** @type {YSyncPluginMeta} */
+    const pluginMeta = {
+      type: 'resume-sync'
+    }
+    tr.setMeta(ySyncPluginKey, pluginMeta)
+    this.view.dispatch(tr)
+  }
+
+  /**
+   * Get the mode that the sync plugin is in
+   */
+  get mode () {
+    return this.#mode.type
+  }
+
+  /**
+   * @param {Y.Snapshot} snapshot
+   * @param {Y.Snapshot} [prevSnapshot]
+   */
+  renderSnapshot (snapshot, prevSnapshot) {
+    if (!prevSnapshot) {
+      prevSnapshot = Y.createSnapshot(Y.createIdSet(), new Map())
+    }
+    /** @type {YSyncPluginMeta} */
+    const pluginMeta = {
+      type: 'render-snapshot',
+      snapshot,
+      prevSnapshot
+    }
+    const tr = this.tr.setMeta(ySyncPluginKey, pluginMeta)
+    // on this same TR, we should also be making a transaction to apply the snapshot to the ytype
+    this.view.dispatch(tr)
+  }
+
+  clone () {
+    const pluginState = new SyncPluginState({
+      ytype: this.ytype,
+      attributionManager: this.#attributionManager,
+      mapAttributionToMark: this.#mapAttributionToMark
+    })
+
+    pluginState.#onYTypeEvent = this.#onYTypeEvent
+    pluginState.#mode = this.#mode
+    pluginState.#mutex = this.#mutex
+    pluginState.#view = this.#view
+    pluginState.#initializationTimeoutId = this.#initializationTimeoutId
+
+    return pluginState
   }
 }
 
@@ -338,10 +534,10 @@ export function syncPlugin (ytype, { attributionManager = Y.noAttributionsManage
     key: ySyncPluginKey,
     state: {
       init () {
-        return new SyncPluginState(ytype, attributionManager)
+        return new SyncPluginState({ ytype, attributionManager, mapAttributionToMark })
       },
       apply (tr, value) {
-        return value.applyTr(tr)
+        return value.onApplyTr(tr)
       }
     },
     view (view) {
@@ -354,20 +550,32 @@ export function syncPlugin (ytype, { attributionManager = Y.noAttributionsManage
       pluginState.init(view)
 
       return {
-        update () {
-          pluginState.applyDiff()
+        update (view, prevState) {
+          const pluginState = ySyncPluginKey.getState(view.state)
+          if (!pluginState) {
+            throw new Error('[y/prosemirror]: plugin state not found in view.state')
+          }
+          pluginState.onViewUpdate(prevState)
         },
         destroy () {
+          const pluginState = ySyncPluginKey.getState(view.state)
+          if (!pluginState) {
+            throw new Error('[y/prosemirror]: plugin state not found in view.state')
+          }
           pluginState.destroy()
         }
       }
     },
     appendTransaction (transactions, _oldState, newState) {
-      console.log('transactions', transactions.slice(0))
       transactions = transactions.filter(tr => tr.docChanged && !tr.getMeta(ySyncPluginKey))
       if (transactions.length === 0) return undefined
 
-      return newState.tr.setMeta(ySyncPluginKey, { transactions })
+      /** @type {YSyncPluginMeta} */
+      const pluginMeta = {
+        type: 'local-update',
+        capturedTransactions: transactions
+      }
+      return newState.tr.setMeta(ySyncPluginKey, pluginMeta).setMeta('addToHistory', false)
     }
     // TODO to acccount for cases where appendTransaction is called on an ephemeral state, we may not want to apply the delta to the ytype
     // unless, the editor has actually applied the transaction, perhaps we can return a transaction that has a meta with how to apply the delta? or it returns the delta, and then the state.apply can actually sync it to the ytype?
@@ -410,6 +618,55 @@ export const nodesToDelta = ns => {
     d.insert(n.isText ? n.text : [nodeToDelta(n)], marksToFormattingAttributes(n.marks))
   })
   return d
+}
+
+/**
+ * Transforms a {@link Node} into a {@link Y.XmlFragment}
+ * @param {Node} node
+ * @param {Y.XmlFragment} [fragment]
+ * @returns {Y.XmlFragment}
+ */
+export function pmToFragment (node, fragment = new Y.XmlFragment()) {
+  const initialPDelta = nodeToDelta(node).done()
+  fragment.applyDelta(initialPDelta)
+
+  return fragment
+}
+
+/**
+ * Applies a {@link Y.XmlFragment}'s content as a ProseMirror {@link Transaction}
+ * @note if a starting {@link Node} is provided, it will compute the minimal ProseMirror {@link Transaction} to transform from that starting document
+ * @param {Y.XmlFragment} fragment
+ * @param {import('prosemirror-state').Transaction} tr
+ * @param {object} [ctx]
+ * @param {Y.AbstractAttributionManager} [ctx.attributionManager]
+ * @param {typeof attributionToFormat} [ctx.mapAttributionToMark]
+ * @returns {import('prosemirror-state').Transaction}
+ */
+export function fragmentToTr (fragment, tr, {
+  attributionManager = Y.noAttributionsManager,
+  mapAttributionToMark = attributionToFormat
+}) {
+  const fragmentContent = deltaAttributionToFormat(
+    fragment.getContent(attributionManager, { deep: true }),
+    mapAttributionToMark
+  )
+  const initialPDelta = nodeToDelta(tr.doc).done()
+  const deltaBetweenPmAndFragment = delta.diff(initialPDelta, fragmentContent).done()
+
+  return deltaToPSteps(tr, deltaBetweenPmAndFragment).setMeta('y-sync-hydration', {
+    delta: deltaBetweenPmAndFragment
+  })
+}
+
+/**
+ * Transforms a {@link Y.XmlFragment} into a {@link Node}
+ * @param {Y.XmlFragment} fragment
+ * @param {import('prosemirror-state').Transaction}
+ * @returns {Node}
+ */
+export function fragmentToPm (fragment, tr) {
+  return fragmentToTr(fragment, tr).doc
 }
 
 /**
