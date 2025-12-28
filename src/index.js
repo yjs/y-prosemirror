@@ -513,7 +513,7 @@ export class SyncPluginState {
    * @param {boolean} [opts.keepChanges]
    */
   resumeSync ({ keepChanges = false } = {}) {
-    if (this.mode === 'sync') {
+    if (this.#state.type === 'sync') {
       // Already in sync mode, so we don't need to do anything
       return
     }
@@ -591,6 +591,7 @@ export class SyncPluginState {
     pluginState.#mutex = this.#mutex
     pluginState.#view = this.#view
     pluginState.#initializationTimeoutId = this.#initializationTimeoutId
+    // We can safely clone the subscription, because it will always operate on the latest plugin state, rather than being bound to the one that created it
     pluginState.#subscription = this.#subscription
 
     return pluginState
@@ -598,10 +599,11 @@ export class SyncPluginState {
 }
 
 /**
+ * This Prosemirror {@link Plugin} is responsible for synchronizing the prosemirror {@link EditorState} with a {@link Y.XmlFragment}
  * @param {Y.XmlFragment} ytype
  * @param {object} opts
- * @param {Y.AbstractAttributionManager} [opts.attributionManager]
- * @param {typeof attributionToFormat} [opts.mapAttributionToMark]
+ * @param {Y.AbstractAttributionManager} [opts.attributionManager] An {@link Y.AbstractAttributionManager} to use for attribution tracking
+ * @param {typeof attributionToFormat} [opts.mapAttributionToMark] A function to map the {@link Y.Attribution} to a {@link import('prosemirror-model').Mark}
  * @returns {Plugin}
  */
 export function syncPlugin (ytype, { attributionManager = Y.noAttributionsManager, mapAttributionToMark = attributionToFormat } = {}) {
@@ -647,6 +649,7 @@ export function syncPlugin (ytype, { attributionManager = Y.noAttributionsManage
         }
       }
     },
+    // Capture any local updates to the prosemirror state, later we will use them to generate a delta to apply to the ydoc
     appendTransaction (transactions, _oldState, newState) {
       transactions = transactions.filter(tr => tr.docChanged && !tr.getMeta(ySyncPluginKey))
       if (transactions.length === 0) return undefined
