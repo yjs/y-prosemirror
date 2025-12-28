@@ -747,6 +747,9 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
       let i = op.retain
       while (i > 0) {
         const pc = pchildren[currParentIndex]
+        if (pc === undefined) {
+          throw new Error('[y/prosemirror]: retain operation is out of bounds')
+        }
         if (pc.isText) {
           if (op.format != null) {
             const from = currPos.i
