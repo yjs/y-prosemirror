@@ -30,6 +30,10 @@ export const hashOfJSON = (json) => buf.toBase64(_convolute(sha256.digest(buf.en
  * @throws {Error} If ytype does not have a ydoc or can't be found in the other doc
  */
 export function findTypeInOtherYdoc (ytype, otherYdoc) {
+  if (ytype.doc === otherYdoc) {
+    // fast-path, this is the same ydoc
+    return ytype
+  }
   const ydoc = ytype.doc
   if (!ydoc) {
     throw new Error('type does not have a ydoc')

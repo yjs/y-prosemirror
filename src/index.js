@@ -12,6 +12,7 @@ import { Node } from 'prosemirror-model'
 import { AddMarkStep, RemoveMarkStep, AttrStep, AddNodeMarkStep, ReplaceStep, ReplaceAroundStep, RemoveNodeMarkStep, DocAttrStep, Transform } from 'prosemirror-transform'
 import { ySyncPluginKey } from './plugins/keys.js'
 import { Plugin } from 'prosemirror-state'
+import { findTypeInOtherYdoc } from './utils.js'
 
 const $prosemirrorDelta = delta.$delta({ name: s.$string, attrs: s.$record(s.$string, s.$any), text: true, recursive: true })
 
@@ -90,7 +91,11 @@ const deltaAttributionToFormat = s.match(s.$function)
   }).done()
 
 /**
- * @typedef {{type: 'initialized', ytype: Y.XmlFragment} | { type: 'local-update', capturedTransactions: import('prosemirror-state').Transaction[] } | { type: 'remote-update', events: Array<Y.YEvent<Y.XmlFragment>>, ytype: Y.XmlFragment; attributionFix?: true } | { type: 'render-snapshot', snapshot: Y.Snapshot, prevSnapshot: Y.Snapshot } | {type: 'pause-sync'} | {type: 'resume-sync'}} YSyncPluginMeta
+  * @typedef {{fragment: Y.XmlFragment, snapshot?: Y.Snapshot}} SnapshotItem If just a fragment, then we compare the latest fragment with the other fragment. If a snapshot is provided, then we compare the fragment at that snapshot with the other snapshot.
+  */
+
+/**
+ * @typedef {{type: 'initialized', ytype: Y.XmlFragment} | { type: 'local-update', capturedTransactions: import('prosemirror-state').Transaction[] } | { type: 'remote-update', events: Array<Y.YEvent<Y.XmlFragment>>, ytype: Y.XmlFragment; attributionFix?: true } | { type: 'render-snapshot', snapshot: SnapshotItem, prevSnapshot: SnapshotItem } | {type: 'pause-sync'} | {type: 'resume-sync'}} YSyncPluginMeta
  */
 
 /**
@@ -138,7 +143,7 @@ export class SyncPluginState {
   #mutex = mux.createMutex()
 
   /**
-   * @type {{type: 'sync', pendingDelta: ProsemirrorDelta | null} | {type:'paused'} | {type:'snapshot', snapshot: Y.Snapshot, prevSnapshot: Y.Snapshot, originalYtype: Y.XmlFragment, previewYtype: Y.XmlFragment}}
+   * @type {{type: 'sync', pendingDelta: ProsemirrorDelta | null} | {type:'paused'} | {type:'snapshot', snapshot: SnapshotItem, prevSnapshot: SnapshotItem}}
    */
   #state = { type: 'sync', pendingDelta: null }
 
@@ -224,9 +229,7 @@ export class SyncPluginState {
         nextState.#state = {
           type: 'snapshot',
           snapshot: pluginMeta.snapshot,
-          prevSnapshot: pluginMeta.prevSnapshot,
-          originalYtype: pluginMeta.originalYtype,
-          previewYtype: pluginMeta.previewYtype
+          prevSnapshot: pluginMeta.prevSnapshot
         }
         return nextState
       }
@@ -272,12 +275,11 @@ export class SyncPluginState {
         // Just transitioned from another mode, so we need to actually apply the snapshot mode
 
         // Stop observing the ydoc changes, since we are looking at a snapshot in time
-        prevPluginState.ytype.unobserveDeep(prevPluginState.#onYTypeEvent)
-
+        prevPluginState.destroy()
         return
       }
       case 'sync':{
-        if (prevPluginState.#state.type === 'paused') {
+        if (prevPluginState.#state.type === 'paused' || prevPluginState.#state.type === 'snapshot') {
           // was just paused, so we need to resume sync
 
           // Restart the observer for two-way sync again
@@ -510,20 +512,28 @@ export class SyncPluginState {
    */
   resumeSync () {
     // TODO, can implement a keepChanges flag to keep the changes that were made while paused
-    if (this.mode !== 'paused') {
-      return
+    if (this.mode === 'paused') {
+      // Take whatever is in the ytype now, and make that the new document state
+      const tr = fragmentToTr(this.ytype, this.tr, {
+        attributionManager: this.#attributionManager,
+        mapAttributionToMark: this.#mapAttributionToMark
+      })
+      /** @type {YSyncPluginMeta} */
+      const pluginMeta = {
+        type: 'resume-sync'
+      }
+      tr.setMeta(ySyncPluginKey, pluginMeta)
+      this.view.dispatch(tr)
+    } else if (this.mode === 'snapshot') {
+      // Restore to this.ytype's current live state
+      const tr = fragmentToTr(this.ytype, this.tr, {
+        attributionManager: this.#attributionManager,
+        mapAttributionToMark: this.#mapAttributionToMark
+      })
+      const pluginMeta = { type: 'resume-sync' }
+      tr.setMeta(ySyncPluginKey, pluginMeta)
+      this.view.dispatch(tr)
     }
-    // Take whatever is in the ytype now, and make that the new document state
-    const tr = fragmentToTr(this.ytype, this.tr, {
-      attributionManager: this.#attributionManager,
-      mapAttributionToMark: this.#mapAttributionToMark
-    })
-    /** @type {YSyncPluginMeta} */
-    const pluginMeta = {
-      type: 'resume-sync'
-    }
-    tr.setMeta(ySyncPluginKey, pluginMeta)
-    this.view.dispatch(tr)
   }
 
   /**
@@ -534,12 +544,12 @@ export class SyncPluginState {
   }
 
   /**
-   * @param {Y.Snapshot} snapshot
-   * @param {Y.Snapshot} [prevSnapshot]
+   * @param {SnapshotItem} snapshot
+   * @param {SnapshotItem} [prevSnapshot]
    */
   renderSnapshot (snapshot, prevSnapshot) {
     if (!prevSnapshot) {
-      prevSnapshot = Y.createSnapshot(Y.createIdSet(), new Map())
+      prevSnapshot = { fragment: this.ytype }
     }
     /** @type {YSyncPluginMeta} */
     const pluginMeta = {
@@ -547,8 +557,14 @@ export class SyncPluginState {
       snapshot,
       prevSnapshot
     }
+    const snapshotDoc = snapshot.snapshot ? Y.createDocFromSnapshot(snapshot.fragment.doc, snapshot.snapshot) : snapshot.fragment.doc
+    const prevSnapshotDoc = prevSnapshot.snapshot ? Y.createDocFromSnapshot(prevSnapshot.fragment.doc, prevSnapshot.snapshot) : prevSnapshot.fragment.doc
     const tr = this.tr.setMeta(ySyncPluginKey, pluginMeta)
-    // on this same TR, we should also be making a transaction to apply the snapshot to the ytype
+    const am = Y.createAttributionManagerFromDiff(prevSnapshotDoc, snapshotDoc, { attrs: [Y.createAttributionItem('insert', ['unknown'])] })
+    fragmentToTr(findTypeInOtherYdoc(snapshot.fragment, snapshotDoc), tr, {
+      attributionManager: am,
+      mapAttributionToMark: this.#mapAttributionToMark
+    })
     this.view.dispatch(tr)
   }
 
@@ -579,6 +595,12 @@ export class SyncPluginState {
 export function syncPlugin (ytype, { attributionManager = Y.noAttributionsManager, mapAttributionToMark = attributionToFormat } = {}) {
   return new Plugin({
     key: ySyncPluginKey,
+    props: {
+      editable: (state) => {
+        const pluginState = ySyncPluginKey.getState(state)
+        return pluginState?.mode !== 'snapshot'
+      }
+    },
     state: {
       init () {
         return new SyncPluginState({ ytype, attributionManager, mapAttributionToMark })
