@@ -118,6 +118,12 @@ export class SyncPluginState {
   #view = null
 
   /**
+   * This is the subscription to the ydoc changes
+   * @type {null | (() => void)}
+   */
+  #subscription = null
+
+  /**
    * Get the view that the sync plugin is attached to
    * @returns {import('prosemirror-view').EditorView}
    * @private
@@ -132,9 +138,9 @@ export class SyncPluginState {
   #mutex = mux.createMutex()
 
   /**
-   * @type {{type: 'sync', pendingDelta: ProsemirrorDelta | null} | {type:'paused'} | {type:'snapshot', snapshot: Y.Snapshot; prevSnapshot: Y.Snapshot}}
+   * @type {{type: 'sync', pendingDelta: ProsemirrorDelta | null} | {type:'paused'} | {type:'snapshot', snapshot: Y.Snapshot, prevSnapshot: Y.Snapshot, originalYtype: Y.XmlFragment, previewYtype: Y.XmlFragment}}
    */
-  #mode = { type: 'sync' }
+  #state = { type: 'sync', pendingDelta: null }
 
   /**
    * @param {object} ctx
@@ -164,7 +170,7 @@ export class SyncPluginState {
       return this
     }
 
-    const pluginState = this.clone()
+    const nextState = this.clone()
     switch (pluginMeta.type) {
       /**
        * For an ideal prosemirror binding, we should only commit the state once the view has been updated to the new editor state
@@ -177,7 +183,7 @@ export class SyncPluginState {
        * This allows the sync plugin to be in any order within the prosemirror plugins array, since it will be committed once the view's state has been applied
        */
       case 'local-update':{
-        if (this.#mode.type !== 'sync') {
+        if (this.#state.type !== 'sync') {
           // No-op since we are not in sync mode
           return this
         }
@@ -196,8 +202,11 @@ export class SyncPluginState {
 
               const nextDelta = docDiffToDelta(capturedTransactions[0].before, capturedTransactions[capturedTransactions.length - 1].after)
               // TODO what should the right behavior here be?
-              pluginState.#mode.pendingDelta = pluginState.#mode.pendingDelta ? pluginState.#mode.pendingDelta.apply(nextDelta) : nextDelta
-              return pluginState
+              nextState.#state = {
+                type: 'sync',
+                pendingDelta: this.#state.pendingDelta ? this.#state.pendingDelta.apply(nextDelta) : nextDelta
+              }
+              return nextState
             }
           }
         }
@@ -205,27 +214,32 @@ export class SyncPluginState {
         const nextDelta = trToDelta(transform)
 
         // And, either applying that delta to the already pendingDelta, or promoting that delta to being the next pending delta
-        pluginState.#mode.pendingDelta = this.#mode.pendingDelta ? this.#mode.pendingDelta.apply(nextDelta) : nextDelta
-        return pluginState
+        nextState.#state = {
+          type: 'sync',
+          pendingDelta: this.#state.pendingDelta ? this.#state.pendingDelta.apply(nextDelta) : nextDelta
+        }
+        return nextState
       }
       case 'render-snapshot':{
-        pluginState.#mode = {
+        nextState.#state = {
           type: 'snapshot',
           snapshot: pluginMeta.snapshot,
-          prevSnapshot: pluginMeta.prevSnapshot
+          prevSnapshot: pluginMeta.prevSnapshot,
+          originalYtype: pluginMeta.originalYtype,
+          previewYtype: pluginMeta.previewYtype
         }
-        return pluginState
+        return nextState
       }
       case 'resume-sync': {
         // Move back to sync mode
-        pluginState.#mode = { type: 'sync' }
-        return pluginState
+        nextState.#state = { type: 'sync' }
+        return nextState
       }
       case 'pause-sync':{
         // Move to paused mode
-        pluginState.#mode = { type: 'paused' }
+        nextState.#state = { type: 'paused' }
 
-        return pluginState
+        return nextState
       }
     }
 
@@ -249,9 +263,9 @@ export class SyncPluginState {
       return
     }
     const prevPluginState = ySyncPluginKey.getState(prevState)
-    switch (this.#mode.type) {
+    switch (this.#state.type) {
       case 'snapshot':{
-        if (prevPluginState.#mode.type === 'snapshot') {
+        if (prevPluginState.#state.type === 'snapshot') {
           // Already in snapshot mode, so we don't need to do anything
           return
         }
@@ -263,36 +277,27 @@ export class SyncPluginState {
         return
       }
       case 'sync':{
-        if (prevPluginState.#mode.type === 'paused') {
+        if (prevPluginState.#state.type === 'paused') {
           // was just paused, so we need to resume sync
 
           // Restart the observer for two-way sync again
-          this.ytype.observeDeep(this.#onYTypeEvent)
+          this.#subscribe()
           return
         }
         if (!this.#mode.pendingDelta) {
           return
         }
         this.#mutex(() => {
-          const d = this.#mode.pendingDelta
+          const d = this.#state.pendingDelta
           // clear the delta so that we don't accidentally apply it again
-          this.#mode.pendingDelta = null
+          this.#state.pendingDelta = null
 
           this.ytype.doc.transact(() => {
             this.ytype.applyDelta(d, this.#attributionManager)
           }, this)
         })
-        return
-      }
-      case 'paused':{
-        if (prevPluginState.#mode.type === 'paused') {
-          // Already in paused mode, so we don't need to do anything
-          return
-        }
-        // Just transitioned from another mode, so we need to actually apply the paused mode
 
-        // Stop observing the ydoc changes, since we are looking at a snapshot in time
-        prevPluginState.ytype.unobserveDeep(prevPluginState.#onYTypeEvent)
+        return undefined
       }
     }
   }
@@ -305,7 +310,7 @@ export class SyncPluginState {
   /**
    * Initialize the prosemirror state with what is in the ydoc or vice versa
    */
-  #init () {
+  #syncDocs () {
     // TODO ydoc.on('sync') ? we could use this to indicate that the ydoc is ready or not
     if (this.ytype.length === 0) {
       console.log('ytype is empty, applying initial prosemirror state to ydoc')
@@ -342,14 +347,50 @@ export class SyncPluginState {
     // initialize the prosemirror state with what is in the ydoc
     // we wait a tick, because in some cases, the view can be immediately destroyed
     this.#initializationTimeoutId = setTimeout(() => {
+      // clear the timeout id
+      this.#initializationTimeoutId = undefined
       // Only set the view if we've passed a tick
       // This gates the initialization of the plugin state until the view is ready
       this.#view = view
-      this.#init()
+      this.#syncDocs()
 
       // subscribe to the ydoc changes, after initialization is complete
-      this.ytype.observeDeep(this.#onYTypeEvent)
+      this.#subscribe()
     }, 0)
+  }
+
+  /**
+   * Subscribe to the ydoc changes, and register a cleanup function to unsubscribe when the view is destroyed
+   * @private
+   */
+  #subscribe () {
+    if (!this.#view) {
+      throw new Error('[y/prosemirror]: view not set')
+    }
+    // This is the callback that we will subscribe & unsubscribe to the ydoc changes
+    const cb = (...args) => {
+      if (this.#view.isDestroyed) {
+        // view is destroyed, just clean up the subscription, and no-op
+        this.ytype.unobserveDeep(cb)
+        return undefined
+      }
+
+      // fetch the latest plugin state
+      const pluginState = ySyncPluginKey.getState(this.#view.state)
+      if (!pluginState) {
+        throw new Error('[y/prosemirror]: plugin state not found in view.state')
+      }
+
+      // call the onYTypeEvent handler on that instance
+      pluginState.#onYTypeEvent(...args)
+      return undefined
+    }
+
+    this.ytype.observeDeep(cb)
+
+    this.#subscription = () => {
+      this.ytype.unobserveDeep(cb)
+    }
   }
 
   /**
@@ -360,9 +401,9 @@ export class SyncPluginState {
   destroy () {
     // clear the initialization timeout
     clearTimeout(this.#initializationTimeoutId)
-    if (this.#view) {
+    if (this.#subscription) {
       // unsubscribe from the ydoc changes
-      this.ytype.unobserveDeep(this.#onYTypeEvent)
+      this.#subscription()
     }
   }
 
@@ -372,9 +413,9 @@ export class SyncPluginState {
    * @param {Array<Y.YEvent<Y.XmlFragment>>} events
    * @param {Y.Transaction} tr
    */
-  #onYTypeEvent = (events, tr) => {
+  #onYTypeEvent (events, tr) {
     // bail if: the view is destroyed OR it was us that made the change OR we are not in "sync" mode
-    if (!this.initialized || tr.origin === this || this.#mode.type !== 'sync') {
+    if (!this.initialized || tr.origin instanceof SyncPluginState || this.#state.type !== 'sync') {
       return
     }
 
@@ -483,7 +524,7 @@ export class SyncPluginState {
    * Get the mode that the sync plugin is in
    */
   get mode () {
-    return this.#mode.type
+    return this.#state.type
   }
 
   /**
@@ -512,11 +553,11 @@ export class SyncPluginState {
       mapAttributionToMark: this.#mapAttributionToMark
     })
 
-    pluginState.#onYTypeEvent = this.#onYTypeEvent
-    pluginState.#mode = this.#mode
+    pluginState.#state = this.#state
     pluginState.#mutex = this.#mutex
     pluginState.#view = this.#view
     pluginState.#initializationTimeoutId = this.#initializationTimeoutId
+    pluginState.#subscription = this.#subscription
 
     return pluginState
   }
@@ -577,11 +618,6 @@ export function syncPlugin (ytype, { attributionManager = Y.noAttributionsManage
       }
       return newState.tr.setMeta(ySyncPluginKey, pluginMeta).setMeta('addToHistory', false)
     }
-    // TODO to acccount for cases where appendTransaction is called on an ephemeral state, we may not want to apply the delta to the ytype
-    // unless, the editor has actually applied the transaction, perhaps we can return a transaction that has a meta with how to apply the delta? or it returns the delta, and then the state.apply can actually sync it to the ytype?
-    // that actually seems less error prone, and might actually enable us to block syncing in certain cases with just a filterTransaction? That's actually pretty nice!
-    // per transaction, we can actually choose whether we should sync the transaction to the ytype or not, this would allow much more fine-grained control over syncing.
-
   })
 }
 
