@@ -296,7 +296,7 @@ export class SyncPluginState {
 
           this.ytype.doc.transact(() => {
             this.ytype.applyDelta(d, this.#attributionManager)
-          }, this)
+          }, ySyncPluginKey)
         })
 
         return undefined
@@ -320,7 +320,7 @@ export class SyncPluginState {
       // initialize the ydoc with the initial prosemirror state
       this.ytype.doc.transact(() => {
         pmToFragment(this.view.state.doc, this.ytype)
-      }, this)
+      }, ySyncPluginKey)
     } else {
       console.log('ytype is not empty, applying initial ydoc content to prosemirror state')
       // Initialize the prosemirror state with what is in the ydoc
@@ -423,7 +423,7 @@ export class SyncPluginState {
    */
   #onYTypeEvent (events, tr) {
     // bail if: the view is destroyed OR it was us that made the change OR we are not in "sync" mode
-    if (!this.initialized || tr.origin instanceof SyncPluginState || this.#state.type !== 'sync') {
+    if (!this.initialized || tr.origin === ySyncPluginKey || this.#state.type !== 'sync') {
       return
     }
 
