@@ -143,7 +143,7 @@ export class SyncPluginState {
   #mutex = mux.createMutex()
 
   /**
-   * @type {{type: 'sync', pendingDelta: ProsemirrorDelta | null} | {type:'paused'} | {type:'snapshot', snapshot: SnapshotItem, prevSnapshot: SnapshotItem}}
+   * @type {{type: 'sync', pendingDelta: ProsemirrorDelta | null} | {type:'paused', pendingDelta: ProsemirrorDelta | null, snapshot: Y.Snapshot} | {type:'snapshot', snapshot: SnapshotItem, prevSnapshot: SnapshotItem}}
    */
   #state = { type: 'sync', pendingDelta: null }
 
@@ -188,7 +188,7 @@ export class SyncPluginState {
        * This allows the sync plugin to be in any order within the prosemirror plugins array, since it will be committed once the view's state has been applied
        */
       case 'local-update':{
-        if (this.#state.type !== 'sync') {
+        if (this.#state.type !== 'sync' && this.#state.type !== 'paused') {
           // No-op since we are not in sync mode
           return this
         }
@@ -207,10 +207,10 @@ export class SyncPluginState {
 
               const nextDelta = docDiffToDelta(capturedTransactions[0].before, capturedTransactions[capturedTransactions.length - 1].after)
               // TODO what should the right behavior here be?
-              nextState.#state = {
-                type: 'sync',
+              nextState.#state = object.assign({}, this.#state, {
+                type: this.#state.type,
                 pendingDelta: this.#state.pendingDelta ? this.#state.pendingDelta.apply(nextDelta) : nextDelta
-              }
+              })
               return nextState
             }
           }
@@ -219,10 +219,10 @@ export class SyncPluginState {
         const nextDelta = trToDelta(transform)
 
         // And, either applying that delta to the already pendingDelta, or promoting that delta to being the next pending delta
-        nextState.#state = {
-          type: 'sync',
+        nextState.#state = object.assign({}, this.#state, {
+          type: this.#state.type,
           pendingDelta: this.#state.pendingDelta ? this.#state.pendingDelta.apply(nextDelta) : nextDelta
-        }
+        })
         return nextState
       }
       case 'render-snapshot':{
@@ -240,7 +240,7 @@ export class SyncPluginState {
       }
       case 'pause-sync':{
         // Move to paused mode
-        nextState.#state = { type: 'paused' }
+        nextState.#state = { type: 'paused', pendingDelta: null, snapshot: Y.snapshot(this.ytype.doc) }
 
         return nextState
       }
@@ -509,31 +509,42 @@ export class SyncPluginState {
 
   /**
    * Resume the synchronization of the prosemirror state with the ydoc
+   * @param {object} [opts]
+   * @param {boolean} [opts.keepChanges]
    */
-  resumeSync () {
-    // TODO, can implement a keepChanges flag to keep the changes that were made while paused
-    if (this.mode === 'paused') {
-      // Take whatever is in the ytype now, and make that the new document state
-      const tr = fragmentToTr(this.ytype, this.tr, {
-        attributionManager: this.#attributionManager,
-        mapAttributionToMark: this.#mapAttributionToMark
-      })
-      /** @type {YSyncPluginMeta} */
-      const pluginMeta = {
-        type: 'resume-sync'
-      }
-      tr.setMeta(ySyncPluginKey, pluginMeta)
-      this.view.dispatch(tr)
-    } else if (this.mode === 'snapshot') {
-      // Restore to this.ytype's current live state
-      const tr = fragmentToTr(this.ytype, this.tr, {
-        attributionManager: this.#attributionManager,
-        mapAttributionToMark: this.#mapAttributionToMark
-      })
-      const pluginMeta = { type: 'resume-sync' }
-      tr.setMeta(ySyncPluginKey, pluginMeta)
-      this.view.dispatch(tr)
+  resumeSync ({ keepChanges = false } = {}) {
+    if (this.mode === 'sync') {
+      // Already in sync mode, so we don't need to do anything
+      return
     }
+
+    // This will apply the changes that were made while paused to the ytype
+    if (keepChanges && this.#state.type === 'paused' && this.#state.pendingDelta) {
+      // We use a snapshot to get the document state at the point in time when the sync was paused (it may have accrued updates since then)
+      // A nice property of using only a snapshot like this is that it is relatively cheap to create, and a copy is only needed if we actually want to keep the changes
+      const docAtSnapshotTime = Y.createDocFromSnapshot(this.ytype.doc, this.#state.snapshot)
+      const ytypeAtSnapshotTime = findTypeInOtherYdoc(this.ytype, docAtSnapshotTime)
+      // We setup a listener to apply any updates which occur to the snapshot doc, to the main ydoc
+      docAtSnapshotTime.on('updateV2', (update) => {
+        // Apply that diff as an update to the main ydoc
+        Y.applyUpdateV2(this.ytype.doc, update, ySyncPluginKey)
+      })
+      // Actually apply the changes accrued while paused to the ytype
+      ytypeAtSnapshotTime.applyDelta(this.#state.pendingDelta, this.#attributionManager)
+      docAtSnapshotTime.destroy()
+    }
+
+    // Take whatever is in the ytype now, and make that the new document state
+    const tr = fragmentToTr(this.ytype, this.tr, {
+      attributionManager: this.#attributionManager,
+      mapAttributionToMark: this.#mapAttributionToMark
+    })
+    /** @type {YSyncPluginMeta} */
+    const pluginMeta = {
+      type: 'resume-sync'
+    }
+    tr.setMeta(ySyncPluginKey, pluginMeta)
+    this.view.dispatch(tr)
   }
 
   /**
@@ -548,9 +559,6 @@ export class SyncPluginState {
    * @param {SnapshotItem} [prevSnapshot]
    */
   renderSnapshot (snapshot, prevSnapshot) {
-    if (!prevSnapshot) {
-      prevSnapshot = { fragment: this.ytype }
-    }
     /** @type {YSyncPluginMeta} */
     const pluginMeta = {
       type: 'render-snapshot',
@@ -568,6 +576,10 @@ export class SyncPluginState {
     this.view.dispatch(tr)
   }
 
+  /**
+   * Clone the {@link SyncPluginState} instance, this allows us to compare the current state with the previous state without mutating the current state
+   * @private
+   */
   clone () {
     const pluginState = new SyncPluginState({
       ytype: this.ytype,

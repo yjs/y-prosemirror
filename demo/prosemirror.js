@@ -74,11 +74,19 @@ elemToggleConnect.addEventListener('change', () => {
 const elemTogglePauseSync = document.querySelector('#toggle-pause-sync')
 
 elemTogglePauseSync.addEventListener('change', () => {
+  if (!currentView) return
+  const pluginState = ySyncPluginKey.getState(currentView.state)
+  if (!pluginState) return
+
   if (elemTogglePauseSync.checked) {
-    ySyncPluginKey.getState(currentView.state).pauseSync()
+    pluginState.pauseSync()
   } else {
-    ySyncPluginKey.getState(currentView.state).resumeSync()
+    // When resuming from the toggle, use the keepChanges checkbox value
+    const keepChanges = elemToggleKeepChanges?.checked || false
+    pluginState.resumeSync({ keepChanges })
   }
+  // Update UI immediately to reflect the checkbox state
+  updateSnapshotUI()
 })
 
 /**
@@ -91,6 +99,7 @@ const btnRenderSnapshot = document.querySelector('#btn-render-snapshot')
 const selectPrevSnapshot = document.querySelector('#select-prev-snapshot')
 const selectSnapshot = document.querySelector('#select-snapshot')
 const snapshotInfo = document.querySelector('#snapshot-info')
+const elemToggleKeepChanges = document.querySelector('#toggle-keep-changes')
 
 let lastSnapshotCount = 0
 
@@ -140,10 +149,19 @@ const updateSnapshotUI = () => {
   if (currentView) {
     const pluginState = ySyncPluginKey.getState(currentView.state)
     const isInSnapshotMode = pluginState && pluginState.mode === 'snapshot'
-    btnResumeSync.disabled = !isInSnapshotMode
+    const isPaused = pluginState && pluginState.mode === 'paused'
+    const canResume = isInSnapshotMode || isPaused
+    btnResumeSync.disabled = !canResume
+
+    if (elemToggleKeepChanges) {
+      elemToggleKeepChanges.disabled = !isPaused
+    }
 
     if (isInSnapshotMode) {
       snapshotInfo.textContent = '⚠️ In snapshot preview mode - document is read-only. Click "Resume Sync" to return to live editing.'
+      snapshotInfo.className = 'info-text warning'
+    } else if (isPaused) {
+      snapshotInfo.textContent = '⏸️ Sync is paused. Make changes and use "Resume Sync" to continue. Check "Keep Changes" to preserve edits made while paused.'
       snapshotInfo.className = 'info-text warning'
     } else {
       snapshotInfo.textContent = snapshots.length > 0
@@ -207,7 +225,8 @@ btnResumeSync.addEventListener('click', () => {
   const pluginState = ySyncPluginKey.getState(currentView.state)
   if (!pluginState) return
 
-  pluginState.resumeSync()
+  const keepChanges = elemToggleKeepChanges?.checked || false
+  pluginState.resumeSync({ keepChanges })
   updateSnapshotUI()
 })
 
