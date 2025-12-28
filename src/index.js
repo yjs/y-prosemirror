@@ -284,7 +284,7 @@ export class SyncPluginState {
           this.#subscribe()
           return
         }
-        if (!this.#mode.pendingDelta) {
+        if (!this.#state.pendingDelta) {
           return
         }
         this.#mutex(() => {
