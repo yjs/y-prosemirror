@@ -677,7 +677,6 @@ export function pmToFragment (node, fragment = new Y.XmlFragment()) {
 
 /**
  * Applies a {@link Y.XmlFragment}'s content as a ProseMirror {@link Transaction}
- * @note if a starting {@link Node} is provided, it will compute the minimal ProseMirror {@link Transaction} to transform from that starting document
  * @param {Y.XmlFragment} fragment
  * @param {import('prosemirror-state').Transaction} tr
  * @param {object} [ctx]
