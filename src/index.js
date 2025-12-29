@@ -376,7 +376,7 @@ export class SyncPluginState {
     }
     // This is the callback that we will subscribe & unsubscribe to the ydoc changes
     const cb = (...args) => {
-      if (this.#view.isDestroyed) {
+      if (!this.#view || this.#view.isDestroyed) {
         // view is destroyed, just clean up the subscription, and no-op
         this.#subscription()
         return
