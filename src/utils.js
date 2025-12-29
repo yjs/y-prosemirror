@@ -44,7 +44,7 @@ export function findTypeInOtherYdoc (ytype, otherYdoc) {
       function (key) { return ydoc.share.get(key) === ytype }
     )
     if (rootKey == null) {
-      throw new Error('type does not exist in other ydoc')
+      throw new Error('type does not exist')
     }
     // Use the ytype's constructor to get the type from the other document
     return /** @type {T} */ (otherYdoc.get(rootKey, ytype.constructor))

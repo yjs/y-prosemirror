@@ -32,14 +32,18 @@ if (localStorage.getItem('should-connect') != null) {
   elemToggleConnect.checked = localStorage.getItem('should-connect') === 'true'
 }
 
-elemToggleShowSuggestions.addEventListener('change', () => initEditor())
+elemToggleShowSuggestions.addEventListener('change', () => {
+  ySyncPluginKey.getState(currentView.state).renderSuggestions({
+    showSuggestions: elemToggleShowSuggestions.checked,
+    suggestionMode: elemToggleSuggestMode.checked
+  })
+})
 
 // when in suggestion-mode, we should use a different clientId to reduce some overhead. This is not
 // strictly necessary.
 let otherClientID = random.uint53()
 elemToggleSuggestMode.addEventListener('change', () => {
   const enabled = elemToggleSuggestMode.checked
-  am.suggestionMode = enabled
   if (enabled) {
     elemToggleShowSuggestions.checked = true
     elemToggleShowSuggestions.disabled = true
@@ -57,7 +61,10 @@ elemToggleSuggestMode.addEventListener('change', () => {
     color: 'blue'
   })
 
-  initEditor()
+  ySyncPluginKey.getState(currentView.state).renderSuggestions({
+    showSuggestions: elemToggleShowSuggestions.checked,
+    suggestionMode: enabled
+  })
 })
 
 elemToggleConnect.addEventListener('change', () => {
@@ -248,14 +255,19 @@ const providerYdocSuggestions = new WebsocketProvider('wss://demos.yjs.dev/ws', 
 elemToggleConnect.checked && providerYdocSuggestions.connectBc()
 const am = Y.createAttributionManagerFromDiff(ydoc, suggestionDoc, { attrs: [Y.createAttributionItem('insert', ['nickthesick'])] })
 
+suggestionDoc.on('update', () => {
+  console.log('suggestionDoc update')
+})
+ydoc.on('update', () => {
+  console.log('ydoc updated')
+})
 /**
  * @type {EditorView?}
  */
 let currentView = null
 
 const initEditor = () => {
-  const withSuggestions = elemToggleShowSuggestions.checked
-  const ypm = (withSuggestions ? suggestionDoc : ydoc).getXmlFragment('prosemirror-s')
+  const ypm = ydoc.getXmlFragment('prosemirror-s')
   currentView?.destroy()
   snapshots.length = 0 // Clear snapshots when reinitializing
   const ypmContainer = document.querySelector('#ypm-container')
@@ -268,13 +280,14 @@ const initEditor = () => {
     schema,
     plugins: [].concat(exampleSetup({ schema, history: false }), syncPlugin(ypm, {
       awareness: providerYdoc.awareness,
-      attributionManager: withSuggestions ? am : undefined,
+      suggestionDoc,
+      attributionManager: am,
       mapAttributionToMark: (format, attribution) => {
         console.log('format', format, attribution)
         return object.assign({}, format, {
-          ychange: attribution.insert
-            ? { type: 'added', user: attribution.insert?.[0] }
-            : { type: 'removed', user: attribution.delete?.[0] }
+          ychange: attribution.delete
+            ? { type: 'removed', user: attribution.delete?.[0] }
+            : { type: 'added', user: attribution.insert?.[0] }
         })
       }
     }))

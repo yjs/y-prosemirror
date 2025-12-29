@@ -19,6 +19,11 @@ const $prosemirrorDelta = delta.$delta({ name: s.$string, attrs: s.$record(s.$st
 /**
  * @typedef {s.Unwrap<$prosemirrorDelta>} ProsemirrorDelta
  */
+/**
+ * @typedef {import('./types').SyncPluginMode} SyncPluginMode
+ * @typedef {import('./types').YSyncPluginMeta} YSyncPluginMeta
+ * @typedef {import('./types').SnapshotItem} SnapshotItem
+ */
 
 // y-attribution-deletion & y-attribution-insertion & y-attribution-format (or mod?)
 // add attributes (userId: string[], timestamp: number) (see `YAttribution` (ask Kevin))
@@ -32,7 +37,7 @@ const $prosemirrorDelta = delta.$delta({ name: s.$string, attrs: s.$record(s.$st
  * @param {T} attribution
  * @returns {Record<string, unknown> | null}
  */
-const attributionToFormat = (format, attribution) => {
+const defaultMapAttributionToMark = (format, attribution) => {
   /**
    * @type {Record<string, unknown> | null}
    */
@@ -91,29 +96,26 @@ const deltaAttributionToFormat = s.match(s.$function)
   }).done()
 
 /**
-  * @typedef {{fragment: Y.XmlFragment, snapshot?: Y.Snapshot}} SnapshotItem If just a fragment, then we compare the latest fragment with the other fragment. If a snapshot is provided, then we compare the fragment at that snapshot with the other snapshot.
-  */
-
-/**
- * @typedef {{type: 'initialized', ytype: Y.XmlFragment} | { type: 'local-update', capturedTransactions: import('prosemirror-state').Transaction[] } | { type: 'remote-update', events: Array<Y.YEvent<Y.XmlFragment>>, ytype: Y.XmlFragment; attributionFix?: true } | { type: 'render-snapshot', snapshot: SnapshotItem, prevSnapshot: SnapshotItem } | {type: 'pause-sync'} | {type: 'resume-sync'}} YSyncPluginMeta
- */
-
-/**
  * This class is the state of the sync plugin, it is essentially the public API for the sync plugin
  */
 export class SyncPluginState {
-  /**
-   * @type {Y.XmlFragment}
-   */
-  ytype
-
   /**
    * @type {Y.AbstractAttributionManager}
    */
   #attributionManager
 
   /**
-   * @type {typeof attributionToFormat}
+   * @type {Y.Doc | null}
+   */
+  #suggestionDoc = null
+
+  /**
+   * @type {Y.Doc}
+   */
+  #contentDoc = null
+
+  /**
+   * @type {typeof defaultMapAttributionToMark}
    */
   #mapAttributionToMark
 
@@ -143,23 +145,31 @@ export class SyncPluginState {
   #mutex = mux.createMutex()
 
   /**
-   * @type {{type: 'sync', pendingDelta: ProsemirrorDelta | null} | {type:'paused', pendingDelta: ProsemirrorDelta | null, snapshot: Y.Snapshot} | {type:'snapshot', snapshot: SnapshotItem, prevSnapshot: SnapshotItem}}
+   * @type {SyncPluginMode}
    */
-  #state = { type: 'sync', pendingDelta: null }
+  #state
 
   /**
    * @param {object} ctx
    * @param {Y.XmlFragment} ctx.ytype
    * @param {Y.AbstractAttributionManager} [ctx.attributionManager]
-   * @param {typeof attributionToFormat} [ctx.mapAttributionToMark]
+   * @param {typeof defaultMapAttributionToMark} [ctx.mapAttributionToMark]
+   * @param {Y.Doc} [ctx.suggestionDoc] A {@link Y.Doc} to use for suggestion tracking
    */
-  constructor ({ ytype, attributionManager, mapAttributionToMark }) {
-    if (!ytype) {
+  constructor ({ ytype, attributionManager, mapAttributionToMark, suggestionDoc }) {
+    if (!ytype || !ytype.doc) {
       throw new Error('[y/prosemirror]: ytype not provided')
     }
-    this.ytype = ytype
     this.#attributionManager = attributionManager || Y.noAttributionsManager
-    this.#mapAttributionToMark = mapAttributionToMark || attributionToFormat
+    this.#state = {
+      type: 'sync',
+      pendingDelta: null,
+      ytype,
+      isSuggestionMode: false
+    }
+    this.#mapAttributionToMark = mapAttributionToMark || defaultMapAttributionToMark
+    this.#suggestionDoc = suggestionDoc || null
+    this.#contentDoc = ytype.doc
   }
 
   /**
@@ -207,10 +217,13 @@ export class SyncPluginState {
 
               const nextDelta = docDiffToDelta(capturedTransactions[0].before, capturedTransactions[capturedTransactions.length - 1].after)
               // TODO what should the right behavior here be?
-              nextState.#state = object.assign({}, this.#state, {
+              nextState.#state = {
                 type: this.#state.type,
-                pendingDelta: this.#state.pendingDelta ? this.#state.pendingDelta.apply(nextDelta) : nextDelta
-              })
+                pendingDelta: this.#state.pendingDelta ? this.#state.pendingDelta.apply(nextDelta) : nextDelta,
+                ytype: this.#state.ytype,
+                isSuggestionMode: this.#state.isSuggestionMode,
+                contentDocSnapshot: this.#state.contentDocSnapshot
+              }
               return nextState
             }
           }
@@ -219,23 +232,34 @@ export class SyncPluginState {
         const nextDelta = trToDelta(transform)
 
         // And, either applying that delta to the already pendingDelta, or promoting that delta to being the next pending delta
-        nextState.#state = object.assign({}, this.#state, {
+        nextState.#state = {
           type: this.#state.type,
-          pendingDelta: this.#state.pendingDelta ? this.#state.pendingDelta.apply(nextDelta) : nextDelta
-        })
+          ytype: this.#state.ytype,
+          pendingDelta: this.#state.pendingDelta ? this.#state.pendingDelta.apply(nextDelta) : nextDelta,
+          isSuggestionMode: this.#state.isSuggestionMode,
+          contentDocSnapshot: this.#state.contentDocSnapshot
+        }
         return nextState
       }
       case 'render-snapshot':{
         nextState.#state = {
           type: 'snapshot',
           snapshot: pluginMeta.snapshot,
-          prevSnapshot: pluginMeta.prevSnapshot
+          prevSnapshot: pluginMeta.prevSnapshot,
+          pendingDelta: null,
+          ytype: this.#state.ytype,
+          isSuggestionMode: this.#state.isSuggestionMode
         }
         return nextState
       }
       case 'resume-sync': {
         // Move back to sync mode
-        nextState.#state = { type: 'sync' }
+        nextState.#state = {
+          type: 'sync',
+          pendingDelta: null,
+          ytype: this.#state.ytype,
+          isSuggestionMode: this.#state.isSuggestionMode
+        }
         return nextState
       }
       case 'pause-sync':{
@@ -243,10 +267,32 @@ export class SyncPluginState {
         nextState.#state = {
           type: 'paused',
           pendingDelta: null,
-          snapshot: Y.snapshot(this.ytype.doc)
+          snapshot: Y.snapshot(this.#contentDoc),
+          ytype: this.#state.ytype,
+          isSuggestionMode: this.#state.isSuggestionMode
         }
 
         return nextState
+      }
+      case 'show-suggestions':{
+        nextState.#state = {
+          type: 'sync',
+          pendingDelta: null,
+          // switch to the suggestion doc
+          ytype: findTypeInOtherYdoc(this.#state.ytype, this.#suggestionDoc),
+          isSuggestionMode: true
+        }
+
+        return nextState
+      }
+      case 'hide-suggestions':{
+        nextState.#state = {
+          type: 'sync',
+          pendingDelta: null,
+          // switch to the content doc
+          ytype: findTypeInOtherYdoc(this.#state.ytype, this.#contentDoc),
+          isSuggestionMode: false
+        }
       }
     }
 
@@ -279,10 +325,18 @@ export class SyncPluginState {
         // Just transitioned from another mode, so we need to actually apply the snapshot mode
 
         // Stop observing the ydoc changes, since we are looking at a snapshot in time
-        prevPluginState.destroy()
+        this.destroy()
         return
       }
       case 'sync':{
+        if (this.#state.isSuggestionMode !== prevPluginState.#state.isSuggestionMode) {
+          // We are entering/leaving suggestion mode, so we need to subscribe to the suggestion doc
+          // stop observing the ytype
+          this.destroy()
+          // subscribe to the suggestion doc
+          this.#subscribe()
+          return
+        }
         if (prevPluginState.#state.type === 'paused' || prevPluginState.#state.type === 'snapshot') {
           // was just paused, so we need to resume sync
 
@@ -298,8 +352,8 @@ export class SyncPluginState {
           // clear the delta so that we don't accidentally apply it again
           this.#state.pendingDelta = null
 
-          this.ytype.doc.transact(() => {
-            this.ytype.applyDelta(d, this.#attributionManager)
+          this.#state.ytype.doc.transact(() => {
+            this.#state.ytype.applyDelta(d, this.#attributionManager)
           }, ySyncPluginKey)
         })
 
@@ -318,17 +372,17 @@ export class SyncPluginState {
    */
   #syncDocs () {
     // TODO ydoc.on('sync') ? we could use this to indicate that the ydoc is ready or not
-    if (this.ytype.length === 0) {
+    if (this.#state.ytype.length === 0) {
       console.log('ytype is empty, applying initial prosemirror state to ydoc')
       // TODO likely want to compare the empty initial doc with the ydoc and apply changes the ydoc if there are any
       // initialize the ydoc with the initial prosemirror state
-      this.ytype.doc.transact(() => {
-        pmToFragment(this.view.state.doc, this.ytype)
+      this.#state.ytype.doc.transact(() => {
+        pmToFragment(this.view.state.doc, this.#state.ytype)
       }, ySyncPluginKey)
     } else {
       console.log('ytype is not empty, applying initial ydoc content to prosemirror state')
       // Initialize the prosemirror state with what is in the ydoc
-      const tr = fragmentToTr(this.ytype, this.tr, {
+      const tr = fragmentToTr(this.#state.ytype, this.tr, {
         attributionManager: this.#attributionManager,
         mapAttributionToMark: this.#mapAttributionToMark
       })
@@ -336,7 +390,7 @@ export class SyncPluginState {
       /** @type {YSyncPluginMeta} */
       const pluginMeta = {
         type: 'initialized',
-        ytype: this.ytype
+        ytype: this.#state.ytype
       }
       tr.setMeta(ySyncPluginKey, pluginMeta)
       this.view.dispatch(tr)
@@ -396,11 +450,11 @@ export class SyncPluginState {
       pluginState.#onYTypeEvent(...args)
     }
 
-    this.ytype.observeDeep(cb)
+    this.#state.ytype.observeDeep(cb)
 
     this.#subscription = () => {
       this.#subscription = null
-      this.ytype.unobserveDeep(cb)
+      this.#state.ytype.unobserveDeep(cb)
     }
   }
 
@@ -435,7 +489,7 @@ export class SyncPluginState {
       /**
        * @type {Y.YEvent<Y.XmlFragment>}
        */
-      const event = events.find(event => event.target === this.ytype) || new Y.YEvent(this.ytype, tr, new Set(null))
+      const event = events.find(event => event.target === this.#state.ytype) || new Y.YEvent(this.#state.ytype, tr, new Set(null))
       const d = this.#attributionManager === Y.noAttributionsManager
         ? event.deltaDeep
         : deltaAttributionToFormat(event.getDelta(this.#attributionManager, { deep: true }), this.#mapAttributionToMark)
@@ -465,13 +519,13 @@ export class SyncPluginState {
         }
       })
 
-      if (modified.has(this.ytype)) {
+      if (modified.has(this.#state.ytype)) {
         setTimeout(() => {
           this.#mutex(() => {
             if (this.#state.type !== 'sync') {
               error.unexpectedCase()
             }
-            const d = deltaAttributionToFormat(this.ytype.getContent(this.#attributionManager, {
+            const d = deltaAttributionToFormat(this.#state.ytype.getContent(this.#attributionManager, {
               itemsToRender,
               retainInserts: true,
               deep: true,
@@ -484,7 +538,7 @@ export class SyncPluginState {
             const pluginMeta = {
               type: 'remote-update',
               events,
-              ytype: this.ytype,
+              ytype: this.#state.ytype,
               attributionFix: true
             }
             ptr.setMeta(ySyncPluginKey, pluginMeta)
@@ -529,12 +583,12 @@ export class SyncPluginState {
     if (keepChanges && this.#state.type === 'paused' && this.#state.pendingDelta) {
       // We use a snapshot to get the document state at the point in time when the sync was paused (it may have accrued updates since then)
       // A nice property of using only a snapshot like this is that it is relatively cheap to create, and a copy is only needed if we actually want to keep the changes
-      const docAtSnapshotTime = Y.createDocFromSnapshot(this.ytype.doc, this.#state.snapshot)
-      const ytypeAtSnapshotTime = findTypeInOtherYdoc(this.ytype, docAtSnapshotTime)
+      const docAtSnapshotTime = Y.createDocFromSnapshot(this.#state.ytype.doc, this.#state.snapshot)
+      const ytypeAtSnapshotTime = findTypeInOtherYdoc(this.#state.ytype, docAtSnapshotTime)
       // We setup a listener to apply any updates which occur to the snapshot doc, to the main ydoc
       docAtSnapshotTime.on('updateV2', (update) => {
         // Apply that diff as an update to the main ydoc
-        Y.applyUpdateV2(this.ytype.doc, update, ySyncPluginKey)
+        Y.applyUpdateV2(this.#state.ytype.doc, update, ySyncPluginKey)
       })
       // Actually apply the changes accrued while paused to the ytype
       ytypeAtSnapshotTime.applyDelta(this.#state.pendingDelta, this.#attributionManager)
@@ -542,7 +596,7 @@ export class SyncPluginState {
     }
 
     // Take whatever is in the ytype now, and make that the new document state
-    const tr = fragmentToTr(this.ytype, this.tr, {
+    const tr = fragmentToTr(this.#state.ytype, this.tr, {
       attributionManager: this.#attributionManager,
       mapAttributionToMark: this.#mapAttributionToMark
     })
@@ -559,6 +613,13 @@ export class SyncPluginState {
    */
   get mode () {
     return this.#state.type
+  }
+
+  /**
+   * Get the ytype that the sync plugin is using
+   */
+  get ytype () {
+    return this.#state.ytype
   }
 
   /**
@@ -587,14 +648,43 @@ export class SyncPluginState {
   }
 
   /**
+   * Render the suggestions for the prosemirror state
+   * @param {object} [opts]
+   * @param {boolean} [opts.showSuggestions]
+   * @param {boolean} [opts.suggestionMode]
+   */
+  renderSuggestions ({ showSuggestions = true, suggestionMode } = {}) {
+    console.log('renderSuggestions', { showSuggestions, suggestionMode })
+    if (this.#state.type !== 'sync') {
+      console.log('showSuggestions: not in sync mode')
+      return
+    }
+    if (this.#attributionManager instanceof Y.DiffAttributionManager && suggestionMode !== undefined) {
+      this.#attributionManager.suggestionMode = suggestionMode
+    }
+    const tr = fragmentToTr(
+      showSuggestions ? findTypeInOtherYdoc(this.#state.ytype, this.#suggestionDoc) : findTypeInOtherYdoc(this.#state.ytype, this.#contentDoc), this.tr, {
+        attributionManager: showSuggestions ? this.#attributionManager : Y.noAttributionsManager,
+        mapAttributionToMark: this.#mapAttributionToMark
+      })
+    /** @type {YSyncPluginMeta} */
+    const pluginMeta = {
+      type: showSuggestions ? 'show-suggestions' : 'hide-suggestions'
+    }
+    tr.setMeta(ySyncPluginKey, pluginMeta)
+    this.view.dispatch(tr)
+  }
+
+  /**
    * Clone the {@link SyncPluginState} instance, this allows us to compare the current state with the previous state without mutating the current state
    * @private
    */
   clone () {
     const pluginState = new SyncPluginState({
-      ytype: this.ytype,
+      ytype: this.#state.ytype,
       attributionManager: this.#attributionManager,
-      mapAttributionToMark: this.#mapAttributionToMark
+      mapAttributionToMark: this.#mapAttributionToMark,
+      suggestionDoc: this.#suggestionDoc
     })
 
     pluginState.#state = this.#state
@@ -623,10 +713,11 @@ export class SyncPluginState {
  * @param {Y.XmlFragment} ytype
  * @param {object} opts
  * @param {Y.AbstractAttributionManager} [opts.attributionManager] An {@link Y.AbstractAttributionManager} to use for attribution tracking
- * @param {typeof attributionToFormat} [opts.mapAttributionToMark] A function to map the {@link Y.Attribution} to a {@link import('prosemirror-model').Mark}
+ * @param {Y.Doc} [opts.suggestionDoc] A {@link Y.Doc} to use for suggestion tracking
+ * @param {typeof defaultMapAttributionToMark} [opts.mapAttributionToMark] A function to map the {@link Y.Attribution} to a {@link import('prosemirror-model').Mark}
  * @returns {Plugin}
  */
-export function syncPlugin (ytype, { attributionManager = Y.noAttributionsManager, mapAttributionToMark = attributionToFormat } = {}) {
+export function syncPlugin (ytype, { attributionManager = Y.noAttributionsManager, mapAttributionToMark = defaultMapAttributionToMark, suggestionDoc } = {}) {
   return new Plugin({
     key: ySyncPluginKey,
     props: {
@@ -637,7 +728,7 @@ export function syncPlugin (ytype, { attributionManager = Y.noAttributionsManage
     },
     state: {
       init () {
-        return new SyncPluginState({ ytype, attributionManager, mapAttributionToMark })
+        return new SyncPluginState({ ytype, attributionManager, mapAttributionToMark, suggestionDoc })
       },
       apply (tr, value) {
         return value.onApplyTr(tr)
@@ -738,12 +829,12 @@ export function pmToFragment (node, fragment = new Y.XmlFragment()) {
  * @param {import('prosemirror-state').Transaction} tr
  * @param {object} [ctx]
  * @param {Y.AbstractAttributionManager} [ctx.attributionManager]
- * @param {typeof attributionToFormat} [ctx.mapAttributionToMark]
+ * @param {typeof defaultMapAttributionToMark} [ctx.mapAttributionToMark]
  * @returns {import('prosemirror-state').Transaction}
  */
 export function fragmentToTr (fragment, tr, {
   attributionManager = Y.noAttributionsManager,
-  mapAttributionToMark = attributionToFormat
+  mapAttributionToMark = defaultMapAttributionToMark
 }) {
   const fragmentContent = deltaAttributionToFormat(
     fragment.getContent(attributionManager, { deep: true }),
