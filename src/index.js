@@ -559,6 +559,9 @@ export class SyncPluginState {
    * @param {SnapshotItem} [prevSnapshot]
    */
   renderSnapshot (snapshot, prevSnapshot) {
+    if (!prevSnapshot) {
+      prevSnapshot = { fragment: snapshot.fragment }
+    }
     /** @type {YSyncPluginMeta} */
     const pluginMeta = {
       type: 'render-snapshot',
