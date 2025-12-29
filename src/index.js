@@ -240,7 +240,11 @@ export class SyncPluginState {
       }
       case 'pause-sync':{
         // Move to paused mode
-        nextState.#state = { type: 'paused', pendingDelta: null, snapshot: Y.snapshot(this.ytype.doc) }
+        nextState.#state = {
+          type: 'paused',
+          pendingDelta: null,
+          snapshot: Y.snapshot(this.ytype.doc)
+        }
 
         return nextState
       }
@@ -464,6 +468,9 @@ export class SyncPluginState {
       if (modified.has(this.ytype)) {
         setTimeout(() => {
           this.#mutex(() => {
+            if (this.#state.type !== 'sync') {
+              error.unexpectedCase()
+            }
             const d = deltaAttributionToFormat(this.ytype.getContent(this.#attributionManager, {
               itemsToRender,
               retainInserts: true,
