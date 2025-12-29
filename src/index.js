@@ -601,6 +601,16 @@ export class SyncPluginState {
   }
 }
 
+// The sync plugin is built a bit strangely, what it does at a high level is:
+// 1. It captures transactions within `appendTransaction` (creating a transaction that carries metadata about the transactions that were captured)
+// 2. It accrues these changes in the SyncPluginState on state.apply
+// 3. When view.update occurs, it can finally apply the accrued changes to the ytype
+// It is built this way because it allows for EditorStates to be created (even ephemeral ones) without having to worry about accidentally committing changes to the ytype.
+// In Prosemirror, appendTransaction is expected to be a pure function of the current state & the incoming transactions.
+// If this is not the case, then interactions with other plugins may be buggy, since they may apply changes to the ytype that were not intended to be committed.
+// This has the nice side effect of allowing the sync plugin to be installed to the prosemirror plugins array in any order, since it will be committed once the view's state has been applied
+// It also allows for a nice separation of concerns, where the view.update is the final point at which changes can be committed to the ytype. (Rather than across potentially multiple appendTransaction calls)
+
 /**
  * This Prosemirror {@link Plugin} is responsible for synchronizing the prosemirror {@link EditorState} with a {@link Y.XmlFragment}
  * @param {Y.XmlFragment} ytype
