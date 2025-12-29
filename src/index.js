@@ -369,17 +369,17 @@ export class SyncPluginState {
     if (!this.#view) {
       throw new Error('[y/prosemirror]: view not set')
     }
-    // If there's already a subscription, unsubscribe first
+
     if (this.#subscription) {
-      this.#subscription()
-      this.#subscription = null
+      // re-use the existing subscription, since it operates on the latest plugin state
+      return
     }
     // This is the callback that we will subscribe & unsubscribe to the ydoc changes
     const cb = (...args) => {
       if (this.#view.isDestroyed) {
         // view is destroyed, just clean up the subscription, and no-op
-        this.ytype.unobserveDeep(cb)
-        return undefined
+        this.#subscription()
+        return
       }
 
       // fetch the latest plugin state
@@ -390,12 +390,12 @@ export class SyncPluginState {
 
       // call the onYTypeEvent handler on that instance
       pluginState.#onYTypeEvent(...args)
-      return undefined
     }
 
     this.ytype.observeDeep(cb)
 
     this.#subscription = () => {
+      this.#subscription = null
       this.ytype.unobserveDeep(cb)
     }
   }
