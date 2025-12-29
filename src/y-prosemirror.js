@@ -11,3 +11,4 @@ export {
 } from './lib.js'
 export * from './index.js'
 export * from './plugins/sync-plugin.js'
+export { findTypeInOtherYdoc } from './utils.js'
