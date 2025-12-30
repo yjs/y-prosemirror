@@ -18,8 +18,6 @@ const $prosemirrorDelta = delta.$delta({ name: s.$string, attrs: s.$record(s.$st
 
 /**
  * @typedef {s.Unwrap<$prosemirrorDelta>} ProsemirrorDelta
- */
-/**
  * @typedef {import('./types').SyncPluginMode} SyncPluginMode
  * @typedef {import('./types').YSyncPluginMeta} YSyncPluginMeta
  * @typedef {import('./types').SnapshotItem} SnapshotItem
@@ -742,6 +740,7 @@ export function syncPlugin (ytype, { attributionManager = Y.noAttributionsManage
   return new Plugin({
     key: ySyncPluginKey,
     props: {
+      // Disables editing if we are in snapshot mode
       editable: (state) => {
         const pluginState = ySyncPluginKey.getState(state)
         return pluginState?.mode !== 'snapshot'
@@ -895,11 +894,11 @@ export const nodeToDelta = n => {
 }
 
 /**
- * @param {import('prosemirror-state').Transaction} tr
+ * @param {import('prosemirror-transform').Transform} tr
  * @param {ProsemirrorDelta} d
- * @param {Node} pnode
- * @param {{ i: number }} currPos
- * @return {import('prosemirror-state').Transaction}
+ * @param {Node} [pnode]
+ * @param {{ i: number }} [currPos]
+ * @return {import('prosemirror-transform').Transform}
  */
 export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
   const schema = tr.doc.type.schema
