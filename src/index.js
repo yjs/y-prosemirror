@@ -98,7 +98,7 @@ const deltaAttributionToFormat = s.match(s.$function)
  */
 export class SyncPluginState {
   /**
-   * @type {Y.AbstractAttributionManager}
+   * @type {Y.DiffAttributionManager}
    */
   #attributionManager
 
@@ -150,7 +150,7 @@ export class SyncPluginState {
   /**
    * @param {object} ctx
    * @param {Y.XmlFragment} ctx.ytype
-   * @param {Y.AbstractAttributionManager} [ctx.attributionManager]
+   * @param {Y.DiffAttributionManager} [ctx.attributionManager]
    * @param {typeof defaultMapAttributionToMark} [ctx.mapAttributionToMark]
    * @param {Y.Doc} [ctx.suggestionDoc] A {@link Y.Doc} to use for suggestion tracking
    */
@@ -656,7 +656,7 @@ export class SyncPluginState {
       return
     }
     let switchedToSuggestionMode = false
-    if (this.#attributionManager instanceof Y.DiffAttributionManager && suggestionMode !== undefined && suggestionMode !== this.#attributionManager.suggestionMode) {
+    if (suggestionMode !== undefined && suggestionMode !== this.#attributionManager.suggestionMode) {
       this.#attributionManager.suggestionMode = suggestionMode
       switchedToSuggestionMode = true
     }
@@ -731,7 +731,7 @@ export class SyncPluginState {
  * This Prosemirror {@link Plugin} is responsible for synchronizing the prosemirror {@link EditorState} with a {@link Y.XmlFragment}
  * @param {Y.XmlFragment} ytype
  * @param {object} opts
- * @param {Y.AbstractAttributionManager} [opts.attributionManager] An {@link Y.AbstractAttributionManager} to use for attribution tracking
+ * @param {Y.DiffAttributionManager} [opts.attributionManager] An {@link Y.DiffAttributionManager} to use for attribution tracking
  * @param {Y.Doc} [opts.suggestionDoc] A {@link Y.Doc} to use for suggestion tracking
  * @param {typeof defaultMapAttributionToMark} [opts.mapAttributionToMark] A function to map the {@link Y.Attribution} to a {@link import('prosemirror-model').Mark}
  * @returns {Plugin}
@@ -848,7 +848,7 @@ export function pmToFragment (node, fragment = new Y.XmlFragment()) {
  * @param {Y.XmlFragment} fragment
  * @param {import('prosemirror-state').Transaction} tr
  * @param {object} [ctx]
- * @param {Y.AbstractAttributionManager} [ctx.attributionManager]
+ * @param {Y.DiffAttributionManager} [ctx.attributionManager]
  * @param {typeof defaultMapAttributionToMark} [ctx.mapAttributionToMark]
  * @returns {import('prosemirror-state').Transaction}
  */
