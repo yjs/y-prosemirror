@@ -431,7 +431,7 @@ export class SyncPluginState {
       return
     }
     // This is the callback that we will subscribe & unsubscribe to the ydoc changes
-    const cb = (...args) => {
+    const cb = this.#state.ytype.observeDeep((evt, tr) => {
       if (!this.#view || this.#view.isDestroyed) {
         // view is destroyed, just clean up the subscription, and no-op
         this.#subscription()
@@ -445,10 +445,8 @@ export class SyncPluginState {
       }
 
       // call the onYTypeEvent handler on that instance
-      pluginState.#onYTypeEvent(...args)
-    }
-
-    this.#state.ytype.observeDeep(cb)
+      pluginState.#onChangeYType(evt, tr)
+    })
 
     this.#subscription = () => {
       this.#subscription = null
@@ -477,7 +475,7 @@ export class SyncPluginState {
    * @param {Array<Y.YEvent<Y.XmlFragment>>} events
    * @param {Y.Transaction} tr
    */
-  #onYTypeEvent (events, tr) {
+  #onChangeYType (events, tr) {
     // bail if: the view is destroyed OR it was us that made the change OR we are not in "sync" mode
     if (!this.initialized || tr.origin === ySyncPluginKey || this.#state.type !== 'sync') {
       return
