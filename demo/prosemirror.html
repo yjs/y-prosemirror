@@ -391,16 +391,14 @@ p[ychange_type='removed'] > span > br {
       <div class="control-section">
         <h3>Suggestion Mode</h3>
         <div class="control-group">
-          <label>
-            <input id="toggle-show-suggestions" type="checkbox" />
-            <span>Show Suggestions</span>
-          </label>
-        </div>
-        <div class="control-group">
-          <label>
-            <input id="toggle-suggest-mode" type="checkbox" />
-            <span>Suggest Mode</span>
-          </label>
+          <label class="select-label">Mode:</label>
+          <select id="select-suggestion-mode">
+            <option value="off">Off - Hide suggestions, edit original</option>
+            <option value="view">View - Show suggestions, edit original</option>
+            <option value="edit">
+              Edit - Show suggestions, create suggestions
+            </option>
+          </select>
         </div>
       </div>
 

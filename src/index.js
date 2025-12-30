@@ -642,26 +642,33 @@ export class SyncPluginState {
   }
 
   /**
-   * Render the suggestions for the prosemirror state
-   * @param {object} [opts]
-   * @param {boolean} [opts.showSuggestions]
-   * @param {boolean} [opts.suggestionMode]
+   * Set the suggestion mode
+   * @param {'off' | 'view' | 'edit'} mode
+   * -
+   *  - 'off': Hide suggestions, edit original document
+   *  - 'view': Show suggestions, edit original document
+   *  - 'edit': Show suggestions, edits become suggestions
    */
-  renderSuggestions ({ showSuggestions = true, suggestionMode } = {}) {
-    console.log('renderSuggestions', { showSuggestions, suggestionMode })
+  setSuggestionMode (mode) {
     if (this.#state.type !== 'sync') {
       // not in sync mode, so we don't need to do anything
       return
     }
+
+    const showSuggestions = mode !== 'off'
+    const suggestionMode = mode === 'edit'
+
     let switchedToSuggestionMode = false
-    if (suggestionMode !== undefined && suggestionMode !== this.#attributionManager.suggestionMode) {
+    if (suggestionMode !== this.#attributionManager.suggestionMode) {
       this.#attributionManager.suggestionMode = suggestionMode
       switchedToSuggestionMode = true
     }
+
     if (this.#state.showSuggestions === showSuggestions && !switchedToSuggestionMode) {
       // already in the desired suggestion mode & did not switch to a different suggestion mode
       return
     }
+
     const tr = this.#renderFragment({
       showSuggestions
     })

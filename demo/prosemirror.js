@@ -19,52 +19,42 @@ const roomName = 'pm-suggestion-demo-2'
 const elemToggleConnect = document.querySelector('#toggle-connect')
 
 /**
- * @type {HTMLInputElement?}
+ * @type {HTMLSelectElement?}
  */
-const elemToggleShowSuggestions = document.querySelector('#toggle-show-suggestions')
-/**
- * @type {HTMLInputElement?}
- */
-const elemToggleSuggestMode = document.querySelector('#toggle-suggest-mode')
-if (elemToggleShowSuggestions == null || elemToggleSuggestMode == null || elemToggleConnect == null) error.unexpectedCase()
+const elemSelectSuggestionMode = document.querySelector('#select-suggestion-mode')
+if (elemSelectSuggestionMode == null || elemToggleConnect == null) error.unexpectedCase()
 
 if (localStorage.getItem('should-connect') != null) {
   elemToggleConnect.checked = localStorage.getItem('should-connect') === 'true'
 }
 
-elemToggleShowSuggestions.addEventListener('change', () => {
-  ySyncPluginKey.getState(currentView.state).renderSuggestions({
-    showSuggestions: elemToggleShowSuggestions.checked,
-    suggestionMode: elemToggleSuggestMode.checked
-  })
-})
-
 // when in suggestion-mode, we should use a different clientId to reduce some overhead. This is not
 // strictly necessary.
 let otherClientID = random.uint53()
-elemToggleSuggestMode.addEventListener('change', () => {
-  const enabled = elemToggleSuggestMode.checked
-  if (enabled) {
-    elemToggleShowSuggestions.checked = true
-    elemToggleShowSuggestions.disabled = true
-  } else {
-    elemToggleShowSuggestions.disabled = false
+let previousMode = 'off'
+
+elemSelectSuggestionMode.addEventListener('change', () => {
+  const mode = elemSelectSuggestionMode.value
+  if (!currentView) return
+  const pluginState = ySyncPluginKey.getState(currentView.state)
+  if (!pluginState) return
+
+  // When entering edit mode, switch clientId and set user awareness
+  if (mode === 'edit' && previousMode !== 'edit') {
+    const nextClientId = otherClientID
+    otherClientID = suggestionDoc.clientID
+    suggestionDoc.clientID = nextClientId
+
+    // Define user name and user name
+    // Check the quill-cursors package on how to change the way cursors are rendered
+    providerYdoc.awareness.setLocalStateField('user', {
+      name: 'Typing Jimmy',
+      color: 'blue'
+    })
   }
-  const nextClientId = otherClientID
-  otherClientID = suggestionDoc.clientID
-  suggestionDoc.clientID = nextClientId
 
-  // Define user name and user name
-  // Check the quill-cursors package on how to change the way cursors are rendered
-  providerYdoc.awareness.setLocalStateField('user', {
-    name: 'Typing Jimmy',
-    color: 'blue'
-  })
-
-  ySyncPluginKey.getState(currentView.state).renderSuggestions({
-    showSuggestions: elemToggleShowSuggestions.checked,
-    suggestionMode: enabled
-  })
+  pluginState.setSuggestionMode(mode)
+  previousMode = mode
 })
 
 elemToggleConnect.addEventListener('change', () => {
