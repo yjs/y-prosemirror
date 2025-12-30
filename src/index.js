@@ -597,7 +597,7 @@ export class SyncPluginState {
 
     // Take whatever is in the ytype now, and make that the new document state
     const tr = fragmentToTr(this.#state.ytype, this.#tr, {
-      attributionManager: this.#attributionManager,
+      attributionManager: this.#state.isSuggestionMode ? this.#attributionManager : Y.noAttributionsManager,
       mapAttributionToMark: this.#mapAttributionToMark
     })
     /** @type {YSyncPluginMeta} */
@@ -630,20 +630,21 @@ export class SyncPluginState {
     if (!prevSnapshot) {
       prevSnapshot = { fragment: snapshot.fragment }
     }
+    const snapshotDoc = snapshot.snapshot ? Y.createDocFromSnapshot(snapshot.fragment.doc, snapshot.snapshot) : snapshot.fragment.doc
+    const prevSnapshotDoc = prevSnapshot.snapshot ? Y.createDocFromSnapshot(prevSnapshot.fragment.doc, prevSnapshot.snapshot) : prevSnapshot.fragment.doc
+    const am = Y.createAttributionManagerFromDiff(prevSnapshotDoc, snapshotDoc, { attrs: [Y.createAttributionItem('insert', ['unknown'])] })
+    const tr = fragmentToTr(findTypeInOtherYdoc(snapshot.fragment, snapshotDoc), this.#tr, {
+      attributionManager: am,
+      mapAttributionToMark: this.#mapAttributionToMark
+    })
+
     /** @type {YSyncPluginMeta} */
     const pluginMeta = {
       type: 'render-snapshot',
       snapshot,
       prevSnapshot
     }
-    const snapshotDoc = snapshot.snapshot ? Y.createDocFromSnapshot(snapshot.fragment.doc, snapshot.snapshot) : snapshot.fragment.doc
-    const prevSnapshotDoc = prevSnapshot.snapshot ? Y.createDocFromSnapshot(prevSnapshot.fragment.doc, prevSnapshot.snapshot) : prevSnapshot.fragment.doc
-    const tr = this.#tr.setMeta(ySyncPluginKey, pluginMeta)
-    const am = Y.createAttributionManagerFromDiff(prevSnapshotDoc, snapshotDoc, { attrs: [Y.createAttributionItem('insert', ['unknown'])] })
-    fragmentToTr(findTypeInOtherYdoc(snapshot.fragment, snapshotDoc), tr, {
-      attributionManager: am,
-      mapAttributionToMark: this.#mapAttributionToMark
-    })
+    tr.setMeta(ySyncPluginKey, pluginMeta)
     this.view.dispatch(tr)
   }
 
@@ -656,17 +657,28 @@ export class SyncPluginState {
   renderSuggestions ({ showSuggestions = true, suggestionMode } = {}) {
     console.log('renderSuggestions', { showSuggestions, suggestionMode })
     if (this.#state.type !== 'sync') {
-      console.log('showSuggestions: not in sync mode')
+      // not in sync mode, so we don't need to do anything
       return
     }
-    if (this.#attributionManager instanceof Y.DiffAttributionManager && suggestionMode !== undefined) {
+    let switchedToSuggestionMode = false
+    if (this.#attributionManager instanceof Y.DiffAttributionManager && suggestionMode !== undefined && suggestionMode !== this.#attributionManager.suggestionMode) {
       this.#attributionManager.suggestionMode = suggestionMode
+      switchedToSuggestionMode = true
+    }
+    if (this.#state.isSuggestionMode === showSuggestions && !switchedToSuggestionMode) {
+      // already in the desired suggestion mode & did not switch to a different suggestion mode
+      return
     }
     const tr = fragmentToTr(
-      showSuggestions ? findTypeInOtherYdoc(this.#state.ytype, this.#suggestionDoc) : findTypeInOtherYdoc(this.#state.ytype, this.#contentDoc), this.#tr, {
+      // from the current XMLFragment, get the type in the suggestion doc or content doc, depending on the showSuggestions flag
+      showSuggestions ? findTypeInOtherYdoc(this.#state.ytype, this.#suggestionDoc) : findTypeInOtherYdoc(this.#state.ytype, this.#contentDoc),
+      this.#tr,
+      {
+        // Choose whether to use the attribution manager
         attributionManager: showSuggestions ? this.#attributionManager : Y.noAttributionsManager,
         mapAttributionToMark: this.#mapAttributionToMark
-      })
+      }
+    )
     /** @type {YSyncPluginMeta} */
     const pluginMeta = {
       type: showSuggestions ? 'show-suggestions' : 'hide-suggestions'
