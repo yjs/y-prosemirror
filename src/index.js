@@ -681,6 +681,34 @@ export class SyncPluginState {
   }
 
   /**
+   * Accept the changes within the given range
+   * @note This will move the content from the suggestion doc into the content doc, so this requires permissions to write to the content doc
+   * @param {number} from
+   * @param {number} [to]
+   */
+  acceptChanges (from, to) {
+    if (!this.#state.showSuggestions) {
+      // not in suggestion mode, so we don't need to do anything
+      return
+    }
+    this.#attributionManager.acceptChanges()
+  }
+
+  /**
+   * Reject the changes within the given range
+   * @note This will remove the content from the suggestion doc, so that it no longer appears in the editor
+   * @param {number} from
+   * @param {number} [to]
+   */
+  rejectChanges (from, to) {
+    if (!this.#state.showSuggestions) {
+      // not in suggestion mode, so we don't need to do anything
+      return
+    }
+    this.#attributionManager.rejectChanges()
+  }
+
+  /**
    * Replaces the current prosemirror document with the content of the given ytype
    * @param {object} ctx
    * @param {Y.XmlFragment} [ctx.fragment] The ytype to render
