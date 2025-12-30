@@ -382,9 +382,9 @@ export class SyncPluginState {
     } else {
       console.log('ytype is not empty, applying initial ydoc content to prosemirror state')
       // Initialize the prosemirror state with what is in the ydoc
-      const tr = fragmentToTr(this.#state.ytype, this.#tr, {
-        attributionManager: this.#attributionManager,
-        mapAttributionToMark: this.#mapAttributionToMark
+      const tr = this.#renderFragment({
+        fragment: this.#state.ytype,
+        showSuggestions: false
       })
 
       /** @type {YSyncPluginMeta} */
@@ -596,10 +596,7 @@ export class SyncPluginState {
     }
 
     // Take whatever is in the ytype now, and make that the new document state
-    const tr = fragmentToTr(this.#state.ytype, this.#tr, {
-      attributionManager: this.#state.isSuggestionMode ? this.#attributionManager : Y.noAttributionsManager,
-      mapAttributionToMark: this.#mapAttributionToMark
-    })
+    const tr = this.#renderFragment()
     /** @type {YSyncPluginMeta} */
     const pluginMeta = {
       type: 'resume-sync'
@@ -633,9 +630,9 @@ export class SyncPluginState {
     const snapshotDoc = snapshot.snapshot ? Y.createDocFromSnapshot(snapshot.fragment.doc, snapshot.snapshot) : snapshot.fragment.doc
     const prevSnapshotDoc = prevSnapshot.snapshot ? Y.createDocFromSnapshot(prevSnapshot.fragment.doc, prevSnapshot.snapshot) : prevSnapshot.fragment.doc
     const am = Y.createAttributionManagerFromDiff(prevSnapshotDoc, snapshotDoc, { attrs: [Y.createAttributionItem('insert', ['unknown'])] })
-    const tr = fragmentToTr(findTypeInOtherYdoc(snapshot.fragment, snapshotDoc), this.#tr, {
-      attributionManager: am,
-      mapAttributionToMark: this.#mapAttributionToMark
+    const tr = this.#renderFragment({
+      fragment: findTypeInOtherYdoc(snapshot.fragment, snapshotDoc),
+      attributionManager: am
     })
 
     /** @type {YSyncPluginMeta} */
@@ -669,22 +666,34 @@ export class SyncPluginState {
       // already in the desired suggestion mode & did not switch to a different suggestion mode
       return
     }
-    const tr = fragmentToTr(
-      // from the current XMLFragment, get the type in the suggestion doc or content doc, depending on the showSuggestions flag
-      showSuggestions ? findTypeInOtherYdoc(this.#state.ytype, this.#suggestionDoc) : findTypeInOtherYdoc(this.#state.ytype, this.#contentDoc),
-      this.#tr,
-      {
-        // Choose whether to use the attribution manager
-        attributionManager: showSuggestions ? this.#attributionManager : Y.noAttributionsManager,
-        mapAttributionToMark: this.#mapAttributionToMark
-      }
-    )
+    const tr = this.#renderFragment({
+      showSuggestions
+    })
     /** @type {YSyncPluginMeta} */
     const pluginMeta = {
       type: showSuggestions ? 'show-suggestions' : 'hide-suggestions'
     }
     tr.setMeta(ySyncPluginKey, pluginMeta)
     this.view.dispatch(tr)
+  }
+
+  /**
+   * Replaces the current prosemirror document with the content of the given ytype
+   * @param {object} ctx
+   * @param {Y.XmlFragment} [ctx.fragment] The ytype to render
+   * @param {boolean} [ctx.showSuggestions] Whether to show suggestions
+   * @param {import('prosemirror-state').Transaction} [ctx.tr]
+   */
+  #renderFragment ({
+    showSuggestions = this.#state.isSuggestionMode,
+    // from the current XMLFragment, get the type in the suggestion doc or content doc, depending on the showSuggestions flag
+    fragment = findTypeInOtherYdoc(this.#state.ytype, this.#state.isSuggestionMode ? this.#suggestionDoc : this.#contentDoc),
+    tr = this.#tr
+  }) {
+    return fragmentToTr(fragment, tr, {
+      attributionManager: (showSuggestions) ? this.#attributionManager : Y.noAttributionsManager,
+      mapAttributionToMark: this.#mapAttributionToMark
+    })
   }
 
   /**
