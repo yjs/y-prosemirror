@@ -49,9 +49,9 @@ export type SyncPluginMode = {
    */
   ytype: Y.XmlFragment;
   /**
-   * Whether we are currently in suggestion mode
+   * Whether we are currently showing suggestions (i.e. the ytype is based on the suggestion doc)
    */
-  isSuggestionMode: boolean;
+  showSuggestions: boolean;
 } & (
   | {
       type: "sync";

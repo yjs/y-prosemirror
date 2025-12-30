@@ -163,7 +163,7 @@ export class SyncPluginState {
       type: 'sync',
       pendingDelta: null,
       ytype,
-      isSuggestionMode: false
+      showSuggestions: false
     }
     this.#mapAttributionToMark = mapAttributionToMark || defaultMapAttributionToMark
     this.#suggestionDoc = suggestionDoc || null
@@ -219,7 +219,7 @@ export class SyncPluginState {
                 type: this.#state.type,
                 pendingDelta: this.#state.pendingDelta ? this.#state.pendingDelta.apply(nextDelta) : nextDelta,
                 ytype: this.#state.ytype,
-                isSuggestionMode: this.#state.isSuggestionMode,
+                showSuggestions: this.#state.showSuggestions,
                 contentDocSnapshot: this.#state.contentDocSnapshot
               }
               return nextState
@@ -234,7 +234,7 @@ export class SyncPluginState {
           type: this.#state.type,
           ytype: this.#state.ytype,
           pendingDelta: this.#state.pendingDelta ? this.#state.pendingDelta.apply(nextDelta) : nextDelta,
-          isSuggestionMode: this.#state.isSuggestionMode,
+          showSuggestions: this.#state.showSuggestions,
           contentDocSnapshot: this.#state.contentDocSnapshot
         }
         return nextState
@@ -246,7 +246,7 @@ export class SyncPluginState {
           prevSnapshot: pluginMeta.prevSnapshot,
           pendingDelta: null,
           ytype: this.#state.ytype,
-          isSuggestionMode: this.#state.isSuggestionMode
+          showSuggestions: this.#state.showSuggestions
         }
         return nextState
       }
@@ -256,7 +256,7 @@ export class SyncPluginState {
           type: 'sync',
           pendingDelta: null,
           ytype: this.#state.ytype,
-          isSuggestionMode: this.#state.isSuggestionMode
+          showSuggestions: this.#state.showSuggestions
         }
         return nextState
       }
@@ -267,7 +267,7 @@ export class SyncPluginState {
           pendingDelta: null,
           snapshot: Y.snapshot(this.#contentDoc),
           ytype: this.#state.ytype,
-          isSuggestionMode: this.#state.isSuggestionMode
+          showSuggestions: this.#state.showSuggestions
         }
 
         return nextState
@@ -278,7 +278,7 @@ export class SyncPluginState {
           pendingDelta: null,
           // switch to the suggestion doc
           ytype: findTypeInOtherYdoc(this.#state.ytype, this.#suggestionDoc),
-          isSuggestionMode: true
+          showSuggestions: true
         }
 
         return nextState
@@ -289,7 +289,7 @@ export class SyncPluginState {
           pendingDelta: null,
           // switch to the content doc
           ytype: findTypeInOtherYdoc(this.#state.ytype, this.#contentDoc),
-          isSuggestionMode: false
+          showSuggestions: false
         }
       }
     }
@@ -327,7 +327,7 @@ export class SyncPluginState {
         return
       }
       case 'sync':{
-        if (this.#state.isSuggestionMode !== prevPluginState.#state.isSuggestionMode) {
+        if (this.#state.showSuggestions !== prevPluginState.#state.showSuggestions) {
           // We are entering/leaving suggestion mode, so we need to subscribe to the suggestion doc
           // stop observing the ytype
           this.destroy()
@@ -658,7 +658,7 @@ export class SyncPluginState {
       this.#attributionManager.suggestionMode = suggestionMode
       switchedToSuggestionMode = true
     }
-    if (this.#state.isSuggestionMode === showSuggestions && !switchedToSuggestionMode) {
+    if (this.#state.showSuggestions === showSuggestions && !switchedToSuggestionMode) {
       // already in the desired suggestion mode & did not switch to a different suggestion mode
       return
     }
@@ -681,9 +681,9 @@ export class SyncPluginState {
    * @param {import('prosemirror-state').Transaction} [ctx.tr]
    */
   #renderFragment ({
-    showSuggestions = this.#state.isSuggestionMode,
+    showSuggestions = this.#state.showSuggestions,
     // from the current XMLFragment, get the type in the suggestion doc or content doc, depending on the showSuggestions flag
-    fragment = findTypeInOtherYdoc(this.#state.ytype, this.#state.isSuggestionMode ? this.#suggestionDoc : this.#contentDoc),
+    fragment = findTypeInOtherYdoc(this.#state.ytype, this.#state.showSuggestions ? this.#suggestionDoc : this.#contentDoc),
     tr = this.#tr
   }) {
     return fragmentToTr(fragment, tr, {
