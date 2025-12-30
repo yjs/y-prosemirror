@@ -21,6 +21,7 @@ const $prosemirrorDelta = delta.$delta({ name: s.$string, attrs: s.$record(s.$st
  * @typedef {import('./types').SyncPluginMode} SyncPluginMode
  * @typedef {import('./types').YSyncPluginMeta} YSyncPluginMeta
  * @typedef {import('./types').SnapshotItem} SnapshotItem
+ * @typedef {import('./types').InitializeCallback} InitializeCallback
  */
 
 // y-attribution-deletion & y-attribution-insertion & y-attribution-format (or mod?)
@@ -63,6 +64,28 @@ const defaultMapAttributionToMark = (format, attribution) => {
     }
   }
   return object.assign({}, format, mergeWith)
+}
+
+/**
+ * We prefer checking that the prosemirror document is empty, since most people will sync the ydoc later
+ * @type {InitializeCallback}
+ */
+const defaultInitializeCallback = ({ yjs, pm }) => {
+  if (yjs.hasContent) {
+    // Ydoc has content, so we can directly start with the ydoc content
+    yjs.apply()
+    return
+  }
+
+  if (pm.hasContent) {
+    // Your prosemirror editor has a non-empty document, yet the ydoc is empty
+    // This is a potential issue, applying the prosemirror document in this state may cause duplicated content
+    // If you want to get rid of this warning, then you should either:
+    // 1. Not set an initial prosemirror document
+    // 2. Load the ydoc content before initializing the prosemirror editor, in-which case duplicate content will be avoided, and this error can be ignored
+    // 3. Implement your own initialization callback, and handle this however you want
+    console.warn('[y/prosemirror]: prosemirror has content, but ydoc is empty, refusing to initialize the editor')
+  }
 }
 
 /**
@@ -332,14 +355,14 @@ export class SyncPluginState {
           // stop observing the ytype
           this.destroy()
           // subscribe to the suggestion doc
-          this.#subscribe()
+          this.#subscribeToYType()
           return
         }
         if (prevPluginState.#state.type === 'paused' || prevPluginState.#state.type === 'snapshot') {
           // was just paused, so we need to resume sync
 
           // Restart the observer for two-way sync again
-          this.#subscribe()
+          this.#subscribeToYType()
           return
         }
         if (!this.#state.pendingDelta) {
@@ -351,6 +374,13 @@ export class SyncPluginState {
           this.#state.pendingDelta = null
 
           this.#state.ytype.doc.transact(() => {
+            // If the ytype has not yet been initialized
+            if (this.#state.ytype.length === 0) {
+              // Apply the previous prosemirror document to the ytype, so that the pending delta can operate on the correct content
+              pmToFragment(prevState.doc, this.#state.ytype, {
+                attributionManager: this.#state.showSuggestions ? this.#attributionManager : Y.noAttributionsManager
+              })
+            }
             this.#state.ytype.applyDelta(d, this.#attributionManager)
           }, ySyncPluginKey)
         })
@@ -366,42 +396,13 @@ export class SyncPluginState {
   #initializationTimeoutId = undefined
 
   /**
-   * Initialize the prosemirror state with what is in the ydoc or vice versa
-   */
-  #syncDocs () {
-    // TODO ydoc.on('sync') ? we could use this to indicate that the ydoc is ready or not
-    if (this.#state.ytype.length === 0) {
-      console.log('ytype is empty, applying initial prosemirror state to ydoc')
-      // TODO likely want to compare the empty initial doc with the ydoc and apply changes the ydoc if there are any
-      // initialize the ydoc with the initial prosemirror state
-      this.#state.ytype.doc.transact(() => {
-        pmToFragment(this.view.state.doc, this.#state.ytype)
-      }, ySyncPluginKey)
-    } else {
-      console.log('ytype is not empty, applying initial ydoc content to prosemirror state')
-      // Initialize the prosemirror state with what is in the ydoc
-      const tr = this.#renderFragment({
-        fragment: this.#state.ytype,
-        showSuggestions: false
-      })
-
-      /** @type {YSyncPluginMeta} */
-      const pluginMeta = {
-        type: 'initialized',
-        ytype: this.#state.ytype
-      }
-      tr.setMeta(ySyncPluginKey, pluginMeta)
-      this.view.dispatch(tr)
-    }
-  }
-
-  /**
    * Initialize the plugin state with the view
    * @note this will start the synchronization of the prosemirror state with the ydoc
    * @param {import('prosemirror-view').EditorView} view
+   * @param {InitializeCallback} [onInitialize]
    * @private
    */
-  init (view) {
+  init (view, onInitialize) {
     // initialize the prosemirror state with what is in the ydoc
     // we wait a tick, because in some cases, the view can be immediately destroyed
     this.#initializationTimeoutId = setTimeout(() => {
@@ -410,10 +411,47 @@ export class SyncPluginState {
       // Only set the view if we've passed a tick
       // This gates the initialization of the plugin state until the view is ready
       this.#view = view
-      this.#syncDocs()
+
+      onInitialize({
+        yjs: {
+          ytype: this.#state.ytype,
+          get hasContent () {
+            return this.ytype.length !== 0
+          },
+          apply: ({ showSuggestions = this.#state.showSuggestions } = {}) => {
+            const tr = this.#renderFragment({
+              fragment: this.#state.ytype,
+              showSuggestions: false
+            })
+
+            /** @type {YSyncPluginMeta} */
+            const pluginMeta = {
+              type: 'initialized',
+              ytype: this.#state.ytype
+            }
+            tr.setMeta(ySyncPluginKey, pluginMeta)
+            this.view.dispatch(tr)
+          }
+        },
+        pm: {
+          doc: view.state.doc,
+          get hasContent () {
+            return view.state.doc.content.findDiffStart(
+              view.state.doc.type.createAndFill().content
+            ) !== null
+          },
+          apply: ({ showSuggestions = this.#state.showSuggestions } = {}) => {
+            this.#state.ytype.doc.transact(() => {
+              pmToFragment(view.state.doc, this.#state.ytype, {
+                attributionManager: showSuggestions ? this.#attributionManager : Y.noAttributionsManager
+              })
+            }, ySyncPluginKey)
+          }
+        }
+      })
 
       // subscribe to the ydoc changes, after initialization is complete
-      this.#subscribe()
+      this.#subscribeToYType()
     }, 0)
   }
 
@@ -421,7 +459,7 @@ export class SyncPluginState {
    * Subscribe to the ydoc changes, and register a cleanup function to unsubscribe when the view is destroyed
    * @private
    */
-  #subscribe () {
+  #subscribeToYType () {
     if (!this.#view) {
       throw new Error('[y/prosemirror]: view not set')
     }
@@ -430,6 +468,9 @@ export class SyncPluginState {
       // re-use the existing subscription, since it operates on the latest plugin state
       return
     }
+    // This stores whether the ytype has loaded any content yet
+    // If it has not, then we need to apply changes to it slightly differently in #onChangeYType
+    let isYTypeInitialized = !!this.#state.ytype.length
     // This is the callback that we will subscribe & unsubscribe to the ydoc changes
     const cb = this.#state.ytype.observeDeep((evt, tr) => {
       if (!this.#view || this.#view.isDestroyed) {
@@ -445,7 +486,9 @@ export class SyncPluginState {
       }
 
       // call the onYTypeEvent handler on that instance
-      pluginState.#onChangeYType(evt, tr)
+      pluginState.#onChangeYType(evt, tr, isYTypeInitialized)
+      // We got an event, so the ytype should now be initialized
+      isYTypeInitialized = true
     })
 
     this.#subscription = () => {
@@ -474,8 +517,9 @@ export class SyncPluginState {
    * @note this must be a stable reference to be unobserved later
    * @param {Array<Y.YEvent<Y.XmlFragment>>} events
    * @param {Y.Transaction} tr
+   * @param {boolean} isYTypeInitialized Whether the ytype has already been initialized
    */
-  #onChangeYType (events, tr) {
+  #onChangeYType (events, tr, isYTypeInitialized) {
     // bail if: the view is destroyed OR it was us that made the change OR we are not in "sync" mode
     if (!this.initialized || tr.origin === ySyncPluginKey || this.#state.type !== 'sync') {
       return
@@ -486,11 +530,21 @@ export class SyncPluginState {
        * @type {Y.YEvent<Y.XmlFragment>}
        */
       const event = events.find(event => event.target === this.#state.ytype) || new Y.YEvent(this.#state.ytype, tr, new Set(null))
-      const d = this.#attributionManager === Y.noAttributionsManager
-        ? event.deltaDeep
-        : deltaAttributionToFormat(event.getDelta(this.#attributionManager, { deep: true }), this.#mapAttributionToMark)
+      let d = deltaAttributionToFormat(event.getDelta(this.#state.showSuggestions ? this.#attributionManager : Y.noAttributionsManager, { deep: true }), this.#mapAttributionToMark).done()
+
+      const tr = this.#view.state.tr
+      if (!isYTypeInitialized) {
+        // Here is the sequence of events:
+        // 1. The prosemirror document is empty (e.g. <p></p>)
+        // 2. The ytype is empty
+        // 3. We get an update, which describes the document as <p>Hello, world!</p>
+        // If we apply the delta directly, then the prosemirror document will be <p>Hello, world!</p><p></p>, which is incorrect
+        // What we actually want is for this case to act as a full-document replace
+        // so, we actually diff the prosemirror document with the delta, to get the correct changes
+        d = delta.diff(nodeToDelta(this.#view.state.doc).done(), d)
+      }
       const ptr = deltaToPSteps(this.#view.state.tr, d)
-      // console.log('ytype emitted event', d.toJSON(), 'and applied changes to pm', ptr.steps)
+
       ptr.setMeta(ySyncPluginKey, { ytypeEvent: true })
       this.#view.dispatch(ptr)
     }, () => {
@@ -767,9 +821,15 @@ export class SyncPluginState {
  * @param {Y.DiffAttributionManager} [opts.attributionManager] An {@link Y.DiffAttributionManager} to use for attribution tracking
  * @param {Y.Doc} [opts.suggestionDoc] A {@link Y.Doc} to use for suggestion tracking
  * @param {typeof defaultMapAttributionToMark} [opts.mapAttributionToMark] A function to map the {@link Y.Attribution} to a {@link import('prosemirror-model').Mark}
+ * @param {InitializeCallback} [opts.initialize] This callback is called on initialization and is meant to be used to initialize the editor's state or initialize the ydoc content
  * @returns {Plugin}
  */
-export function syncPlugin (ytype, { attributionManager = Y.noAttributionsManager, mapAttributionToMark = defaultMapAttributionToMark, suggestionDoc } = {}) {
+export function syncPlugin (ytype, {
+  attributionManager = Y.noAttributionsManager,
+  mapAttributionToMark = defaultMapAttributionToMark,
+  suggestionDoc,
+  onInitialize = defaultInitializeCallback
+} = {}) {
   return new Plugin({
     key: ySyncPluginKey,
     props: {
@@ -794,7 +854,7 @@ export function syncPlugin (ytype, { attributionManager = Y.noAttributionsManage
         throw new Error('[y/prosemirror]: plugin state not found in view.state')
       }
 
-      pluginState.init(view)
+      pluginState.init(view, onInitialize)
 
       return {
         update (view, prevState) {
@@ -866,12 +926,14 @@ export const nodesToDelta = ns => {
 /**
  * Transforms a {@link Node} into a {@link Y.XmlFragment}
  * @param {Node} node
- * @param {Y.XmlFragment} [fragment]
+ * @param {Y.XmlFragment} fragment
+ * @param {Object} [opts]
+ * @param {Y.DiffAttributionManager} [opts.attributionManager]
  * @returns {Y.XmlFragment}
  */
-export function pmToFragment (node, fragment = new Y.XmlFragment()) {
+export function pmToFragment (node, fragment, { attributionManager = Y.noAttributionsManager } = {}) {
   const initialPDelta = nodeToDelta(node).done()
-  fragment.applyDelta(initialPDelta)
+  fragment.applyDelta(initialPDelta, attributionManager)
 
   return fragment
 }

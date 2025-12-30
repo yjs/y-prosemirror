@@ -1,5 +1,7 @@
 import type * as Y from "@y/y";
+import { Node } from "prosemirror-model";
 import type { Transaction } from "prosemirror-state";
+import { EditorView } from "prosemirror-view";
 import { ProsemirrorDelta } from "src";
 
 /**
@@ -76,3 +78,59 @@ export type SyncPluginMode = {
       prevSnapshot: SnapshotItem;
     }
 );
+
+/**
+ * This callback is called on initialization and is meant to be used to initialize the editor's state or initialize the ydoc content
+ */
+export type InitializeCallback = (ctx: {
+  /**
+   * The view that is being initialized
+   */
+  view: EditorView;
+  /**
+   * The ytype object that provides methods for applying the ytype's content to the prosemirror document and the ytype itself
+   */
+  yjs: {
+    /**
+     * The ytype to use for the sync
+     */
+    readonly ytype: Y.XmlFragment;
+    /**
+     * Indicates if the ytype has content (i.e. is not the same as the initial ytype)
+     */
+    readonly hasContent: boolean;
+    /**
+     * Apply the ytype's content to the prosemirror document
+     */
+    apply: (opts?: {
+      /**
+       * Whether to show suggestions
+       * @default false
+       */
+      showSuggestions?: boolean;
+    }) => void;
+  };
+  /**
+   * The prosemirror document object that provides methods for applying the prosemirror document's content to the ytype
+   */
+  pm: {
+    /**
+     * The prosemirror document to use for the sync
+     */
+    readonly doc: Node;
+    /**
+     * Indicates if the prosemirror document has content (i.e. is not the same as the initial document)
+     */
+    readonly hasContent: boolean;
+    /**
+     * Apply the prosemirror document's content to the ytype
+     */
+    apply: (opts?: {
+      /**
+       * Whether to show suggestions
+       * @default false
+       */
+      showSuggestions?: boolean;
+    }) => void;
+  };
+}) => {};
