@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html>
-<head>
-    <meta charset="utf-8"/>
+  <head>
+    <meta charset="utf-8" />
     <title>Yjs Prosemirror Example</title>
     <script type="text/javascript" src="./dist/prosemirror.js" async></script>
-    <link rel=stylesheet href="./prosemirror.css" async defer>
+    <link rel="stylesheet" href="./prosemirror.css" async defer />
     <style>
       placeholder {
         display: inline;
@@ -17,14 +17,22 @@
         line-height: 0.1;
         font-weight: bold;
       }
-      .ProseMirror img { max-width: 100px }
+      .ProseMirror img {
+        max-width: 100px;
+      }
 
       /* this is a rough fix for the first cursor position when the first paragraph is empty */
       .ProseMirror > .ProseMirror-yjs-cursor:first-child {
         margin-top: 16px;
       }
-      .ProseMirror p:first-child, .ProseMirror h1:first-child, .ProseMirror h2:first-child, .ProseMirror h3:first-child, .ProseMirror h4:first-child, .ProseMirror h5:first-child, .ProseMirror h6:first-child {
-        margin-top: 16px
+      .ProseMirror p:first-child,
+      .ProseMirror h1:first-child,
+      .ProseMirror h2:first-child,
+      .ProseMirror h3:first-child,
+      .ProseMirror h4:first-child,
+      .ProseMirror h5:first-child,
+      .ProseMirror h6:first-child {
+        margin-top: 16px;
       }
       /* This gives the remote user caret. The colors are automatically overwritten*/
       .ProseMirror-yjs-cursor {
@@ -65,97 +73,360 @@
     </style>
     <!-- custom styling for attributions -->
     <style>
-#y-version {
-  position: relative;
-}
+      #y-version {
+        position: relative;
+      }
 
-.version-modal[hidden] {
-  display: none;
-}
+      .version-modal[hidden] {
+        display: none;
+      }
 
-.version-modal:not([hidden]) {
-  position: absolute;
-  top: 30px;
-  right: 0;
-  width: 300px;
-  min-height: 300px;
-  height: fit-content;
-  z-index: 20;
-  background-color: white;
-  border: 1px solid #ccc;
-  border-radius: 11px;
-  border-top-right-radius: 0;
-  box-shadow: 0 3px 7px rgba(0, 0, 0, 0.3);
-}
+      .version-modal:not([hidden]) {
+        position: absolute;
+        top: 30px;
+        right: 0;
+        width: 300px;
+        min-height: 300px;
+        height: fit-content;
+        z-index: 20;
+        background-color: white;
+        border: 1px solid #ccc;
+        border-radius: 11px;
+        border-top-right-radius: 0;
+        box-shadow: 0 3px 7px rgba(0, 0, 0, 0.3);
+      }
 
-.version-modal > button {
-  position: absolute;
-  right: 0;
-  top: 0;
-}
+      .version-modal > button {
+        position: absolute;
+        right: 0;
+        top: 0;
+      }
 
-.version-list {
-  line-height: 30px;
-  padding: 0 8px;
-  cursor: pointer;
-}
+      .version-list {
+        line-height: 30px;
+        padding: 0 8px;
+        cursor: pointer;
+      }
 
-.version-list:hover {
-  background-color: #eee;
-}
+      .version-list:hover {
+        background-color: #eee;
+      }
 
-[ychange_type] {
-  position: relative;
-}
-.ychange-hover {
-  display: none;
-}
-*:hover > .ychange-hover {
-  display: inline;
-  position: absolute;
-  top: -14px;
-  left: 0;
-  font-size: 12px;
-  padding: 0 2px;
-  border-radius: 3px 3px 0 0;
-  color: #fdfdfe;
-  user-select: none;
-  word-break: normal;
-}
+      [ychange_type] {
+        position: relative;
+      }
+      .ychange-hover {
+        display: none;
+      }
+      *:hover > .ychange-hover {
+        display: inline;
+        position: absolute;
+        top: -14px;
+        left: 0;
+        font-size: 12px;
+        padding: 0 2px;
+        border-radius: 3px 3px 0 0;
+        color: #fdfdfe;
+        user-select: none;
+        word-break: normal;
+      }
 
-ychange[ychange_type='removed'], p[ychange_type='removed'] {
-  text-decoration: line-through;
-}
-/*
+      ychange[ychange_type="removed"],
+      p[ychange_type="removed"] {
+        text-decoration: line-through;
+      }
+      /*
 p[ychange_type='removed'] > span > br {
   display: none;
 }
 */
-*:not(ychange)[ychange_type='removed'] {
-  background-color: #ff5a56;
-  color: inherit !important;
-}
-img[ychange_type='removed'] {
-  padding: 2px;
-}
+      *:not(ychange)[ychange_type="removed"] {
+        background-color: #ff5a56;
+        color: inherit !important;
+      }
+      img[ychange_type="removed"] {
+        padding: 2px;
+      }
+      /* Demo UI Styles */
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Oxygen, Ubuntu, Cantarell, sans-serif;
+        margin: 0;
+        padding: 20px;
+        background-color: #f5f5f5;
+        color: #333;
+        line-height: 1.6;
+      }
+
+      .demo-header {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        border: 1px solid #ddd;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+      }
+
+      .demo-header h1 {
+        margin: 0 0 10px 0;
+        font-size: 24px;
+        color: #222;
+      }
+
+      .demo-header p {
+        margin: 8px 0;
+        color: #666;
+        font-size: 14px;
+      }
+
+      .demo-header a {
+        color: #0066cc;
+        text-decoration: none;
+      }
+
+      .demo-header a:hover {
+        text-decoration: underline;
+      }
+
+      .controls-container {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 20px;
+        margin-bottom: 20px;
+      }
+
+      .control-section {
+        background: white;
+        padding: 15px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+      }
+
+      .control-section h3 {
+        margin: 0 0 15px 0;
+        font-size: 16px;
+        font-weight: 600;
+        color: #222;
+        border-bottom: 2px solid #f0f0f0;
+        padding-bottom: 8px;
+      }
+
+      .control-group {
+        margin-bottom: 12px;
+      }
+
+      .control-group:last-child {
+        margin-bottom: 0;
+      }
+
+      .control-group label {
+        display: flex;
+        align-items: center;
+        cursor: pointer;
+        padding: 8px;
+        border-radius: 4px;
+        transition: background-color 0.2s;
+      }
+
+      .control-group label:hover {
+        background-color: #f9f9f9;
+      }
+
+      .control-group input[type="checkbox"] {
+        margin-right: 10px;
+        width: 18px;
+        height: 18px;
+        cursor: pointer;
+      }
+
+      .control-group label span {
+        font-size: 14px;
+        color: #555;
+      }
+
+      .control-section button {
+        padding: 8px 16px;
+        margin-right: 8px;
+        margin-bottom: 8px;
+        background-color: #0066cc;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        transition: background-color 0.2s, transform 0.1s;
+      }
+
+      .control-section button:hover:not(:disabled) {
+        background-color: #0052a3;
+        transform: translateY(-1px);
+      }
+
+      .control-section button:active:not(:disabled) {
+        transform: translateY(0);
+      }
+
+      .control-section button:disabled {
+        background-color: #ccc;
+        cursor: not-allowed;
+        opacity: 0.6;
+      }
+
+      .control-section select {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 14px;
+        background-color: white;
+        cursor: pointer;
+        margin-top: 5px;
+      }
+
+      .control-section select:focus {
+        outline: none;
+        border-color: #0066cc;
+        box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.1);
+      }
+
+      .control-section label.select-label {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 13px;
+        font-weight: 500;
+        color: #555;
+      }
+
+      .control-section label.select-label:hover {
+        background-color: transparent;
+      }
+
+      .info-text {
+        margin-top: 12px;
+        padding: 10px;
+        border-radius: 4px;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .info-text.success {
+        background-color: #e8f5e9;
+        color: #2e7d32;
+        border: 1px solid #c8e6c9;
+      }
+
+      .info-text.warning {
+        background-color: #fff3e0;
+        color: #e65100;
+        border: 1px solid #ffcc80;
+      }
+
+      .info-text.info {
+        background-color: #e3f2fd;
+        color: #1565c0;
+        border: 1px solid #90caf9;
+      }
+
+      #snapshot-controls {
+        max-width: none;
+      }
+
+      #snapshot-controls button {
+        width: auto;
+      }
+
+      #btn-render-snapshot {
+        width: 100% !important;
+        margin-right: 0;
+      }
+
+      #ypm-container {
+        background: white;
+        border-radius: 8px;
+        border: 1px solid #ddd;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        overflow: hidden;
+      }
     </style>
-</head>
-<body>
-  <label>
-    <input id='toggle-connect' type="checkbox">
-    connect
-  </label>
-  <label>
-    <input id='toggle-show-suggestions' type="checkbox">
-    show suggestions
-  </label>
-  <label>
-    <input id='toggle-suggest-mode' type="checkbox">
-    suggest-mode
-  </label>
-  <p></p>
-  <p>This is a demo of the <a href="https://github.com/yjs/yjs">Yjs</a> ⇔ <a href="http://prosemirror.net/">ProseMirror</a> binding: <a href="https://github.com/yjs/y-prosemirror">y-prosemirror</a>.</p>
-  <p>The content of this editor is shared with every client that visits this domain.</p>
-  <div id='ypm-container' />
-</body>
+  </head>
+  <body>
+    <div class="demo-header">
+      <h1>Yjs ⇔ ProseMirror Demo</h1>
+      <p>
+        This is a demo of the <a href="https://github.com/yjs/yjs">Yjs</a> ⇔
+        <a href="http://prosemirror.net/">ProseMirror</a> binding:
+        <a href="https://github.com/yjs/y-prosemirror">y-prosemirror</a>.
+      </p>
+      <p>
+        The content of this editor is shared with every client that visits this
+        domain.
+      </p>
+    </div>
+
+    <div class="controls-container">
+      <div class="control-section">
+        <h3>Connection & Sync</h3>
+        <div class="control-group">
+          <label>
+            <input id="toggle-connect" type="checkbox" />
+            <span>Connect to WebSocket</span>
+          </label>
+        </div>
+        <div class="control-group">
+          <label>
+            <input id="toggle-pause-sync" type="checkbox" />
+            <span>Pause Sync</span>
+          </label>
+        </div>
+        <div class="control-group">
+          <label>
+            <input id="toggle-keep-changes" type="checkbox" />
+            <span>Keep Changes (when resuming sync)</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="control-section">
+        <h3>Suggestion Mode</h3>
+        <div class="control-group">
+          <label class="select-label">Mode:</label>
+          <select id="select-suggestion-mode">
+            <option value="off">Off - Hide suggestions, edit original</option>
+            <option value="view">View - Show suggestions, edit original</option>
+            <option value="edit">
+              Edit - Show suggestions, create suggestions
+            </option>
+          </select>
+        </div>
+      </div>
+
+      <div class="control-section" id="snapshot-controls">
+        <h3>Snapshot Management</h3>
+        <div style="margin-bottom: 12px">
+          <button id="btn-take-snapshot">Take Snapshot</button>
+          <button id="btn-resume-sync" disabled>Resume Sync</button>
+        </div>
+        <div class="control-group">
+          <label class="select-label"> From (prevSnapshot): </label>
+          <select id="select-prev-snapshot">
+            <option value="">-- None (single snapshot view) --</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label class="select-label"> To (snapshot): </label>
+          <select id="select-snapshot">
+            <option value="">-- Select a snapshot --</option>
+          </select>
+        </div>
+        <div>
+          <button id="btn-render-snapshot" disabled>Render Snapshot</button>
+        </div>
+        <div id="snapshot-info" class="info-text"></div>
+      </div>
+    </div>
+
+    <div id="ypm-container" />
+  </body>
 </html>
