@@ -532,7 +532,6 @@ export class SyncPluginState {
       const event = events.find(event => event.target === this.#state.ytype) || new Y.YEvent(this.#state.ytype, tr, new Set(null))
       let d = deltaAttributionToFormat(event.getDelta(this.#state.showSuggestions ? this.#attributionManager : Y.noAttributionsManager, { deep: true }), this.#mapAttributionToMark).done()
 
-      const tr = this.#view.state.tr
       if (!isYTypeInitialized) {
         // Here is the sequence of events:
         // 1. The prosemirror document is empty (e.g. <p></p>)
