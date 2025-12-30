@@ -707,6 +707,7 @@ export class SyncPluginState {
       // not in sync mode, so we don't need to do anything
       return
     }
+    console.log('setting suggestion mode to', mode)
 
     const showSuggestions = mode !== 'off'
     const suggestionMode = mode === 'edit'
@@ -771,11 +772,11 @@ export class SyncPluginState {
   #renderFragment ({
     showSuggestions = this.#state.showSuggestions,
     // from the current XMLFragment, get the type in the suggestion doc or content doc, depending on the showSuggestions flag
-    fragment = findTypeInOtherYdoc(this.#state.ytype, this.#state.showSuggestions ? this.#suggestionDoc : this.#contentDoc),
+    fragment = findTypeInOtherYdoc(this.#state.ytype, showSuggestions ? this.#suggestionDoc : this.#contentDoc),
     tr = this.#tr
   }) {
     return fragmentToTr(fragment, tr, {
-      attributionManager: (showSuggestions) ? this.#attributionManager : Y.noAttributionsManager,
+      attributionManager: showSuggestions ? this.#attributionManager : Y.noAttributionsManager,
       mapAttributionToMark: this.#mapAttributionToMark
     })
   }
