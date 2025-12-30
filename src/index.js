@@ -185,7 +185,7 @@ export class SyncPluginState {
       return this
     }
 
-    const nextState = this.clone()
+    const nextState = this.#clone()
     switch (pluginMeta.type) {
       /**
        * For an ideal prosemirror binding, we should only commit the state once the view has been updated to the new editor state
@@ -382,7 +382,7 @@ export class SyncPluginState {
     } else {
       console.log('ytype is not empty, applying initial ydoc content to prosemirror state')
       // Initialize the prosemirror state with what is in the ydoc
-      const tr = fragmentToTr(this.#state.ytype, this.tr, {
+      const tr = fragmentToTr(this.#state.ytype, this.#tr, {
         attributionManager: this.#attributionManager,
         mapAttributionToMark: this.#mapAttributionToMark
       })
@@ -531,7 +531,7 @@ export class SyncPluginState {
               deep: true,
               modified
             }), this.#mapAttributionToMark)
-            const ptr = deltaToPSteps(this.tr, d)
+            const ptr = deltaToPSteps(this.#tr, d)
             console.log('attribution fix event: ', d.toJSON(), 'and applied changes to pm', ptr.steps)
 
             /** @type {YSyncPluginMeta} */
@@ -553,7 +553,7 @@ export class SyncPluginState {
    * Create a transaction for changing the prosemirror state.
    * @private
    */
-  get tr () {
+  get #tr () {
     return this.view.state.tr.setMeta('addToHistory', false)
   }
 
@@ -565,7 +565,7 @@ export class SyncPluginState {
     const pluginMeta = {
       type: 'pause-sync'
     }
-    this.view.dispatch(this.tr.setMeta(ySyncPluginKey, pluginMeta))
+    this.view.dispatch(this.#tr.setMeta(ySyncPluginKey, pluginMeta))
   }
 
   /**
@@ -596,7 +596,7 @@ export class SyncPluginState {
     }
 
     // Take whatever is in the ytype now, and make that the new document state
-    const tr = fragmentToTr(this.#state.ytype, this.tr, {
+    const tr = fragmentToTr(this.#state.ytype, this.#tr, {
       attributionManager: this.#attributionManager,
       mapAttributionToMark: this.#mapAttributionToMark
     })
@@ -638,7 +638,7 @@ export class SyncPluginState {
     }
     const snapshotDoc = snapshot.snapshot ? Y.createDocFromSnapshot(snapshot.fragment.doc, snapshot.snapshot) : snapshot.fragment.doc
     const prevSnapshotDoc = prevSnapshot.snapshot ? Y.createDocFromSnapshot(prevSnapshot.fragment.doc, prevSnapshot.snapshot) : prevSnapshot.fragment.doc
-    const tr = this.tr.setMeta(ySyncPluginKey, pluginMeta)
+    const tr = this.#tr.setMeta(ySyncPluginKey, pluginMeta)
     const am = Y.createAttributionManagerFromDiff(prevSnapshotDoc, snapshotDoc, { attrs: [Y.createAttributionItem('insert', ['unknown'])] })
     fragmentToTr(findTypeInOtherYdoc(snapshot.fragment, snapshotDoc), tr, {
       attributionManager: am,
@@ -663,7 +663,7 @@ export class SyncPluginState {
       this.#attributionManager.suggestionMode = suggestionMode
     }
     const tr = fragmentToTr(
-      showSuggestions ? findTypeInOtherYdoc(this.#state.ytype, this.#suggestionDoc) : findTypeInOtherYdoc(this.#state.ytype, this.#contentDoc), this.tr, {
+      showSuggestions ? findTypeInOtherYdoc(this.#state.ytype, this.#suggestionDoc) : findTypeInOtherYdoc(this.#state.ytype, this.#contentDoc), this.#tr, {
         attributionManager: showSuggestions ? this.#attributionManager : Y.noAttributionsManager,
         mapAttributionToMark: this.#mapAttributionToMark
       })
@@ -679,7 +679,7 @@ export class SyncPluginState {
    * Clone the {@link SyncPluginState} instance, this allows us to compare the current state with the previous state without mutating the current state
    * @private
    */
-  clone () {
+  #clone () {
     const pluginState = new SyncPluginState({
       ytype: this.#state.ytype,
       attributionManager: this.#attributionManager,
