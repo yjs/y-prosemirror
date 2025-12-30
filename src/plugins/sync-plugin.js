@@ -195,19 +195,24 @@ export const ySyncPlugin = (yXmlFragment, {
       }
       onFirstRender()
       return {
-        update: () => {
+        update: (view, prevState) => {
           const pluginState = plugin.getState(view.state)
           if (
             pluginState.snapshot == null && pluginState.prevSnapshot == null
           ) {
+            // Check if document actually changed to skip unnecessary syncs from focus/selection changes
+            const docChanged = !prevState || !view.state.doc.eq(prevState.doc)
+            
             if (
-              // If the content doesn't change initially, we don't render anything to Yjs
-              // If the content was cleared by a user action, we want to catch the change and
-              // represent it in Yjs
-              initialContentChanged ||
-              view.state.doc.content.findDiffStart(
-                view.state.doc.type.createAndFill().content
-              ) !== null
+              docChanged && (
+                // If the content doesn't change initially, we don't render anything to Yjs
+                // If the content was cleared by a user action, we want to catch the change and
+                // represent it in Yjs
+                initialContentChanged ||
+                view.state.doc.content.findDiffStart(
+                  view.state.doc.type.createAndFill().content
+                ) !== null
+              )
             ) {
               initialContentChanged = true
               if (
