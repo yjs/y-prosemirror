@@ -469,11 +469,27 @@ export class SyncPluginState {
       // re-use the existing subscription, since it operates on the latest plugin state
       return
     }
+    const attrCb = this.#attributionManager.on('change', (changes) => {
+      // TODO the attribution manager also needs to emit `modified` as part of this event
+
+      // TODO this is not working without the above
+      const d = this.#state.ytype.getContent(this.#attributionManager, { itemsToRender: changes, retainInserts: true, retainDeletes: true, deep: true })
+      console.log('delta', d.toJSON())
+      const tr = deltaToPSteps(this.#tr, d)
+      console.log('transaction', tr)
+      /** @type {YSyncPluginMeta} */
+      const pluginMeta = {
+        type: 'attribution-fixup',
+        changes
+      }
+      tr.setMeta(ySyncPluginKey, pluginMeta)
+      this.view.dispatch(tr)
+    })
     // This stores whether the ytype has loaded any content yet
     // If it has not, then we need to apply changes to it slightly differently in #onChangeYType
     let isYTypeInitialized = !!this.#state.ytype.length
     // This is the callback that we will subscribe & unsubscribe to the ydoc changes
-    const cb = this.#state.ytype.observeDeep((evt, tr) => {
+    const yTypeCb = this.#state.ytype.observeDeep((evt, tr) => {
       if (!this.#view || this.#view.isDestroyed) {
         // view is destroyed, just clean up the subscription, and no-op
         this.#subscription()
@@ -494,7 +510,8 @@ export class SyncPluginState {
 
     this.#subscription = () => {
       this.#subscription = null
-      this.#state.ytype.unobserveDeep(cb)
+      this.#state.ytype.unobserveDeep(yTypeCb)
+      this.#attributionManager.off('change', attrCb)
     }
   }
 
@@ -1059,6 +1076,7 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
             if (v == null) {
               tr.removeNodeMark(currPos.i, schema.marks[k])
             } else {
+              // TODO see schema.js for more info on marking nodes
               tr.addNodeMark(currPos.i, schema.mark(k, v))
             }
           })

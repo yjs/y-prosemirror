@@ -44,7 +44,10 @@ const hoverWrapper = (ychange, els) =>
 export const nodes = {
   // :: NodeSpec The top level document node.
   doc: {
-    content: 'block*'
+    content: 'block*',
+    // TODO Something that needs to be documented here. We need for prosemirror to respect that we can apply this mark to any node in the document
+    // We can also maybe check whether a mark is allowed on a node, and if not, then don't apply it
+    marks: 'ychange'
   },
 
   // :: NodeSpec A plain paragraph textblock. Represented in the DOM

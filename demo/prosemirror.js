@@ -33,6 +33,22 @@ if (localStorage.getItem('should-connect') != null) {
 let otherClientID = random.uint53()
 let previousMode = 'off'
 
+const elemSuggestionActions = document.querySelector('#suggestion-actions')
+const btnAcceptChanges = document.querySelector('#btn-accept-changes')
+const btnRejectChanges = document.querySelector('#btn-reject-changes')
+
+const updateSuggestionButtons = () => {
+  if (!currentView) {
+    if (elemSuggestionActions) elemSuggestionActions.style.display = 'none'
+    return
+  }
+  const mode = elemSelectSuggestionMode.value
+  const showButtons = mode === 'view' || mode === 'edit'
+  if (elemSuggestionActions) {
+    elemSuggestionActions.style.display = showButtons ? 'block' : 'none'
+  }
+}
+
 elemSelectSuggestionMode.addEventListener('change', () => {
   const mode = elemSelectSuggestionMode.value
   if (!currentView) return
@@ -55,6 +71,7 @@ elemSelectSuggestionMode.addEventListener('change', () => {
 
   pluginState.setSuggestionMode(mode)
   previousMode = mode
+  updateSuggestionButtons()
 })
 
 elemToggleConnect.addEventListener('change', () => {
@@ -230,6 +247,45 @@ btnResumeSync.addEventListener('click', () => {
 // Update button state when dropdowns change
 selectPrevSnapshot.addEventListener('change', updateSnapshotUI)
 selectSnapshot.addEventListener('change', updateSnapshotUI)
+
+// Accept/Reject changes buttons
+if (btnAcceptChanges) {
+  btnAcceptChanges.addEventListener('click', () => {
+    if (!currentView) return
+    const pluginState = ySyncPluginKey.getState(currentView.state)
+    if (!pluginState) return
+
+    const selection = currentView.state.selection
+    const from = selection.from
+    const to = selection.to
+
+    try {
+      pluginState.acceptChanges(from, to)
+    } catch (error) {
+      console.error('Error accepting changes:', error)
+      alert('Error accepting changes: ' + error.message)
+    }
+  })
+}
+
+if (btnRejectChanges) {
+  btnRejectChanges.addEventListener('click', () => {
+    if (!currentView) return
+    const pluginState = ySyncPluginKey.getState(currentView.state)
+    if (!pluginState) return
+
+    const selection = currentView.state.selection
+    const from = selection.from
+    const to = selection.to
+
+    try {
+      pluginState.rejectChanges(from, to)
+    } catch (error) {
+      console.error('Error rejecting changes:', error)
+      alert('Error rejecting changes: ' + error.message)
+    }
+  })
+}
 /*
  * # Init two Yjs documents.
  *
@@ -304,6 +360,7 @@ const initEditor = () => {
         if (currentMode !== lastMode) {
           lastMode = currentMode
           updateSnapshotUI()
+          updateSuggestionButtons()
         }
       }
     }
@@ -311,6 +368,9 @@ const initEditor = () => {
 
   // Update snapshot UI
   updateSnapshotUI()
+
+  // Update suggestion buttons visibility
+  updateSuggestionButtons()
 
   // @ts-ignore
   window.example = { suggestionDoc, ydoc, type: ypm, currentView, snapshots }
