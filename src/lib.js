@@ -103,7 +103,6 @@ export const relativePositionToAbsolutePosition = (y, documentType, relPos, pmDo
   const path = Y.getPathTo(documentType, decodedPos.type)
   let pos = 1 // Start inside the document
   let currentNode = pmDoc
-  let yParent = documentType
   // Traverse the path to find the nested position
   for (let i = 0; i < path.length; i++) {
     const childIndex = path[i]
