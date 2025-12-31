@@ -13,6 +13,7 @@ import { AddMarkStep, RemoveMarkStep, AttrStep, AddNodeMarkStep, ReplaceStep, Re
 import { ySyncPluginKey } from './plugins/keys.js'
 import { Plugin } from 'prosemirror-state'
 import { findTypeInOtherYdoc } from './utils.js'
+import { absolutePositionToRelativePosition } from './lib.js'
 
 const $prosemirrorDelta = delta.$delta({ name: s.$string, attrs: s.$record(s.$string, s.$any), text: true, recursive: true })
 
@@ -740,12 +741,21 @@ export class SyncPluginState {
    * @param {number} from
    * @param {number} [to]
    */
-  acceptChanges (from, to) {
+  acceptChanges (from, to = from) {
     if (!this.#state.showSuggestions) {
       // not in suggestion mode, so we don't need to do anything
       return
     }
-    this.#attributionManager.acceptChanges()
+    const fromRel = absolutePositionToRelativePosition(from, this.#state.ytype, this.#view.state.doc, this.#attributionManager)
+    const toRel = from === to ? fromRel : absolutePositionToRelativePosition(to, this.#state.ytype, this.#view.state.doc, this.#attributionManager)
+
+    if (!fromRel.item && !toRel.item) {
+      throw new Error('Invalid relative position')
+    }
+    // TODO move this to be in the state.apply
+    this.#attributionManager.acceptChanges(fromRel.item, toRel.item)
+    const tr = this.#renderFragment()
+    this.view.dispatch(tr)
   }
 
   /**
@@ -759,7 +769,17 @@ export class SyncPluginState {
       // not in suggestion mode, so we don't need to do anything
       return
     }
-    this.#attributionManager.rejectChanges()
+    const fromRel = absolutePositionToRelativePosition(from, this.#state.ytype, this.#view.state.doc, this.#attributionManager)
+    const toRel = from === to ? fromRel : absolutePositionToRelativePosition(to, this.#state.ytype, this.#view.state.doc, this.#attributionManager)
+
+    if (!fromRel.item || !toRel.item) {
+      throw new Error('Invalid relative position')
+    }
+
+    // TODO move this to be in the state.apply
+    this.#attributionManager.rejectChanges(fromRel.item, toRel.item)
+    const tr = this.#renderFragment()
+    this.view.dispatch(tr)
   }
 
   /**
@@ -774,7 +794,7 @@ export class SyncPluginState {
     // from the current XMLFragment, get the type in the suggestion doc or content doc, depending on the showSuggestions flag
     fragment = findTypeInOtherYdoc(this.#state.ytype, showSuggestions ? this.#suggestionDoc : this.#contentDoc),
     tr = this.#tr
-  }) {
+  } = {}) {
     return fragmentToTr(fragment, tr, {
       attributionManager: showSuggestions ? this.#attributionManager : Y.noAttributionsManager,
       mapAttributionToMark: this.#mapAttributionToMark
