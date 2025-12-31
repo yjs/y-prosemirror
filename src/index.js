@@ -699,7 +699,8 @@ export class SyncPluginState {
     const am = Y.createAttributionManagerFromDiff(prevSnapshotDoc, snapshotDoc, { attrs: [Y.createAttributionItem('insert', ['unknown'])] })
     const tr = this.#renderFragment({
       fragment: findTypeInOtherYdoc(snapshot.fragment, snapshotDoc),
-      attributionManager: am
+      attributionManager: am,
+      showSuggestions: true
     })
 
     /** @type {YSyncPluginMeta} */
@@ -844,10 +845,11 @@ export class SyncPluginState {
     showSuggestions = this.#state.showSuggestions,
     // from the current XMLFragment, get the type in the suggestion doc or content doc, depending on the showSuggestions flag
     fragment = findTypeInOtherYdoc(this.#state.ytype, showSuggestions ? this.#suggestionDoc : this.#contentDoc),
-    tr = this.#tr
+    tr = this.#tr,
+    attributionManager = this.#attributionManager
   } = {}) {
     return fragmentToTr(fragment, tr, {
-      attributionManager: showSuggestions ? this.#attributionManager : Y.noAttributionsManager,
+      attributionManager: showSuggestions ? attributionManager : Y.noAttributionsManager,
       mapAttributionToMark: this.#mapAttributionToMark
     })
   }
