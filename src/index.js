@@ -520,8 +520,8 @@ export class SyncPluginState {
    * @param {boolean} isYTypeInitialized Whether the ytype has already been initialized
    */
   #onChangeYType (events, tr, isYTypeInitialized) {
-    // bail if: the view is destroyed OR it was us that made the change OR we are not in "sync" mode
-    if (!this.initialized || tr.origin === ySyncPluginKey || this.#state.type !== 'sync') {
+    // bail if: the view is destroyed OR we are not in "sync" mode
+    if (!this.initialized || this.#state.type !== 'sync') {
       return
     }
 
