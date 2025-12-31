@@ -48,148 +48,66 @@ export const setMeta = (view, key, value) => {
  *
  * @param {number} pos
  * @param {Y.XmlFragment} type
- * @param {ProsemirrorMapping} mapping
- * @return {any} relative position
+ * @param {Node} pmDoc
+ * @param {AbstractAttributionManager} am
+ * @return {Y.RelativePosition} relative position
  */
-export const absolutePositionToRelativePosition = (pos, type, mapping) => {
+export const absolutePositionToRelativePosition = (pos, type, pmDoc, am = Y.noAttributionsManager) => {
   if (pos === 0) {
     // if the type is later populated, we want to retain the 0 position (hence assoc=-1)
-    return Y.createRelativePositionFromTypeIndex(type, 0, type.length === 0 ? -1 : 0)
+    return Y.createRelativePositionFromTypeIndex(type, 0, type.length === 0 ? -1 : 0, am)
   }
-  /**
-   * @type {any}
-   */
-  let n = type._first === null ? null : /** @type {Y.ContentType} */ (type._first.content).type
-  while (n !== null && type !== n) {
-    if (n instanceof Y.XmlText) {
-      if (n._length >= pos) {
-        return Y.createRelativePositionFromTypeIndex(n, pos, type.length === 0 ? -1 : 0)
-      } else {
-        pos -= n._length
-      }
-      if (n._item !== null && n._item.next !== null) {
-        n = /** @type {Y.ContentType} */ (n._item.next.content).type
-      } else {
-        do {
-          n = n._item === null ? null : n._item.parent
-          pos--
-        } while (n !== type && n !== null && n._item !== null && n._item.next === null)
-        if (n !== null && n !== type) {
-          // @ts-gnore we know that n.next !== null because of above loop conditition
-          n = n._item === null ? null : /** @type {Y.ContentType} */ (/** @type Y.Item */ (n._item.next).content).type
-        }
-      }
-    } else {
-      const pNodeSize = /** @type {any} */ (mapping.get(n) || { nodeSize: 0 }).nodeSize
-      if (n._first !== null && pos < pNodeSize) {
-        n = /** @type {Y.ContentType} */ (n._first.content).type
-        pos--
-      } else {
-        if (pos === 1 && n._length === 0 && pNodeSize > 1) {
-          // edge case, should end in this paragraph
-          return new Y.RelativePosition(n._item === null ? null : n._item.id, n._item === null ? Y.findRootTypeKey(n) : null, null)
-        }
-        pos -= pNodeSize
-        if (n._item !== null && n._item.next !== null) {
-          n = /** @type {Y.ContentType} */ (n._item.next.content).type
-        } else {
-          if (pos === 0) {
-            // set to end of n.parent
-            n = n._item === null ? n : n._item.parent
-            return new Y.RelativePosition(n._item === null ? null : n._item.id, n._item === null ? Y.findRootTypeKey(n) : null, null)
-          }
-          do {
-            n = /** @type {Y.Item} */ (n._item).parent
-            pos--
-          } while (n !== type && /** @type {Y.Item} */ (n._item).next === null)
-          // if n is null at this point, we have an unexpected case
-          if (n !== type) {
-            // We know that n._item.next is defined because of above loop condition
-            n = /** @type {Y.ContentType} */ (/** @type {Y.Item} */ (/** @type {Y.Item} */ (n._item).next).content).type
-          }
-        }
-      }
-    }
-    if (n === null) {
-      throw error.unexpectedCase()
-    }
-    if (pos === 0 && n.constructor !== Y.XmlText && n !== type) { // TODO: set to <= 0
-      return createRelativePosition(n._item.parent, n._item)
-    }
+  const resolvedPos = pmDoc.resolve(pos)
+  const depth = resolvedPos.depth
+  // Navigate through the Y.js structure using the path from ResolvedPos
+  let currentYType = type
+  for (let d = 0; d < depth; d++) {
+    const childIndex = resolvedPos.index(d)
+    currentYType = currentYType.get(childIndex, am) // @todo get method should support attribution manager
   }
-  return Y.createRelativePositionFromTypeIndex(type, type._length, type.length === 0 ? -1 : 0)
-}
+  // Use the parent offset as the position within the target Y.js type
+  const offset = resolvedPos.parentOffset
 
-const createRelativePosition = (type, item) => {
-  let typeid = null
-  let tname = null
-  if (type._item === null) {
-    tname = Y.findRootTypeKey(type)
-  } else {
-    typeid = Y.createID(type._item.id.client, type._item.id.clock)
-  }
-  return new Y.RelativePosition(typeid, tname, item.id)
+  return Y.createRelativePositionFromTypeIndex(currentYType, offset,
+    // If we are at the end of a type, then we want to be associated to the end of the type
+    offset > 0 && offset === currentYType.length ? -1 : 0, am)
 }
 
 /**
  * @param {Y.Doc} y
  * @param {Y.XmlFragment} documentType Top level type that is bound to pView
- * @param {any} relPos Encoded Yjs based relative position
- * @param {ProsemirrorMapping} mapping
+ * @param {Y.RelativePosition} relPos Encoded Yjs based relative position
+ * @param {Node} pmDoc
  * @return {null|number}
  */
-export const relativePositionToAbsolutePosition = (y, documentType, relPos, mapping) => {
+export const relativePositionToAbsolutePosition = (y, documentType, relPos, pmDoc) => {
+  // (1) decodedPos.index is the absolute position starting at the referred  prosemirror node.
   const decodedPos = Y.createAbsolutePositionFromRelativePosition(relPos, y)
   if (decodedPos === null || (decodedPos.type !== documentType && !Y.isParentOf(documentType, decodedPos.type._item))) {
     return null
   }
-  let type = decodedPos.type
-  let pos = 0
-  if (type.constructor === Y.XmlText) {
-    pos = decodedPos.index
-  } else if (type._item === null || !type._item.deleted) {
-    let n = type._first
-    let i = 0
-    while (i < type._length && i < decodedPos.index && n !== null) {
-      if (!n.deleted) {
-        const t = /** @type {Y.ContentType} */ (n.content).type
-        i++
-        if (t instanceof Y.XmlText) {
-          pos += t._length
-        } else {
-          pos += /** @type {any} */ (mapping.get(t)).nodeSize
-        }
-      }
-      n = /** @type {Y.Item} */ (n.right)
+  /*
+   * Now, we need to compute the nested position.
+   * - Compute the path of the targeted type Y.getPathTo(decodedPos.type).
+   * - (2) Use that path to calculate the absolute prosemirror position based on the prosemirror state.
+   * result = (1) + (2)
+   */
+  const path = Y.getPathTo(documentType, decodedPos.type)
+  let pos = 1 // Start inside the document
+  let currentNode = pmDoc
+  // Traverse the path to find the nested position
+  for (let i = 0; i < path.length; i++) {
+    const childIndex = path[i]
+    // Add sizes of all previous siblings
+    for (let j = 0; j < childIndex; j++) {
+      pos += currentNode.child(j).nodeSize
     }
-    pos += 1 // increase because we go out of n
+    // enter node
+    pos += 1
+    currentNode = currentNode.child(childIndex)
   }
-  while (type !== documentType && type._item !== null) {
-    // @ts-ignore
-    const parent = type._item.parent
-    // @ts-ignore
-    if (parent._item === null || !parent._item.deleted) {
-      pos += 1 // the start tag
-      let n = /** @type {Y.AbstractType} */ (parent)._first
-      // now iterate until we found type
-      while (n !== null) {
-        const contentType = /** @type {Y.ContentType} */ (n.content).type
-        if (contentType === type) {
-          break
-        }
-        if (!n.deleted) {
-          if (contentType instanceof Y.XmlText) {
-            pos += contentType._length
-          } else {
-            pos += /** @type {any} */ (mapping.get(contentType)).nodeSize
-          }
-        }
-        n = n.right
-      }
-    }
-    type = /** @type {Y.AbstractType} */ (parent)
-  }
-  return pos - 1 // we don't count the most outer tag, because it is a fragment
+  // Add the offset within the target node
+  return pos + decodedPos.index
 }
 
 /**
