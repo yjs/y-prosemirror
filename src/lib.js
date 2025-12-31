@@ -70,17 +70,6 @@ export const absolutePositionToRelativePosition = (pos, type, pmDoc, am = Y.noAt
   return Y.createRelativePositionFromTypeIndex(currentYType, offset, 0, am)
 }
 
-const createRelativePosition = (type, item) => {
-  let typeid = null
-  let tname = null
-  if (type._item === null) {
-    tname = Y.findRootTypeKey(type)
-  } else {
-    typeid = Y.createID(type._item.id.client, type._item.id.clock)
-  }
-  return new Y.RelativePosition(typeid, tname, item.id)
-}
-
 /**
  * @param {Y.Doc} y
  * @param {Y.XmlFragment} documentType Top level type that is bound to pView
