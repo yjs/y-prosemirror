@@ -50,7 +50,7 @@ export const setMeta = (view, key, value) => {
  * @param {Y.XmlFragment} type
  * @param {Node} pmDoc
  * @param {AbstractAttributionManager} am
- * @return {any} relative position
+ * @return {Y.RelativePosition} relative position
  */
 export const absolutePositionToRelativePosition = (pos, type, pmDoc, am = Y.noAttributionsManager) => {
   if (pos === 0) {
@@ -67,13 +67,16 @@ export const absolutePositionToRelativePosition = (pos, type, pmDoc, am = Y.noAt
   }
   // Use the parent offset as the position within the target Y.js type
   const offset = resolvedPos.parentOffset
-  return Y.createRelativePositionFromTypeIndex(currentYType, offset, 0, am)
+
+  return Y.createRelativePositionFromTypeIndex(currentYType, offset,
+    // If we are at the end of a type, then we want to be associated to the end of the type
+    offset > 0 && offset === currentYType.length ? -1 : 0, am)
 }
 
 /**
  * @param {Y.Doc} y
  * @param {Y.XmlFragment} documentType Top level type that is bound to pView
- * @param {any} relPos Encoded Yjs based relative position
+ * @param {Y.RelativePosition} relPos Encoded Yjs based relative position
  * @param {Node} pmDoc
  * @return {null|number}
  */
