@@ -36,6 +36,8 @@ let previousMode = 'off'
 const elemSuggestionActions = document.querySelector('#suggestion-actions')
 const btnAcceptChanges = document.querySelector('#btn-accept-changes')
 const btnRejectChanges = document.querySelector('#btn-reject-changes')
+const btnAcceptAllChanges = document.querySelector('#btn-accept-all-changes')
+const btnRejectAllChanges = document.querySelector('#btn-reject-all-changes')
 
 const updateSuggestionButtons = () => {
   if (!currentView) {
@@ -283,6 +285,37 @@ if (btnRejectChanges) {
     } catch (error) {
       console.error('Error rejecting changes:', error)
       alert('Error rejecting changes: ' + error.message)
+    }
+  })
+}
+
+// Accept/Reject all changes buttons
+if (btnAcceptAllChanges) {
+  btnAcceptAllChanges.addEventListener('click', () => {
+    if (!currentView) return
+    const pluginState = ySyncPluginKey.getState(currentView.state)
+    if (!pluginState) return
+
+    try {
+      pluginState.acceptAllChanges()
+    } catch (error) {
+      console.error('Error accepting all changes:', error)
+      alert('Error accepting all changes: ' + error.message)
+    }
+  })
+}
+
+if (btnRejectAllChanges) {
+  btnRejectAllChanges.addEventListener('click', () => {
+    if (!currentView) return
+    const pluginState = ySyncPluginKey.getState(currentView.state)
+    if (!pluginState) return
+
+    try {
+      pluginState.rejectAllChanges()
+    } catch (error) {
+      console.error('Error rejecting all changes:', error)
+      alert('Error rejecting all changes: ' + error.message)
     }
   })
 }

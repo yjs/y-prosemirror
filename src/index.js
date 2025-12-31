@@ -753,6 +753,32 @@ export class SyncPluginState {
   }
 
   /**
+   * Accept all changes in the suggestion doc
+   */
+  acceptAllChanges () {
+    if (!this.#state.showSuggestions) {
+      // not in suggestion mode, so we don't need to do anything
+      return
+    }
+    this.#attributionManager.acceptAllChanges()
+    const tr = this.#renderFragment()
+    this.view.dispatch(tr)
+  }
+
+  /**
+   * Reject all changes in the suggestion doc
+   */
+  rejectAllChanges () {
+    if (!this.#state.showSuggestions) {
+      // not in suggestion mode, so we don't need to do anything
+      return
+    }
+    this.#attributionManager.rejectAllChanges()
+    const tr = this.#renderFragment()
+    this.view.dispatch(tr)
+  }
+
+  /**
    * Accept the changes within the given range
    * @note This will move the content from the suggestion doc into the content doc, so this requires permissions to write to the content doc
    * @param {number} from
