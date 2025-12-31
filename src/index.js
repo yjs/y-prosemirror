@@ -789,6 +789,10 @@ export class SyncPluginState {
       // not in suggestion mode, so we don't need to do anything
       return
     }
+    if (from > to) {
+      // swap the from and to positions
+      [from, to] = [to, from]
+    }
     const fromRel = absolutePositionToRelativePosition(from, this.#state.ytype, this.#view.state.doc, this.#attributionManager)
     const toRel = from === to ? fromRel : absolutePositionToRelativePosition(to, this.#state.ytype, this.#view.state.doc, this.#attributionManager)
 
@@ -811,6 +815,10 @@ export class SyncPluginState {
     if (!this.#state.showSuggestions) {
       // not in suggestion mode, so we don't need to do anything
       return
+    }
+    if (from > to) {
+      // swap the from and to positions
+      [from, to] = [to, from]
     }
     const fromRel = absolutePositionToRelativePosition(from, this.#state.ytype, this.#view.state.doc, this.#attributionManager)
     const toRel = from === to ? fromRel : absolutePositionToRelativePosition(to, this.#state.ytype, this.#view.state.doc, this.#attributionManager)
