@@ -798,7 +798,40 @@ export const createNodeFromYElement = (
           : { type: 'added' }
       }
     }
-    const node = schema.node(el.nodeName, attrs, children)
+    // Fix for inline node marks: Distinguish node attrs from marks by checking schema definition
+    // This ensures that marks on inline nodes (like mention nodes) are properly preserved
+    const nodeType = schema.nodes[el.nodeName]
+    const nodeSpecAttrs = nodeType ? nodeType.spec.attrs || {} : {}
+    const nodeAttrs = {}
+    const markAttrs = {}
+
+    // Separate actual node attrs from marks
+    for (const key in attrs) {
+      // ychange is a special attribute, always treat as node attr
+      if (key === 'ychange') {
+        nodeAttrs[key] = attrs[key]
+      } else if (key in nodeSpecAttrs) {
+        // Attributes defined in schema are actual node attrs
+        // Y.XmlElement can store objects directly, so use as-is
+        nodeAttrs[key] = attrs[key]
+      } else {
+        // Attributes not in schema might be marks
+        // Check if it's a mark name (might be in hashed format)
+        const markName = yattr2markname(key)
+        // If schema has this mark type, treat it as a mark
+        if (schema.marks[markName]) {
+          // It's a mark, deserialize JSON string if needed (objects are stored as JSON strings)
+          markAttrs[key] = deserializeFromGetAttribute(attrs[key])
+        } else {
+          // Neither node attr nor mark, might be unknown attribute, treat as node attr (backward compatibility)
+          nodeAttrs[key] = attrs[key]
+        }
+      }
+    }
+
+    // Convert markAttrs to marks
+    const nodeMarks = attributesToMarks(markAttrs, schema)
+    const node = schema.node(el.nodeName, nodeAttrs, children, nodeMarks)
     meta.mapping.set(el, node)
     return node
   } catch (e) {
@@ -879,6 +912,16 @@ const createTypeFromElementNode = (node, meta) => {
       type.setAttribute(key, val)
     }
   }
+  // Fix for inline node marks: Store marks as attributes (consistent with text node marks)
+  // This ensures marks on inline nodes are properly synced to Yjs
+  if (node.marks && node.marks.length > 0) {
+    const markAttrs = marksToAttributes(node.marks, meta)
+    // Store marks as attributes, serialize objects to JSON strings since Y.XmlElement.setAttribute
+    // only accepts primitive types (string, number, boolean)
+    for (const markName in markAttrs) {
+      type.setAttribute(markName, serializeForSetAttribute(markAttrs[markName]))
+    }
+  }
   type.insert(
     0,
     normalizePNodeContent(node).map((n) =>
@@ -904,6 +947,50 @@ const createTypeFromTextOrElementNode = (node, meta) =>
  * @param {any} val
  */
 const isObject = (val) => typeof val === 'object' && val !== null
+
+/**
+ * Prefix used to mark serialized objects in Y.XmlElement attributes
+ * This allows us to distinguish between:
+ * - Serialized objects: '__obj__{"a":1}' → {a: 1}
+ * - Original strings: '{"a": 1}' → '{"a": 1}' (kept as string)
+ */
+const OBJECT_PREFIX = '__obj__'
+
+/**
+ * Serialize a value for Y.XmlElement.setAttribute
+ * Objects are serialized to JSON strings with a special prefix to distinguish them
+ * from original strings that happen to be JSON-formatted
+ * @param {any} val
+ * @return {string|number|boolean}
+ */
+const serializeForSetAttribute = (val) => {
+  // Objects must be serialized to JSON strings with prefix
+  if (isObject(val)) return OBJECT_PREFIX + JSON.stringify(val)
+  // Other primitive types (string, number, boolean, null, undefined) are kept as-is
+  return val
+}
+
+/**
+ * Deserialize a value from Y.XmlElement.getAttributes
+ * If it has the object prefix, parse it as an object; otherwise keep as-is
+ * This distinguishes between serialized objects and original strings
+ * @param {any} val
+ * @return {any}
+ */
+const deserializeFromGetAttribute = (val) => {
+  if (typeof val !== 'string') return val
+  // Check if it's a serialized object (has prefix)
+  if (val.startsWith(OBJECT_PREFIX)) {
+    try {
+      return JSON.parse(val.slice(OBJECT_PREFIX.length))
+    } catch (e) {
+      // If parsing fails, return the original string (shouldn't happen)
+      return val
+    }
+  }
+  // No prefix means it's an original string value, keep as-is
+  return val
+}
 
 /**
  * @param {any} pattrs
@@ -1154,6 +1241,12 @@ export const updateYFragment = (y, yDomFragment, pNode, meta) => {
   if (yDomFragment instanceof Y.XmlElement) {
     const yDomAttrs = yDomFragment.getAttributes()
     const pAttrs = pNode.attrs
+
+    // Get node type's attrs definition to distinguish between attrs and marks
+    const nodeType = pNode.type
+    const nodeSpecAttrs = nodeType.spec.attrs || {}
+
+    // Update actual node attrs
     for (const key in pAttrs) {
       if (pAttrs[key] !== null) {
         if (yDomAttrs[key] !== pAttrs[key] && key !== 'ychange') {
@@ -1163,10 +1256,53 @@ export const updateYFragment = (y, yDomFragment, pNode, meta) => {
         yDomFragment.removeAttribute(key)
       }
     }
-    // remove all keys that are no longer in pAttrs
+
+    // Update node marks: convert marks to attributes and sync (consistent with text node marks)
+    const currentMarkAttrs = marksToAttributes(pNode.marks || [], meta)
+    const storedMarkAttrs = {}
+
+    // Extract existing marks from yDomAttrs (attributes not in nodeSpecAttrs but are marks)
     for (const key in yDomAttrs) {
-      if (pAttrs[key] === undefined) {
-        yDomFragment.removeAttribute(key)
+      if (key !== 'ychange' && !(key in nodeSpecAttrs)) {
+        const markName = yattr2markname(key)
+        if (nodeType.schema.marks[markName]) {
+          // Deserialize JSON string if needed
+          storedMarkAttrs[key] = deserializeFromGetAttribute(yDomAttrs[key])
+        }
+      }
+    }
+
+    // Compare and update marks
+    const currentMarkAttrsStr = JSON.stringify(currentMarkAttrs)
+    const storedMarkAttrsStr = JSON.stringify(storedMarkAttrs)
+    if (currentMarkAttrsStr !== storedMarkAttrsStr) {
+      // Remove old marks
+      for (const key in storedMarkAttrs) {
+        if (!(key in currentMarkAttrs)) {
+          yDomFragment.removeAttribute(key)
+        }
+      }
+      // Add or update new marks
+      for (const markName in currentMarkAttrs) {
+        const markValue = currentMarkAttrs[markName]
+        const currentValue = yDomAttrs[markName]
+        // Serialize for comparison and storage (objects are serialized, primitives kept as-is)
+        const serializedValue = serializeForSetAttribute(markValue)
+        const serializedCurrent = serializeForSetAttribute(currentValue)
+        if (serializedCurrent !== serializedValue) {
+          yDomFragment.setAttribute(markName, serializedValue)
+        }
+      }
+    }
+
+    // remove all keys that are no longer in pAttrs (but keep marks)
+    for (const key in yDomAttrs) {
+      if (pAttrs[key] === undefined && key !== 'ychange') {
+        // Check if it's a mark, if so it's already handled in the logic above
+        const markName = yattr2markname(key)
+        if (!nodeType.schema.marks[markName]) {
+          yDomFragment.removeAttribute(key)
+        }
       }
     }
   }
