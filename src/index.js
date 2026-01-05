@@ -315,6 +315,7 @@ export class SyncPluginState {
           ytype: findTypeInOtherYdoc(this.#state.ytype, this.#contentDoc),
           showSuggestions: false
         }
+        return nextState
       }
     }
 
