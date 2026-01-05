@@ -1033,6 +1033,12 @@ export function fragmentToTr (fragment, tr, {
   )
   const initialPDelta = nodeToDelta(tr.doc).done()
   const deltaBetweenPmAndFragment = delta.diff(initialPDelta, fragmentContent).done()
+  console.log({
+    am: attributionManager === Y.noAttributionsManager ? 'no attributions manager' : 'attributions manager',
+    a: initialPDelta.toJSON(),
+    b: fragmentContent.toJSON(),
+    c: deltaBetweenPmAndFragment.toJSON()
+  })
 
   return deltaToPSteps(tr, deltaBetweenPmAndFragment).setMeta('y-sync-hydration', {
     delta: deltaBetweenPmAndFragment
