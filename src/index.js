@@ -177,8 +177,9 @@ export class SyncPluginState {
    * @param {Y.DiffAttributionManager} [ctx.attributionManager]
    * @param {typeof defaultMapAttributionToMark} [ctx.mapAttributionToMark]
    * @param {Y.Doc} [ctx.suggestionDoc] A {@link Y.Doc} to use for suggestion tracking
+   * @param {Y.Doc} ctx.contentDoc A {@link Y.Doc} to use for content tracking
    */
-  constructor ({ ytype, attributionManager, mapAttributionToMark, suggestionDoc }) {
+  constructor ({ ytype, attributionManager, mapAttributionToMark, suggestionDoc, contentDoc }) {
     if (!ytype || !ytype.doc) {
       throw new Error('[y/prosemirror]: ytype not provided')
     }
@@ -191,7 +192,7 @@ export class SyncPluginState {
     }
     this.#mapAttributionToMark = mapAttributionToMark || defaultMapAttributionToMark
     this.#suggestionDoc = suggestionDoc || null
-    this.#contentDoc = ytype.doc
+    this.#contentDoc = contentDoc
   }
 
   /**
@@ -864,7 +865,8 @@ export class SyncPluginState {
       ytype: this.#state.ytype,
       attributionManager: this.#attributionManager,
       mapAttributionToMark: this.#mapAttributionToMark,
-      suggestionDoc: this.#suggestionDoc
+      suggestionDoc: this.#suggestionDoc,
+      contentDoc: this.#contentDoc
     })
 
     pluginState.#state = this.#state
@@ -915,7 +917,7 @@ export function syncPlugin (ytype, {
     },
     state: {
       init () {
-        return new SyncPluginState({ ytype, attributionManager, mapAttributionToMark, suggestionDoc })
+        return new SyncPluginState({ ytype, attributionManager, mapAttributionToMark, suggestionDoc, contentDoc: ytype.doc })
       },
       apply (tr, value) {
         return value.onApplyTr(tr)
