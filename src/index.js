@@ -151,6 +151,11 @@ export function syncPlugin (ytype, { awareness = null, attributionManager = Y.no
         return {
           ytype
         }
+      },
+      apply: (tr, pluginState) => {
+        // Plugin state doesn't need to change based on transactions
+        // Just return the existing state
+        return pluginState
       }
     },
     view: (view) => {
