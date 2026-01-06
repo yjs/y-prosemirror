@@ -594,7 +594,7 @@ export class SyncPluginState {
             if (this.#state.type !== 'sync') {
               error.unexpectedCase()
             }
-            const d = deltaAttributionToFormat(this.#state.ytype.getContent(this.#attributionManager, {
+            const d = deltaAttributionToFormat(this.#state.ytype.getContent(this.#state.showSuggestions ? this.#attributionManager : Y.noAttributionsManager, {
               itemsToRender,
               retainInserts: true,
               deep: true,
