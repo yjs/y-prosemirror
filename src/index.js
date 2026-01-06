@@ -691,14 +691,15 @@ export class SyncPluginState {
   /**
    * @param {SnapshotItem} snapshot
    * @param {SnapshotItem} [prevSnapshot]
+   * @param {Y.Attribution[]} [attrs]
    */
-  renderSnapshot (snapshot, prevSnapshot) {
+  renderSnapshot (snapshot, prevSnapshot, attrs) {
     if (!prevSnapshot) {
       prevSnapshot = { fragment: snapshot.fragment }
     }
     const snapshotDoc = snapshot.snapshot ? Y.createDocFromSnapshot(snapshot.fragment.doc, snapshot.snapshot) : snapshot.fragment.doc
     const prevSnapshotDoc = prevSnapshot.snapshot ? Y.createDocFromSnapshot(prevSnapshot.fragment.doc, prevSnapshot.snapshot) : prevSnapshot.fragment.doc
-    const am = Y.createAttributionManagerFromDiff(prevSnapshotDoc, snapshotDoc, { attrs: [Y.createAttributionItem('insert', ['unknown'])] })
+    const am = Y.createAttributionManagerFromDiff(prevSnapshotDoc, snapshotDoc, { attrs })
     const tr = this.#renderFragment({
       fragment: findTypeInOtherYdoc(snapshot.fragment, snapshotDoc),
       attributionManager: am,
