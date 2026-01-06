@@ -472,11 +472,22 @@ export class SyncPluginState {
       return
     }
     const attrCb = this.#attributionManager.on('change', (changes) => {
-      // TODO the attribution manager also needs to emit `modified` as part of this event
-
-      // TODO this is not working without the above
-      const d = this.#state.ytype.getContent(this.#attributionManager, { itemsToRender: changes, retainInserts: true, retainDeletes: true, deep: true })
-      console.log('delta', d.toJSON())
+      if (this.#state.ytype.doc !== this.#suggestionDoc) {
+        // this should not happen
+        console.info('tried to update attributions, but suggestion doc is not active. The diffing attribution manager should not be active when no diff is created - use the "noAttributionManager instead')
+        return
+      }
+      /**
+       * @type {Map<Y.AbstractType, Set<string|null>>}
+       */
+      const modified = new Map()
+      this.#suggestionDoc.transact(tr => {
+        Y.iterateStructsByIdSet(tr, changes, item => {
+          map.setIfUndefined(modified, item.parent, () => new Set()).add(item.parentSub)
+        })
+      })
+      const d = this.#state.ytype.getContent(this.#attributionManager, { modified, itemsToRender: changes, retainInserts: true, retainDeletes: true, deep: true })
+      console.log('delta update by attribution manager', d.toJSON())
       const tr = deltaToPSteps(this.#tr, d)
       console.log('transaction', tr)
       /** @type {YSyncPluginMeta} */
