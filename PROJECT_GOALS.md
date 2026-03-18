@@ -6,7 +6,7 @@ We are working on a new version of the y-prosemirror package, and aim to address
 
 - Apply minimal diffs to the Prosemirror state from Y.js updates, avoiding issues with decorations and anything which relies on position mapping
 - Support for pausing the sync process, and resuming it again to allow local only editing
-- Support for rendering content that is not actually within the Prosemirror document, like rendering the changes between two document snapshots as a diff, or suggestions from another document
+- Support for rendering content that is not actually within the current Y.js document into the Prosemirror document, like rendering the changes between two document snapshots as a diff, or suggestions from another Y.js document
 - A more "prosemirror-native" API, with a simple core API and a set of commands for more complex operations
 - Better capture of prosemirror changes, by [capturing only transactions which have been applied to the `EditorView`](https://github.com/handlewithcarecollective/prosemirror-inputrules/issues/2)
 
@@ -138,7 +138,7 @@ One issue we have with the structure of this plugin is the `capturedTransactions
 
 There is a difference between positions within a Prosemirror document, and positions within a Y.js document.
 
-A Prosemirror position is an _absolute_ position, meaning it is only valid within the current Prosemirror document, and when the document is updated, that position may change. Prosemirror positions are transformed through position mappings [as discussed here](https://prosemirror.net/docs/guide/#Mapping), while this works for Prosemirror, for a single user, it is not good at handling collaboratively edited documents, since changes may come in at any time, invalidating the mapping.
+A Prosemirror position is an _absolute_ position, meaning it is only valid within the current Prosemirror document, and when the document is updated, that position may change. Prosemirror positions are transformed through position mappings [as discussed here](https://prosemirror.net/docs/guide/#Mapping), this will not be sufficient in a Y.js based document, since changes may come in at any time, invalidating the mapping.
 
 Y.js has the concept of a _relative_ position, meaning it is a position that is relative to a specific Y.js type (e.g. the current text node within the document). This is more robust to changes, since changes to the document will not invalidate the relative position.
 
@@ -233,10 +233,11 @@ These commands are not finalized, but we hope they should get across the idea of
 ### Questions
 
 - What sorts of things should we consider in a prosemirror binding like this? What makes a good prosemirror binding?
-- From our understanding, not all operations guarantee a "minimal edit", meaning while we could do a mapping of each transaction's steps to a lib0 delta, some steps can result in changes that are larger than necessary, or otherwise un-representable in Y.js (e.g. ReplaceAroundStep). So, while we can _sometimes_ directly map a prosemirror step to a lib0 delta operation, we cannot _always_ rely on it, and must [fall back to diffing the document](https://github.com/yjs/y-prosemirror/blob/9d67b63bfae3eaaddb4fe653251ea9c3bfe5921b/src/sync/delta-sync.js#L336-L350) (ideally minimally) to see what it was the prosemirror intended the change to be. Does this sound correct? Or are we missing something here?
+- From our understanding, not all steps guarantee a "minimal edit", meaning while we could do a mapping of each transaction's steps to a lib0 delta, some  applying Prosemirror steps can result in changes larger than what the step itself describes (due to the fitting algorithm being dependent on the content being applied to), or otherwise un-representable in Y.js (e.g. ReplaceAroundStep). So, while we can _sometimes_ directly map a prosemirror step to a lib0 delta operation, we cannot _always_ rely on it, and must [fall back to diffing the document](https://github.com/yjs/y-prosemirror/blob/9d67b63bfae3eaaddb4fe653251ea9c3bfe5921b/src/sync/delta-sync.js#L336-L350) (ideally minimally) to see what it was the prosemirror intended the change to be. Does this sound correct? Or are we missing something here?
 - What is the best way to track changes to the prosemirror document, to then apply to something external (e.g. Y.js)? Our current approach is the `capturedTransactions` field in the `ySyncPlugin` state, but this feels like a workaround.
-- Does the `Mappable` interface make sense for this mapping? Or is this just abuse of the API? Is there a better way to do this?
-- What is the recommendation around invalid node schemas? In Y.js we can have two changes that are individually valid, but when applied together, they are invalid.
+- Does the `Mappable` interface (described in the [Position Mapping](#position-mapping) section) make sense? Or is this just abuse of the API? Is there a better way to do this?
+- What is the recommendation around invalid node schemas? In Y.js we can have two changes that are individually valid, but when applied together, they are invalid to ProseMirror's schema.
+  - What should happen here? Is that the desired behavior?
   
 ### Questions for us to figure out
 
