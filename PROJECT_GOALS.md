@@ -161,7 +161,7 @@ First we capture the mapping of the current positions, and then later we can res
 
 ```ts
 function capturePositionMapping(pmDoc: Node, type: Y.XmlFragment): {
-  captureMapping: Mappable;
+  captureMapping: (clear?: boolean)=> Mappable;
   restoreMapping: (type: Y.XmlFragment, pmDoc: Node) => Mappable;
 };
 
@@ -169,7 +169,7 @@ const { captureMapping, restoreMapping } = capturePositionMapping(pmDoc, type);
 
 const bookmark = view.state.selection.getBookmark();
 // record the current positions of the bookmark (in-memory as a Y.RelativePosition)
-bookmark.map(captureMapping)
+bookmark.map(captureMapping())
 
 // later, after possible document edits, we can restore the mapping to the original positions
 const resolvedBookmark = bookmark.map(restoreMapping(pmDoc, type))
