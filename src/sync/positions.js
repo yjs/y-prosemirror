@@ -3,18 +3,16 @@ import * as Y from '@y/y'
 /**
  * Transforms a Prosemirror based absolute position to a {@link Y.RelativePosition}.
  *
- * @param {number} pos
+ * @param {import('prosemirror-model').ResolvedPos} resolvedPos
  * @param {Y.XmlFragment} type
- * @param {import('prosemirror-model').Node} pmDoc
  * @param {Y.AbstractAttributionManager} [am]
  * @return {Y.RelativePosition} relative position
  */
-export const absolutePositionToRelativePosition = (pos, type, pmDoc, am = Y.noAttributionsManager) => {
-  if (pos === 0) {
+export const absolutePositionToRelativePosition = (resolvedPos, type, am = Y.noAttributionsManager) => {
+  if (resolvedPos.pos === 0) {
     // if the type is later populated, we want to retain the 0 position (hence assoc=-1)
     return Y.createRelativePositionFromTypeIndex(type, 0, type.length === 0 ? -1 : 0, am)
   }
-  const resolvedPos = pmDoc.resolve(pos)
   const depth = resolvedPos.depth
   // Navigate through the Y.js structure using the path from ResolvedPos
   let currentYType = type
@@ -71,14 +69,13 @@ export const relativePositionToAbsolutePosition = (relPos, documentType, pmDoc, 
 
 /**
  * Creates a function that can be used to keep track of an absolute position of a Prosemirror document, and restore it to an absolute position in a different Prosemirror document.
- * @param {number} pos Absolute position in the Prosemirror document
+ * @param {import('prosemirror-model').ResolvedPos} resolvedPos Absolute position in the Prosemirror document
  * @param {Y.XmlFragment} type Top level type that is bound to pView
- * @param {import('prosemirror-model').Node} pmDoc Prosemirror document
  * @param {Y.AbstractAttributionManager} [am] Attribution manager to use for the relative position
  * @returns {(doc: import('prosemirror-model').Node, documentType?: Y.XmlFragment, attributionManager?: Y.AbstractAttributionManager) => number}
  */
-export const relativePositionStore = (pos, type, pmDoc, am) => {
-  const relPos = absolutePositionToRelativePosition(pos, type, pmDoc, am)
+export const relativePositionStore = (resolvedPos, type, am) => {
+  const relPos = absolutePositionToRelativePosition(resolvedPos, type, am)
 
   return (doc, documentType = type, attributionManager) => {
     return relativePositionToAbsolutePosition(relPos, documentType, doc, attributionManager)
