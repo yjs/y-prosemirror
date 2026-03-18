@@ -148,11 +148,11 @@ For smoothing over this difference, we can create a mapping between Prosemirror 
 /**
  * Given a Prosemirror absolute position, the ytype, and the prosemirror document, return the corresponding Y.js relative position.
  **/
-function absolutePositionToRelativePosition(pos: number, type: Y.XmlFragment, pmDoc: Node): Y.RelativePosition;
+function absolutePositionToRelativePosition(pos: number, type: Y.YType, pmDoc: Node): Y.RelativePosition;
 /**
  * Given a Y.js relative position, the ytype, and the prosemirror document, return the corresponding Prosemirror absolute position.
  **/
-function relativePositionToAbsolutePosition(relPos: Y.RelativePosition, type: Y.XmlFragment, pmDoc: Node): number;
+function relativePositionToAbsolutePosition(relPos: Y.RelativePosition, type: Y.YType, pmDoc: Node): number;
 ```
 
 We also can leverage Prosemirror's [`Mappable` interface](https://prosemirror.net/docs/ref/#transform.Mappable) to create a mapping between Prosemirror positions & Y.js relative positions.
@@ -160,9 +160,9 @@ We also can leverage Prosemirror's [`Mappable` interface](https://prosemirror.ne
 First we capture the mapping of the current positions, and then later we can restore the mapping to the original positions.
 
 ```ts
-function capturePositionMapping(pmDoc: Node, type: Y.XmlFragment): {
+function capturePositionMapping(pmDoc: Node, type: Y.YType): {
   captureMapping: (clear?: boolean)=> Mappable;
-  restoreMapping: (type: Y.XmlFragment, pmDoc: Node) => Mappable;
+  restoreMapping: (type: Y.YType, pmDoc: Node) => Mappable;
 };
 
 const { captureMapping, restoreMapping } = capturePositionMapping(pmDoc, type);
@@ -206,7 +206,7 @@ function renderSnapshot(snapshot: {
   /**
    * The Y.js fragment to render.
    **/
-  fragment: Y.XmlFragment;
+  fragment: Y.YType;
   /**
    * The snapshot point in time to render.
    **/
@@ -215,7 +215,7 @@ function renderSnapshot(snapshot: {
   /**
    * The Y.js fragment to render.
    **/
-  fragment: Y.XmlFragment;
+  fragment: Y.YType;
   /**
    * The snapshot point in time to render.
    **/
