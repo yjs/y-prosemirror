@@ -4,7 +4,7 @@ import * as delta from './delta.test.js'
 
 import { runTests } from 'lib0/testing'
 import { isBrowser, isNode } from 'lib0/environment'
-import * as log from 'lib0/logging.js'
+import * as log from 'lib0/logging'
 
 if (isBrowser) {
   log.createVConsole(document.body)

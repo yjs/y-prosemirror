@@ -18,6 +18,7 @@ import {
   yUndoPluginKey,
   yXmlFragmentToProsemirrorJSON
 } from '../src/y-prosemirror.js'
+
 import { EditorState, Plugin, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { Schema } from 'prosemirror-model'

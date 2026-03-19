@@ -15,15 +15,6 @@ const debugResolve = {
 */
 
 export default [{
-  input: './src/y-prosemirror.js',
-  output: [{
-    name: 'Y',
-    file: 'dist/y-prosemirror.cjs',
-    format: 'cjs',
-    sourcemap: true
-  }],
-  external: id => /^(lib0|@y|prosemirror|yjs)/.test(id)
-}, {
   input: './tests/index.js',
   output: {
     name: 'test',

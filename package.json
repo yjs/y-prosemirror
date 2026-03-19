@@ -24,7 +24,7 @@
   "exports": {
     ".": {
       "types": "./dist/src/y-prosemirror.d.ts",
-      "import": "./src/y-prosemirror.js",
+      "import": "./src/index.js",
       "require": "./dist/y-prosemirror.cjs"
     }
   },
@@ -54,11 +54,11 @@
   },
   "homepage": "https://github.com/yjs/y-prosemirror#readme",
   "dependencies": {
-    "lib0": "^0.2.117"
+    "lib0": "^1.0.0-rc.6"
   },
   "peerDependencies": {
-    "@y/protocols": "^1.0.6-3",
-    "@y/y": "^14.0.0-19",
+    "@y/protocols": "^1.0.6-rc.1",
+    "@y/y": "^14.0.0-rc.1",
     "prosemirror-model": "^1.7.1",
     "prosemirror-state": "^1.2.3",
     "prosemirror-view": "^1.9.10"
@@ -66,9 +66,9 @@
   "devDependencies": {
     "@rollup/plugin-commonjs": "^28.0.8",
     "@rollup/plugin-node-resolve": "^16.0.3",
-    "@y/protocols": "^1.0.6-3",
-    "@y/websocket": "^4.0.0-3",
-    "@y/y": "^14.0.0-19",
+    "@y/websocket": "^4.0.0-rc.1",
+    "@y/protocols": "^1.0.6-rc.1",
+    "@y/y": "^14.0.0-rc.1",
     "concurrently": "^4.1.0",
     "http-server": "^0.12.3",
     "jsdom": "^15.1.1",

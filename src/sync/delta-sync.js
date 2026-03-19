@@ -16,10 +16,10 @@ import {
   ReplaceStep
 } from 'prosemirror-transform'
 
-export const $prosemirrorDelta = delta.$delta({ name: s.$string, attrs: s.$record(s.$string, s.$any), text: true, recursive: true })
+export const $prosemirrorDelta = delta.$delta({ name: s.$string, attrs: s.$record(s.$string, s.$any), text: true, recursiveChildren: true })
 
 /**
- * @typedef {s.Unwrap<$prosemirrorDelta>} ProsemirrorDelta
+ * @typedef {s.Unwrap<typeof $prosemirrorDelta>} ProsemirrorDelta
  **/
 
 /**
@@ -62,28 +62,31 @@ export const defaultMapAttributionToMark = (format, attribution) => {
  * Transform delta with attributions to delta with formats (marks).
  */
 export const deltaAttributionToFormat = s.match(s.$function)
-  .if(delta.$deltaAny, (d, func) => {
+  .if(delta.$deltaAny, (d, attributionsToFormat) => {
     const r = delta.create(d.name)
+    // @todo this shouldn't be necessary
     for (const attr of d.attrs) {
       r.attrs[attr.key] = attr.clone()
     }
     for (const child of d.children) {
-      const format = child.attribution ? func(child.format, child.attribution) : child.format
-      if (delta.$insertOp.check(child)) {
-        r.insert(child.insert.map(c => delta.$deltaAny.check(c) ? deltaAttributionToFormat(c, func) : c), format)
-      } else if (delta.$textOp.check(child)) {
-        r.insert(child.insert.slice(), format)
-      } else if (delta.$deleteOp.check(child)) {
+      if (delta.$deleteOp.check(child)) {
         r.delete(child.delete)
-      } else if (delta.$retainOp.check(child)) {
-        r.retain(child.retain, format)
-      } else if (delta.$modifyOp.check(child)) {
-        r.modify(deltaAttributionToFormat(child.value, func), format)
       } else {
-        error.unexpectedCase()
+        const format = child.attribution ? attributionsToFormat(child.format, child.attribution) : child.format
+        if (delta.$insertOp.check(child)) {
+          r.insert(child.insert.map(c => delta.$deltaAny.check(c) ? deltaAttributionToFormat(c, attributionsToFormat) : c), format)
+        } else if (delta.$textOp.check(child)){
+          r.insert(child.insert.slice(), format)
+        } else if (delta.$retainOp.check(child)) {
+          r.retain(child.retain, format)
+        } else if (delta.$modifyOp.check(child)) {
+          r.modify(deltaAttributionToFormat(child.value, attributionsToFormat), format)
+        } else {
+          error.unexpectedCase()
+        }
       }
     }
-    return r
+    return /** @type {ProsemirrorDelta} */ (r)
   }).done()
 
 /**
@@ -102,13 +105,14 @@ const marksToFormattingAttributes = marks => {
 }
 
 /**
- * @param {{[key:string]:any}} formatting
+ * @param {{[key:string]:any}|null} formatting
  * @param {import('prosemirror-model').Schema} schema
  */
-const formattingAttributesToMarks = (formatting, schema) => object.map(formatting, (v, k) => schema.mark(k, v))
+const formattingAttributesToMarks = (formatting, schema) => object.map(formatting ?? {}, (v, k) => schema.mark(k, v))
 
 /**
  * @param {Array<Node>} ns
+ * @return {ProsemirrorDelta}
  */
 export const nodesToDelta = ns => {
   /**
@@ -116,18 +120,18 @@ export const nodesToDelta = ns => {
    */
   const d = delta.create($prosemirrorDelta)
   ns.forEach(n => {
-    d.insert(n.isText ? n.text : [nodeToDelta(n)], marksToFormattingAttributes(n.marks))
+    d.insert(n.isText ? (n.text ?? []) : [nodeToDelta(n)], marksToFormattingAttributes(n.marks))
   })
-  return d
+  return d.done(false)
 }
 
 /**
  * Transforms a {@link Node} into a {@link Y.XmlFragment}
  * @param {Node} node
- * @param {Y.XmlFragment} fragment
+ * @param {Y.Type} fragment
  * @param {Object} [opts]
- * @param {Y.DiffAttributionManager} [opts.attributionManager]
- * @returns {Y.XmlFragment}
+ * @param {Y.AbstractAttributionManager} [opts.attributionManager]
+ * @returns {Y.Type}
  */
 export function pmToFragment (node, fragment, { attributionManager = Y.noAttributionsManager } = {}) {
   const initialPDelta = nodeToDelta(node).done()
@@ -138,19 +142,19 @@ export function pmToFragment (node, fragment, { attributionManager = Y.noAttribu
 
 /**
  * Applies a {@link Y.XmlFragment}'s content as a ProseMirror {@link Transaction}
- * @param {Y.XmlFragment} fragment
+ * @param {Y.Type} fragment
  * @param {import('prosemirror-state').Transaction} tr
- * @param {object} [ctx]
- * @param {Y.DiffAttributionManager} [ctx.attributionManager]
+ * @param {object} ctx
+ * @param {Y.AbstractAttributionManager} [ctx.attributionManager]
  * @param {typeof defaultMapAttributionToMark} [ctx.mapAttributionToMark]
  * @returns {import('prosemirror-state').Transaction}
  */
 export function fragmentToTr (fragment, tr, {
   attributionManager = Y.noAttributionsManager,
   mapAttributionToMark = defaultMapAttributionToMark
-}) {
+} = {}) {
   const fragmentContent = deltaAttributionToFormat(
-    fragment.getContent(attributionManager, { deep: true }),
+    fragment.toDelta(attributionManager, { deep: true }),
     mapAttributionToMark
   )
   const initialPDelta = nodeToDelta(tr.doc).done()
@@ -163,9 +167,9 @@ export function fragmentToTr (fragment, tr, {
 
 /**
  * Transforms a {@link Y.XmlFragment} into a {@link Node}
- * @param {Y.XmlFragment} fragment
- * @param {import('prosemirror-state').Transaction}
- * @returns {Node}
+ * @param {Y.Type} fragment
+ * @param {import('prosemirror-state').Transaction} tr
+ * @return {Node}
  */
 export function fragmentToPm (fragment, tr) {
   return fragmentToTr(fragment, tr).doc
@@ -179,9 +183,9 @@ export const nodeToDelta = n => {
    * @type {delta.DeltaBuilderAny}
    */
   const d = delta.create(n.type.name, $prosemirrorDelta)
-  d.setMany(n.attrs)
+  d.setAttrs(n.attrs)
   n.content.content.forEach(c => {
-    d.insert(c.isText ? c.text : [nodeToDelta(c)], marksToFormattingAttributes(c.marks))
+    d.insert(c.isText ? (c.text ?? []) : [nodeToDelta(c)], marksToFormattingAttributes(c.marks))
   })
   return d
 }
@@ -233,7 +237,7 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
             nOffset = 0
           }
         } else {
-          object.forEach(op.format, (v, k) => {
+          object.forEach(op.format ?? {}, (v, k) => {
             if (v == null) {
               tr.removeNodeMark(currPos.i, schema.marks[k])
             } else {
@@ -288,10 +292,13 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
 /**
  * @param {ProsemirrorDelta} d
  * @param {import('prosemirror-model').Schema} schema
- * @param {delta.FormattingAttributes} dformat
+ * @param {delta.FormattingAttributes|null} dformat
  * @return {Node}
  */
 const deltaToPNode = (d, schema, dformat) => {
+  /**
+   * @type {Object<string,any>}
+   */
   const attrs = {}
   for (const attr of d.attrs) {
     attrs[attr.key] = attr.value
@@ -361,10 +368,10 @@ const _stepToDelta = s.match({ beforeDoc: Node, afterDoc: Node })
     deltaModifyNodeAt(beforeDoc, step.pos, d => { d.retain(1, { [step.mark.type.name]: null }) })
   )
   .if(AttrStep, (step, { beforeDoc }) =>
-    deltaModifyNodeAt(beforeDoc, step.pos, d => { d.modify(delta.create().set(step.attr, step.value)) })
+    deltaModifyNodeAt(beforeDoc, step.pos, d => { d.modify(delta.create().setAttr(step.attr, step.value)) })
   )
   .if(DocAttrStep, step =>
-    delta.create().set(step.attr, step.value)
+    delta.create().setAttr(step.attr, step.value)
   )
   .else(_step => {
     // unknown step kind
@@ -382,7 +389,7 @@ export const stepToDelta = (step, beforeDoc) => {
   if (stepResult.failed) {
     throw new Error('[y/prosemirror]: step failed to apply')
   }
-  return _stepToDelta(step, { beforeDoc, afterDoc: stepResult.doc })
+  return _stepToDelta(step, { beforeDoc, afterDoc: /** @type {Node} */ (stepResult.doc) })
 }
 
 /**

@@ -9,7 +9,7 @@ import * as delta from 'lib0/delta'
 import { findWrapping, ReplaceAroundStep } from 'prosemirror-transform'
 import { EditorView } from 'prosemirror-view'
 import { ySyncPluginKey } from '../src/plugins/keys.js'
-import { promise } from 'lib0'
+import * as promise from 'lib0/promise'
 
 const schema = new Schema({
   nodes: basicSchema.nodes,
@@ -17,7 +17,7 @@ const schema = new Schema({
 })
 
 /**
- * @param {Y.XmlFragment} ytype
+ * @param {Y.Type} ytype
  * @param {Y.AbstractAttributionManager} [attributionManager]
  */
 const createProsemirrorView = async (ytype, attributionManager) => {
@@ -35,7 +35,7 @@ const createProsemirrorView = async (ytype, attributionManager) => {
  * @param {EditorView} pm
  */
 const validate = pm => {
-  const ycontent = ySyncPluginKey.getState(pm.state).ytype.getContentDeep()
+  const ycontent = ySyncPluginKey.getState(pm.state)?.ytype?.toDeltaDeep()
   ycontent.name = 'doc'
   const pcontent = nodeToDelta(pm.state.doc)
   const ycontentJson = JSON.stringify(ycontent.toJSON ? ycontent.toJSON() : ycontent, null, 2)
@@ -51,10 +51,10 @@ const validate = pm => {
  * @typedef {object} YPMTestConf
  * @property {import('prosemirror-state').Transaction} YPMTest.tr
  * @property {EditorView} YPMTest.view
- * @property {Y.XmlFragment} YPMTest.ytype
+ * @property {Y.Type} YPMTest.ytype
  * @property {import('prosemirror-state').Transaction} YPMTest.tr2
  * @property {EditorView} YPMTest.view2
- * @property {Y.XmlFragment} YPMTest.ytype2
+ * @property {Y.Type} YPMTest.ytype2
  */
 
 /**
@@ -74,16 +74,16 @@ const testHelper = (changes) => {
     ydoc2.on('update', update => {
       Y.applyUpdate(ydoc, update)
     })
-    const ytype = ydoc.getXmlFragment('prosemirror')
+    const ytype = ydoc.get('prosemirror')
     // never change this structure!
     // <heading>[1]Hello World![13]</heading>[14]<paragraph>[15]Lorem [21]ipsum..[28]</paragraph>[29]
-    ytype.applyDelta(delta.create().insert([delta.create('heading', { level: 1 }, 'Hello World!'), delta.create('paragraph', {}, 'Lorem ipsum..')]))
+    ytype.applyDelta(delta.create().insert([delta.create('heading', { level: 1 }, 'Hello World!'), delta.create('paragraph', {}, 'Lorem ipsum..')]).done())
     const view = await createProsemirrorView(ytype)
-    const view2 = await createProsemirrorView(ydoc2.getXmlFragment('prosemirror'))
+    const view2 = await createProsemirrorView(ydoc2.get('prosemirror'))
 
     for (const change of changes) {
-      const ytype = ySyncPluginKey.getState(view.state).ytype
-      const ytype2 = ySyncPluginKey.getState(view2.state).ytype
+      const ytype = ySyncPluginKey.getState(view.state)?.ytype || null
+      const ytype2 = ySyncPluginKey.getState(view2.state)?.ytype || null
       const tr = change({
         tr: view.state.tr,
         view,
@@ -100,7 +100,7 @@ const testHelper = (changes) => {
       await promise.wait(1)
       validate(view)
       validate(view2)
-      t.compare(ytype.getContentDeep(), ytype2.getContentDeep())
+      t.compare(ytype.toDeltaDeep(), ytype2.toDeltaDeep())
     }
     console.log('final pm document:', JSON.stringify(view.state.doc.toJSON(), null, 2))
   }

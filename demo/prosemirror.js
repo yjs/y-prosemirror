@@ -1,7 +1,7 @@
 /* eslint-env browser */
 
 import * as Y from '@y/y'
-import { syncPlugin, ySyncPluginKey } from '../src/y-prosemirror.js'
+import { syncPlugin, ySyncPluginKey } from '../src/index.js'
 import { EditorState } from 'prosemirror-state'
 import { schema } from './schema.js'
 import { exampleSetup } from 'prosemirror-example-setup'

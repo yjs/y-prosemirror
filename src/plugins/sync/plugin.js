@@ -69,7 +69,7 @@ function apply (tr, prevPluginState) {
         return {
           type: 'synced',
           ytype: nextYtype,
-          attributionManager: nextAttributionManager,
+          attributionManager: nextAttributionManager || null,
           capturedTransactions: []
         }
       }
@@ -93,7 +93,7 @@ function apply (tr, prevPluginState) {
 
 /**
  * This Prosemirror {@link Plugin} is responsible for synchronizing the prosemirror {@link EditorState} with a {@link Y.XmlFragment}
- * @param {Y.XmlFragment} ytype
+ * @param {Y.Type} ytype
  * @param {object} opts
  * @param {Y.AbstractAttributionManager} [opts.attributionManager] An {@link Y.AbstractAttributionManager} to use for attribution tracking
  * @param {Y.Doc} [opts.suggestionDoc] A {@link Y.Doc} to use for suggestion tracking
@@ -115,7 +115,7 @@ export function syncPlugin (ytype, {
    * Subscribe to ytype changes and apply remote updates to prosemirror
    * @param {object} opts
    * @param {import('prosemirror-view').EditorView} opts.view
-   * @param {Y.XmlFragment} opts.ytype
+   * @param {Y.Type} opts.ytype
    * @param {Y.AbstractAttributionManager} opts.attributionManager
    * @param {typeof defaultMapAttributionToMark} opts.mapAttributionToMark
    */
@@ -129,7 +129,7 @@ export function syncPlugin (ytype, {
     // Track if ytype has been initialized
     let isYTypeInitialized = !!ytype.length
 
-    const yTypeCb = ytype.observeDeep((events, tr) => {
+    const yTypeCb = ytype.observeDeep((change, tr) => {
       if (!view || view.isDestroyed) {
         // View is destroyed, clean up
         if (unsubscribeFn) {
@@ -151,12 +151,8 @@ export function syncPlugin (ytype, {
       }
 
       mutex(() => {
-        /**
-         * @type {Y.YEvent<Y.XmlFragment>}
-         */
-        const event = events.find(event => event.target === ytype) || new Y.YEvent(ytype, tr, new Set(null))
         let d = deltaAttributionToFormat(
-          event.getDelta(attributionManager, { deep: true }),
+          change.getDelta(attributionManager, { deep: true }),
           mapAttributionToMark
         ).done()
 
@@ -168,7 +164,7 @@ export function syncPlugin (ytype, {
         const ptr = deltaToPSteps(view.state.tr, d)
         ptr.setMeta(ySyncPluginKey, {
           type: 'remote-update',
-          events,
+          change,
           ytype
         })
         ptr.setMeta('addToHistory', false)

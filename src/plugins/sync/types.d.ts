@@ -11,11 +11,11 @@ export type SyncedState = {
   /**
    * The main fragment that the editor is currently synced with
    */
-  ytype: Y.XmlFragment;
+  ytype: Y.Type;
   /**
    * The current attribution manager that affects how the content is rendered, and applied
    */
-  attributionManager: Y.AbstractAttributionManager;
+  attributionManager: Y.AbstractAttributionManager|null;
   // TODO should we be capturing the transactions, is there another way around this?
   /**
    * All of the transactions that have been captured since last synced to the ytype
@@ -47,7 +47,7 @@ export type SyncPluginTransactionMeta =
       /**
        * If provided, will switch to the given ytype instead of the current ytype
        */
-      ytype?: Y.XmlFragment;
+      ytype?: Y.Type;
       /**
        * If provided, will switch to the given attribution manager instead of the current attribution manager
        */
@@ -58,7 +58,7 @@ export type SyncPluginTransactionMeta =
       /**
        * If provided, will switch to the given ytype instead of the current ytype
        */
-      ytype?: Y.XmlFragment;
+      ytype?: Y.Type;
       /**
        * If provided, will switch to the given attribution manager instead of the current attribution manager
        */
@@ -66,12 +66,12 @@ export type SyncPluginTransactionMeta =
     }
   | {
       type: "remote-update";
-      events: Array<Y.YEvent<Y.XmlFragment>>;
-      ytype: Y.XmlFragment;
+      events: Array<Y.YEvent<Y.Type>>;
+      ytype: Y.Type;
       attributionFix?: true;
     }
   | {
       type: "initialized";
-      ytype: Y.XmlFragment;
+      ytype: Y.Type;
       attributionManager: Y.AbstractAttributionManager;
     };
