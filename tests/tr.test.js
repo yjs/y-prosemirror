@@ -339,6 +339,7 @@ export function tesNodeToDeltaPath (_tc) {
  * @param {t.TestCase} _tc
  */
 export function tesDeltaPathToDelta (_tc) {
+  const deltaPathToDelta = () => { throw new Error('todo') }
   t.group('converts delta path to delta structure', () => {
     t.group('path [1, 6]', () => {
       const { parentDelta, currentOp } = deltaPathToDelta([1, 6])

@@ -75,7 +75,7 @@ export const deltaAttributionToFormat = s.match(s.$function)
         const format = child.attribution ? attributionsToFormat(child.format, child.attribution) : child.format
         if (delta.$insertOp.check(child)) {
           r.insert(child.insert.map(c => delta.$deltaAny.check(c) ? deltaAttributionToFormat(c, attributionsToFormat) : c), format)
-        } else if (delta.$textOp.check(child)){
+        } else if (delta.$textOp.check(child)) {
           r.insert(child.insert.slice(), format)
         } else if (delta.$retainOp.check(child)) {
           r.retain(child.retain, format)
