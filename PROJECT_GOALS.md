@@ -32,7 +32,7 @@ This is a quick primer on deltas, what they are, and how they work.
  * exclamation mark. The final content should be "hello!" ("hello world" => "hello!")
  *
  * In most editors, you would describe the necessary changes as replace operations using indexes.
- * However, this might become ambiguous when many changes are involved.
+ * However, this might become confusing when many changes are involved.
  *
  * - delete range 5-11
  * - insert "!" at position 11
@@ -62,7 +62,7 @@ t.compare(diff, delta.create().retain(6).retain(5, { bold: true }))
 
 ### Content Renderer (`@y/y`)
 
-One of the core features we are introducing in `@y/prosemirror` is the concept of a "content renderer". A content renderer is responsible for the injection of additional content into the Prosemirror document, such as suggestions, diffs, etc. This content renderer is able to keep track of the source of the additional content, and can differentiate changes to the original document content from changes to the additional content. This is particularly useful for "suggestion mode", where we want to still show the original document content, but also being able to edit the suggestions independently.
+One of the core features in the next version of `@y/y` is the concept of a "content renderer", which we are planning to support in `@y/prosemirror`. A content renderer is responsible for the injection of additional content into the Prosemirror document, such as suggestions, diffs, etc. This content renderer is able to keep track of the source of the additional content, and can differentiate changes to the original document content from changes to the additional content. This is particularly useful for "suggestion mode", where we want to still show the original document content, but also being able to edit the suggestions independently.
 
 ### PM -> Delta
 
