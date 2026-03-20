@@ -20,6 +20,6 @@ export const yUndoPluginKey = new PluginKey('y-undo')
  * The unique prosemirror plugin key for {@link import('./cursor').cursorPlugin}
  *
  * @public
- * @type {PluginKey<import('./cursor').CursorPluginState>}
+ * @type {PluginKey<import('prosemirror-view').DecorationSet>}
  */
 export const yCursorPluginKey = new PluginKey('yjs-cursor')
