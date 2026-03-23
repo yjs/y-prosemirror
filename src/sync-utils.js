@@ -19,10 +19,6 @@ import {
 export const $prosemirrorDelta = delta.$delta({ name: s.$string, attrs: s.$record(s.$string, s.$any), text: true, recursiveChildren: true })
 
 /**
- * @typedef {s.Unwrap<typeof $prosemirrorDelta>} ProsemirrorDelta
- **/
-
-/**
  * @template {import('lib0/delta').Attribution} T
  * @param {Record<string, unknown> | null} format
  * @param {T} attribution
@@ -60,34 +56,35 @@ export const defaultMapAttributionToMark = (format, attribution) => {
 
 /**
  * Transform delta with attributions to delta with formats (marks).
+ * @param {delta.DeltaAny} d
+ * @param {function} attributionsToFormat
  */
-export const deltaAttributionToFormat = s.match(s.$function)
-  .if(delta.$deltaAny, (d, attributionsToFormat) => {
-    const r = delta.create(d.name)
-    // @todo this shouldn't be necessary
-    for (const attr of d.attrs) {
-      r.attrs[attr.key] = attr.clone()
-    }
-    for (const child of d.children) {
-      if (delta.$deleteOp.check(child)) {
-        r.delete(child.delete)
+export const deltaAttributionToFormat = (d, attributionsToFormat) => {
+  const r = delta.create(d.name)
+  for (const attr of d.attrs) {
+    // @ts-ignore
+    r.attrs[attr.key] = attr.clone()
+  }
+  for (const child of d.children) {
+    if (delta.$deleteOp.check(child)) {
+      r.delete(child.delete)
+    } else {
+      const format = child.attribution ? attributionsToFormat(child.format, child.attribution) : child.format
+      if (delta.$insertOp.check(child)) {
+        r.insert(child.insert.map(c => delta.$deltaAny.check(c) ? deltaAttributionToFormat(c, attributionsToFormat) : c), format)
+      } else if (delta.$textOp.check(child)) {
+        r.insert(child.insert.slice(), format)
+      } else if (delta.$retainOp.check(child)) {
+        r.retain(child.retain, format)
+      } else if (delta.$modifyOp.check(child)) {
+        r.modify(deltaAttributionToFormat(child.value, attributionsToFormat), format)
       } else {
-        const format = child.attribution ? attributionsToFormat(child.format, child.attribution) : child.format
-        if (delta.$insertOp.check(child)) {
-          r.insert(child.insert.map(c => delta.$deltaAny.check(c) ? deltaAttributionToFormat(c, attributionsToFormat) : c), format)
-        } else if (delta.$textOp.check(child)) {
-          r.insert(child.insert.slice(), format)
-        } else if (delta.$retainOp.check(child)) {
-          r.retain(child.retain, format)
-        } else if (delta.$modifyOp.check(child)) {
-          r.modify(deltaAttributionToFormat(child.value, attributionsToFormat), format)
-        } else {
-          error.unexpectedCase()
-        }
+        error.unexpectedCase()
       }
     }
-    return /** @type {ProsemirrorDelta} */ (r)
-  }).done()
+  }
+  return /** @type {ProsemirrorDelta} */ (r)
+}
 
 /**
  * @param {readonly import('prosemirror-model').Mark[]} marks
@@ -177,12 +174,11 @@ export function fragmentToPm (fragment, tr) {
 
 /**
  * @param {Node} n
+ * @param {string?} nodeName
+ * @return {ProsemirrorDelta}
  */
-export const nodeToDelta = n => {
-  /**
-   * @type {delta.DeltaBuilderAny}
-   */
-  const d = delta.create(n.type.name, $prosemirrorDelta)
+export const nodeToDelta = (n, nodeName = n.type.name) => {
+  const d = delta.create(nodeName, $prosemirrorDelta)
   d.setAttrs(n.attrs)
   n.content.content.forEach(c => {
     d.insert(c.isText ? (c.text ?? []) : [nodeToDelta(c)], marksToFormattingAttributes(c.marks))
@@ -191,11 +187,16 @@ export const nodeToDelta = n => {
 }
 
 /**
- * @param {import('prosemirror-transform').Transform} tr
+ * @param {Node} doc
+ */
+export const docToDelta = doc => nodeToDelta(doc, null)
+
+/**
+ * @param {import('prosemirror-state').Transaction} tr
  * @param {ProsemirrorDelta} d
  * @param {Node} [pnode]
  * @param {{ i: number }} [currPos]
- * @return {import('prosemirror-transform').Transform}
+ * @return {import('prosemirror-state').Transaction}
  */
 export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
   const schema = tr.doc.type.schema
@@ -314,12 +315,11 @@ const deltaToPNode = (d, schema, dformat) => {
 export const docDiffToDelta = (beforeDoc, afterDoc) => {
   const initialDelta = nodeToDelta(beforeDoc)
   const finalDelta = nodeToDelta(afterDoc)
-
   return delta.diff(initialDelta.done(), finalDelta.done())
 }
 
 /**
- * @param {Transform} tr
+ * @param {Transaction} tr
  */
 export const trToDelta = (tr) => {
   // const d = delta.create($prosemirrorDelta)
@@ -393,8 +393,8 @@ export const stepToDelta = (step, beforeDoc) => {
 }
 
 /**
- *
  * @param {import('prosemirror-model').NodeRange | null} blockRange
+ * @return {ProsemirrorDelta}
  */
 function deltaForBlockRange (blockRange) {
   if (blockRange === null) {
@@ -497,7 +497,8 @@ export const deltaModifyNodeAt = (node, pmOffset, mod) => {
   currentOp.retain(lastIndex >= 0 ? dpath[lastIndex] : 0)
   mod(currentOp)
   for (let i = lastIndex - 1; i >= 0; i--) {
-    currentOp = /** @type {delta.DeltaBuilderAny} */ (delta.create($prosemirrorDelta).retain(dpath[i]).modify(currentOp))
+    // @ts-ignore
+    currentOp = delta.create($prosemirrorDelta).retain(dpath[i]).modify(currentOp)
   }
   return currentOp
 }

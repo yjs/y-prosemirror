@@ -13,8 +13,12 @@
     "emitDeclarationOnly": true,
     "strict": true,
     "noImplicitAny": true,
-    "moduleResolution": "nodenext"
+    "moduleResolution": "nodenext",
+    "paths": {
+      "@y/prosemirror": ["./src/index.js"]
+    }
   },
+  "files": ["./global.d.ts"],
   "include": ["./src/**/*.js", "./tests/**/*.js"],
   "exclude": ["node_modules", "dist"]
 }

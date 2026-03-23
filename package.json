@@ -15,6 +15,7 @@
     "clean": "rm -rf dist",
     "dist": "npm run clean && rollup -c && (tsc --skipLibCheck || true)",
     "test": "node ./tests/index.node.js",
+    "test:debug": "node --inspect-brk ./tests/index.node.js",
     "lint": "standard && tsc --skipLibCheck",
     "watch": "rollup -wc",
     "debug": "concurrently '0serve -o test.html' 'npm run watch'",

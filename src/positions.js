@@ -4,7 +4,7 @@ import * as Y from '@y/y'
  * Transforms a Prosemirror based absolute position to a {@link Y.RelativePosition}.
  *
  * @param {import('prosemirror-model').ResolvedPos} resolvedPos
- * @param {Y.XmlFragment} type
+ * @param {Y.Type} type
  * @param {Y.AbstractAttributionManager} [am]
  * @return {Y.RelativePosition} relative position
  */
@@ -31,7 +31,7 @@ export const absolutePositionToRelativePosition = (resolvedPos, type, am = Y.noA
 /**
  * Transforms a {@link Y.RelativePosition} to a Prosemirror based absolute position.
  * @param {Y.RelativePosition} relPos Encoded Yjs based relative position
- * @param {Y.XmlFragment} documentType Top level type that is bound to pView
+ * @param {Y.Type} documentType Top level type that is bound to pView
  * @param {import('prosemirror-model').Node} pmDoc
  * @param {Y.AbstractAttributionManager} [am]
  * @return {null|number} Prosemirror based absolute position
@@ -70,9 +70,9 @@ export const relativePositionToAbsolutePosition = (relPos, documentType, pmDoc, 
 /**
  * Creates a function that can be used to keep track of an absolute position of a Prosemirror document, and restore it to an absolute position in a different Prosemirror document.
  * @param {import('prosemirror-model').ResolvedPos} resolvedPos Absolute position in the Prosemirror document
- * @param {Y.XmlFragment} type Top level type that is bound to pView
+ * @param {Y.Type} type Top level type that is bound to pView
  * @param {Y.AbstractAttributionManager} [am] Attribution manager to use for the relative position
- * @returns {(doc: import('prosemirror-model').Node, documentType?: Y.XmlFragment, attributionManager?: Y.AbstractAttributionManager) => number}
+ * @returns {(doc: import('prosemirror-model').Node, documentType?: Y.Type, attributionManager?: Y.AbstractAttributionManager) => number}
  */
 export const relativePositionStore = (resolvedPos, type, am) => {
   const relPos = absolutePositionToRelativePosition(resolvedPos, type, am)
@@ -84,10 +84,10 @@ export const relativePositionStore = (resolvedPos, type, am) => {
 
 /**
  *
- * @param {Y.XmlFragment} type
+ * @param {Y.Type} type
  * @param {import('prosemirror-model').Node} pmDoc
  * @param {Y.AbstractAttributionManager} [am]
- * @returns {{captureMapping: import('prosemirror-transform').Mappable, restoreMapping: (type: Y.XmlFragment, pmDoc: import('prosemirror-model').Node, am?: Y.AbstractAttributionManager) => import('prosemirror-transform').Mappable}}
+ * @returns {{captureMapping: import('prosemirror-transform').Mappable, restoreMapping: (type: Y.Type, pmDoc: import('prosemirror-model').Node, am?: Y.AbstractAttributionManager) => import('prosemirror-transform').Mappable}}
  */
 export const relativePositionStoreMapping = (type, pmDoc, am) => {
   /**
