@@ -77,6 +77,7 @@ export const deltaAttributionToFormat = (d, attributionsToFormat) => {
       } else if (delta.$retainOp.check(child)) {
         r.retain(child.retain, format)
       } else if (delta.$modifyOp.check(child)) {
+        // @ts-ignore
         r.modify(/** @type {any} */ (deltaAttributionToFormat(child.value, attributionsToFormat)), format)
       } else {
         error.unexpectedCase()

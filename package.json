@@ -53,11 +53,11 @@
   },
   "homepage": "https://github.com/yjs/y-prosemirror#readme",
   "dependencies": {
-    "lib0": "^1.0.0-rc.6"
+    "lib0": "^1.0.0-rc.7"
   },
   "peerDependencies": {
     "@y/protocols": "^1.0.6-rc.1",
-    "@y/y": "^14.0.0-rc.1",
+    "@y/y": "^14.0.0-rc.3",
     "prosemirror-model": "^1.7.1",
     "prosemirror-state": "^1.2.3",
     "prosemirror-view": "^1.9.10"
@@ -67,7 +67,6 @@
     "@rollup/plugin-node-resolve": "^16.0.3",
     "@y/websocket": "^4.0.0-rc.1",
     "@y/protocols": "^1.0.6-rc.1",
-    "@y/y": "^14.0.0-rc.1",
     "concurrently": "^4.1.0",
     "http-server": "^0.12.3",
     "jsdom": "^15.1.1",

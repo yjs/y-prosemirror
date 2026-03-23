@@ -362,7 +362,7 @@ elemToggleConnect.checked && providerYdoc.connectBc()
 const suggestionDoc = new Y.Doc({ gc: false, isSuggestionDoc: true })
 const providerYdocSuggestions = new WebsocketProvider('wss://demos.yjs.dev/ws', roomName + '--suggestions', suggestionDoc, { connect: false })
 elemToggleConnect.checked && providerYdocSuggestions.connectBc()
-const am = /** @type {any} */ (Y).createAttributionManagerFromDiff(ydoc, suggestionDoc, { attrs: [(Y).createAttributionItem('insert', ['nickthesick'])] })
+const am = /** @type {any} */ (Y).createAttributionManagerFromDiff(ydoc, suggestionDoc, { attrs: [Y.createContentAttribute('insert', ['nickthesick'])] })
 
 suggestionDoc.on('update', () => {
   console.log('suggestionDoc updated', /** @type {any} */ (ydoc).getXmlFragment('prosemirror-s').toString())
