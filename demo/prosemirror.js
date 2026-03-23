@@ -150,12 +150,14 @@ const updateSnapshotDropdowns = () => {
   }
   lastSnapshotCount = snapshots.length
 
+  if (!selectPrevSnapshot || !selectSnapshot) return
+
   // Preserve current selections
   const prevSelectedValue = selectPrevSnapshot.value
   const selectedValue = selectSnapshot.value
 
   // Update dropdowns
-  const updateSelect = (select, includeNone = false) => {
+  const updateSelect = (/** @type {HTMLSelectElement} */ select, includeNone = false) => {
     select.innerHTML = includeNone ? '<option value="">-- None (single snapshot view) --</option>' : '<option value="">-- Select a snapshot --</option>'
     snapshots.forEach((snapshot, index) => {
       const option = document.createElement('option')
@@ -182,37 +184,41 @@ const updateSnapshotUI = () => {
   updateSnapshotDropdowns()
 
   // Update render button state
-  const hasSnapshot = selectSnapshot.value !== ''
-  btnRenderSnapshot.disabled = !hasSnapshot
+  if (selectSnapshot) {
+    const hasSnapshot = selectSnapshot.value !== ''
+    if (btnRenderSnapshot) btnRenderSnapshot.disabled = !hasSnapshot
+  }
 
   // Update resume button state
   if (currentView) {
-    const pluginState = ySyncPluginKey.getState(currentView.state)
+    const pluginState = /** @type {any} */ (ySyncPluginKey.getState(currentView.state))
     const isInSnapshotMode = pluginState && pluginState.mode === 'snapshot'
     const isPaused = pluginState && pluginState.mode === 'paused'
     const canResume = isInSnapshotMode || isPaused
-    btnResumeSync.disabled = !canResume
+    if (btnResumeSync) btnResumeSync.disabled = !canResume
 
     if (elemToggleKeepChanges) {
-      elemToggleKeepChanges.disabled = !isPaused
+      /** @type {HTMLButtonElement} */ (elemToggleKeepChanges).disabled = !isPaused
     }
 
-    if (isInSnapshotMode) {
-      snapshotInfo.textContent = '⚠️ In snapshot preview mode - document is read-only. Click "Resume Sync" to return to live editing.'
-      snapshotInfo.className = 'info-text warning'
-    } else if (isPaused) {
-      snapshotInfo.textContent = '⏸️ Sync is paused. Make changes and use "Resume Sync" to continue. Check "Keep Changes" to preserve edits made while paused.'
-      snapshotInfo.className = 'info-text warning'
-    } else {
-      snapshotInfo.textContent = snapshots.length > 0
-        ? `✓ ${snapshots.length} snapshot(s) available. Select "From" and "To" snapshots to compare, or just "To" for single snapshot view.`
-        : 'Take a snapshot to preview the document at a specific point in time.'
-      snapshotInfo.className = snapshots.length > 0 ? 'info-text success' : 'info-text info'
+    if (snapshotInfo) {
+      if (isInSnapshotMode) {
+        snapshotInfo.textContent = '⚠️ In snapshot preview mode - document is read-only. Click "Resume Sync" to return to live editing.'
+        snapshotInfo.className = 'info-text warning'
+      } else if (isPaused) {
+        snapshotInfo.textContent = '⏸️ Sync is paused. Make changes and use "Resume Sync" to continue. Check "Keep Changes" to preserve edits made while paused.'
+        snapshotInfo.className = 'info-text warning'
+      } else {
+        snapshotInfo.textContent = snapshots.length > 0
+          ? `✓ ${snapshots.length} snapshot(s) available. Select "From" and "To" snapshots to compare, or just "To" for single snapshot view.`
+          : 'Take a snapshot to preview the document at a specific point in time.'
+        snapshotInfo.className = snapshots.length > 0 ? 'info-text success' : 'info-text info'
+      }
     }
   }
 }
 
-btnTakeSnapshot.addEventListener('click', () => {
+btnTakeSnapshot?.addEventListener('click', () => {
   if (!currentView) return
   const pluginState = ySyncPluginKey.getState(currentView.state)
   if (!pluginState) return
@@ -227,9 +233,9 @@ btnTakeSnapshot.addEventListener('click', () => {
   updateSnapshotUI()
 })
 
-btnRenderSnapshot.addEventListener('click', () => {
-  if (!currentView) return
-  const pluginState = ySyncPluginKey.getState(currentView.state)
+btnRenderSnapshot?.addEventListener('click', () => {
+  if (!currentView || !selectSnapshot) return
+  const pluginState = /** @type {any} */ (ySyncPluginKey.getState(currentView.state))
   if (!pluginState) return
 
   const snapshotIndex = parseInt(selectSnapshot.value, 10)
@@ -238,7 +244,7 @@ btnRenderSnapshot.addEventListener('click', () => {
   }
 
   const snapshotItem = snapshots[snapshotIndex]
-  const prevSnapshotIndex = selectPrevSnapshot.value !== '' ? parseInt(selectPrevSnapshot.value, 10) : null
+  const prevSnapshotIndex = selectPrevSnapshot && selectPrevSnapshot.value !== '' ? parseInt(selectPrevSnapshot.value, 10) : null
 
   // Use current ytype for rendering (it's the same fragment, just at different points in time)
   const currentYtype = pluginState.ytype
@@ -260,19 +266,19 @@ btnRenderSnapshot.addEventListener('click', () => {
   updateSnapshotUI()
 })
 
-btnResumeSync.addEventListener('click', () => {
+btnResumeSync?.addEventListener('click', () => {
   if (!currentView) return
-  const pluginState = ySyncPluginKey.getState(currentView.state)
+  const pluginState = /** @type {any} */ (ySyncPluginKey.getState(currentView.state))
   if (!pluginState) return
 
-  const keepChanges = elemToggleKeepChanges?.checked || false
+  const keepChanges = /** @type {HTMLInputElement | null} */ (elemToggleKeepChanges)?.checked || false
   pluginState.resumeSync({ keepChanges })
   updateSnapshotUI()
 })
 
 // Update button state when dropdowns change
-selectPrevSnapshot.addEventListener('change', updateSnapshotUI)
-selectSnapshot.addEventListener('change', updateSnapshotUI)
+selectPrevSnapshot?.addEventListener('change', updateSnapshotUI)
+selectSnapshot?.addEventListener('change', updateSnapshotUI)
 
 // Accept/Reject changes buttons
 if (btnAcceptChanges) {
@@ -286,8 +292,8 @@ if (btnAcceptChanges) {
     const to = selection.to
 
     try {
-      pluginState.acceptChanges(from, to)
-    } catch (error) {
+      /** @type {any} */ (pluginState).acceptChanges(from, to)
+    } catch (/** @type {any} */ error) {
       console.error('Error accepting changes:', error)
       alert('Error accepting changes: ' + error.message)
     }
@@ -305,8 +311,8 @@ if (btnRejectChanges) {
     const to = selection.to
 
     try {
-      pluginState.rejectChanges(from, to)
-    } catch (error) {
+      /** @type {any} */ (pluginState).rejectChanges(from, to)
+    } catch (/** @type {any} */ error) {
       console.error('Error rejecting changes:', error)
       alert('Error rejecting changes: ' + error.message)
     }
@@ -321,8 +327,8 @@ if (btnAcceptAllChanges) {
     if (!pluginState) return
 
     try {
-      pluginState.acceptAllChanges()
-    } catch (error) {
+      /** @type {any} */ (pluginState).acceptAllChanges()
+    } catch (/** @type {any} */ error) {
       console.error('Error accepting all changes:', error)
       alert('Error accepting all changes: ' + error.message)
     }
@@ -336,8 +342,8 @@ if (btnRejectAllChanges) {
     if (!pluginState) return
 
     try {
-      pluginState.rejectAllChanges()
-    } catch (error) {
+      /** @type {any} */ (pluginState).rejectAllChanges()
+    } catch (/** @type {any} */ error) {
       console.error('Error rejecting all changes:', error)
       alert('Error rejecting all changes: ' + error.message)
     }
@@ -356,13 +362,13 @@ elemToggleConnect.checked && providerYdoc.connectBc()
 const suggestionDoc = new Y.Doc({ gc: false, isSuggestionDoc: true })
 const providerYdocSuggestions = new WebsocketProvider('wss://demos.yjs.dev/ws', roomName + '--suggestions', suggestionDoc, { connect: false })
 elemToggleConnect.checked && providerYdocSuggestions.connectBc()
-const am = Y.createAttributionManagerFromDiff(ydoc, suggestionDoc, { attrs: [Y.createAttributionItem('insert', ['nickthesick'])] })
+const am = /** @type {any} */ (Y).createAttributionManagerFromDiff(ydoc, suggestionDoc, { attrs: [(Y).createAttributionItem('insert', ['nickthesick'])] })
 
 suggestionDoc.on('update', () => {
-  console.log('suggestionDoc updated', ydoc.getXmlFragment('prosemirror-s').toString())
+  console.log('suggestionDoc updated', /** @type {any} */ (ydoc).getXmlFragment('prosemirror-s').toString())
 })
 ydoc.on('update', () => {
-  console.log('ydoc updated', ydoc.getXmlFragment('prosemirror-s').toString())
+  console.log('ydoc updated', /** @type {any} */ (ydoc).getXmlFragment('prosemirror-s').toString())
 })
 /**
  * @type {EditorView?}
@@ -370,10 +376,11 @@ ydoc.on('update', () => {
 let currentView = null
 
 const initEditor = () => {
-  const ypm = ydoc.getXmlFragment('prosemirror-s')
+  const ypm = /** @type {any} */ (ydoc).getXmlFragment('prosemirror-s')
   currentView?.destroy()
   snapshots.length = 0 // Clear snapshots when reinitializing
   const ypmContainer = document.querySelector('#ypm-container')
+  if (!ypmContainer) return
   ypmContainer.innerHTML = ''
   const editor = document.createElement('div')
   editor.setAttribute('class', 'yeditor')
@@ -381,11 +388,11 @@ const initEditor = () => {
 
   const state = EditorState.create({
     schema,
-    plugins: [].concat(exampleSetup({ schema, history: false }), syncPlugin(ypm, {
+    plugins: /** @type {any[]} */ ([]).concat(exampleSetup({ schema, history: false }), /** @type {any} */ (syncPlugin)(ypm, {
       awareness: providerYdoc.awareness,
       suggestionDoc,
       attributionManager: am,
-      mapAttributionToMark: (format, attribution) => {
+      mapAttributionToMark: (/** @type {any} */ format, /** @type {any} */ attribution) => {
         console.log('format', format, attribution)
         return object.assign({}, format, {
           ychange: attribution.delete
@@ -397,8 +404,9 @@ const initEditor = () => {
   })
 
   // Track last mode to detect changes
+  /** @type {string | null} */
   let lastMode = null
-  const initialPluginState = ySyncPluginKey.getState(state)
+  const initialPluginState = /** @type {any} */ (ySyncPluginKey.getState(state))
   if (initialPluginState) {
     lastMode = initialPluginState.mode
   }
@@ -411,7 +419,7 @@ const initEditor = () => {
       currentView.updateState(newState)
 
       // Check if mode changed and update UI
-      const pluginState = ySyncPluginKey.getState(newState)
+      const pluginState = /** @type {any} */ (ySyncPluginKey.getState(newState))
       if (pluginState) {
         const currentMode = pluginState.mode
         if (currentMode !== lastMode) {
