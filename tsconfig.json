@@ -19,6 +19,6 @@
     }
   },
   "files": ["./global.d.ts"],
-  "include": ["./src/**/*.js", "./tests/**/*.js"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["./src", "./tests", "./demo/*.js"],
+  "exclude": ["node_modules", "dist", "./demo/dist/"]
 }

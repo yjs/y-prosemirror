@@ -60,7 +60,7 @@ export const defaultMapAttributionToMark = (format, attribution) => {
  * @param {function} attributionsToFormat
  */
 export const deltaAttributionToFormat = (d, attributionsToFormat) => {
-  const r = delta.create(d.name)
+  const r = delta.create(d.name, $prosemirrorDelta)
   for (const attr of d.attrs) {
     // @ts-ignore
     r.attrs[attr.key] = attr.clone()
@@ -77,13 +77,13 @@ export const deltaAttributionToFormat = (d, attributionsToFormat) => {
       } else if (delta.$retainOp.check(child)) {
         r.retain(child.retain, format)
       } else if (delta.$modifyOp.check(child)) {
-        r.modify(deltaAttributionToFormat(child.value, attributionsToFormat), format)
+        r.modify(/** @type {any} */ (deltaAttributionToFormat(child.value, attributionsToFormat)), format)
       } else {
         error.unexpectedCase()
       }
     }
   }
-  return /** @type {ProsemirrorDelta} */ (r)
+  return /** @type {ProsemirrorDelta} */ (r.done(false))
 }
 
 /**
@@ -183,7 +183,7 @@ export const nodeToDelta = (n, nodeName = n.type.name) => {
   n.content.content.forEach(c => {
     d.insert(c.isText ? (c.text ?? []) : [nodeToDelta(c)], marksToFormattingAttributes(c.marks))
   })
-  return d
+  return d.done(false)
 }
 
 /**
@@ -398,7 +398,7 @@ export const stepToDelta = (step, beforeDoc) => {
  */
 function deltaForBlockRange (blockRange) {
   if (blockRange === null) {
-    return delta.create()
+    return delta.create($prosemirrorDelta).done()
   }
   const { startIndex, endIndex, parent } = blockRange
   return nodesToDelta(parent.content.content.slice(startIndex, endIndex))

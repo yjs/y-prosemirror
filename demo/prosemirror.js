@@ -33,6 +33,9 @@ if (localStorage.getItem('should-connect') != null) {
 let otherClientID = random.uint53()
 let previousMode = 'off'
 
+/**
+ * @type {HTMLElement | null}
+ */
 const elemSuggestionActions = document.querySelector('#suggestion-actions')
 const btnAcceptChanges = document.querySelector('#btn-accept-changes')
 const btnRejectChanges = document.querySelector('#btn-reject-changes')
@@ -71,7 +74,7 @@ elemSelectSuggestionMode.addEventListener('change', () => {
     })
   }
 
-  pluginState.setSuggestionMode(mode)
+  /** @type {any} */ (pluginState).setSuggestionMode(mode)
   previousMode = mode
   updateSuggestionButtons()
 })
@@ -87,18 +90,21 @@ elemToggleConnect.addEventListener('change', () => {
   localStorage.setItem('should-connect', elemToggleConnect.checked ? 'true' : 'false')
 })
 
+/**
+ * @type {HTMLInputElement | null}
+ */
 const elemTogglePauseSync = document.querySelector('#toggle-pause-sync')
 
-elemTogglePauseSync.addEventListener('change', () => {
+elemTogglePauseSync?.addEventListener('change', () => {
   if (!currentView) return
-  const pluginState = ySyncPluginKey.getState(currentView.state)
+  const pluginState = /** @type {any} */ (ySyncPluginKey.getState(currentView.state))
   if (!pluginState) return
 
   if (elemTogglePauseSync.checked) {
     pluginState.pauseSync()
   } else {
     // When resuming from the toggle, use the keepChanges checkbox value
-    const keepChanges = elemToggleKeepChanges?.checked || false
+    const keepChanges = /** @type {HTMLInputElement | null} */ (elemToggleKeepChanges)?.checked || false
     pluginState.resumeSync({ keepChanges })
   }
   // Update UI immediately to reflect the checkbox state
@@ -108,12 +114,30 @@ elemTogglePauseSync.addEventListener('change', () => {
 /**
  * Snapshot management
  */
+/**
+ * @type {Array<{ snapshot: import('@y/y').Snapshot, timestamp: number }>}
+ */
 const snapshots = []
 const btnTakeSnapshot = document.querySelector('#btn-take-snapshot')
+/**
+ * @type {HTMLButtonElement | null}
+ */
 const btnResumeSync = document.querySelector('#btn-resume-sync')
+/**
+ * @type {HTMLButtonElement | null}
+ */
 const btnRenderSnapshot = document.querySelector('#btn-render-snapshot')
+/**
+ * @type {HTMLSelectElement | null}
+ */
 const selectPrevSnapshot = document.querySelector('#select-prev-snapshot')
+/**
+ * @type {HTMLSelectElement | null}
+ */
 const selectSnapshot = document.querySelector('#select-snapshot')
+/**
+ * @type {HTMLElement | null}
+ */
 const snapshotInfo = document.querySelector('#snapshot-info')
 const elemToggleKeepChanges = document.querySelector('#toggle-keep-changes')
 

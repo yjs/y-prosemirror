@@ -2,10 +2,7 @@
   "name": "@y/prosemirror",
   "version": "2.0.0-2",
   "description": "Prosemirror bindings for Yjs",
-  "main": "./dist/y-prosemirror.cjs",
-  "module": "./src/y-prosemirror.js",
   "type": "module",
-  "types": "./dist/src/y-prosemirror.d.ts",
   "sideEffects": false,
   "funding": {
     "type": "GitHub Sponsors ❤",
@@ -32,7 +29,8 @@
   "files": [
     "dist/*",
     "!dist/test.*",
-    "src/*"
+    "src/*",
+    "./global.d.ts"
   ],
   "repository": {
     "type": "git",

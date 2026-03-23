@@ -1,19 +1,27 @@
 import { Schema } from 'prosemirror-model'
 // import { builders } from 'prosemirror-test-builder'
 
+/**
+ * @type {import('prosemirror-model').DOMOutputSpec}
+ */
 const brDOM = ['br']
 
+/**
+ * @param {import('prosemirror-model').Attrs} attrs
+ * @param {Record<string, any>} domAttrs
+ */
 const calcYchangeDomAttrs = (attrs, domAttrs = {}) => {
   domAttrs = Object.assign({}, domAttrs)
-  if (attrs.ychange !== null) {
+  if (attrs.ychange != null) {
     domAttrs.ychange_user = attrs.ychange.user
     domAttrs.ychange_state = attrs.ychange.state
   }
   return domAttrs
 }
 
-// :: Object
-// [Specs](#model.NodeSpec) for the nodes defined in this schema.
+/**
+ * @type {Object<string, import('prosemirror-model').NodeSpec>}
+ */
 export const nodes = {
   // :: NodeSpec The top level document node.
   doc: {
@@ -156,11 +164,23 @@ export const nodes = {
   }
 }
 
+/**
+ * @type {import('prosemirror-model').DOMOutputSpec}
+ */
 const emDOM = ['em', 0]
+/**
+ * @type {import('prosemirror-model').DOMOutputSpec}
+ */
 const strongDOM = ['strong', 0]
+/**
+ * @type {import('prosemirror-model').DOMOutputSpec}
+ */
 const codeDOM = ['code', 0]
 
 // :: Object [Specs](#model.MarkSpec) for the marks in the schema.
+/**
+ * @type {Object<string, import('prosemirror-model').MarkSpec>}
+ */
 export const marks = {
   // :: MarkSpec A link. Has `href` and `title` attributes. `title`
   // defaults to the empty string. Rendered and parsed as an `<a>`

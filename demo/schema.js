@@ -1,10 +1,17 @@
 import { Schema } from 'prosemirror-model'
 
+/**
+ * @type {import('prosemirror-model').DOMOutputSpec}
+ */
 const brDOM = ['br']
 
 const colorAddedFallback = '#6eeb83'
 const colorRemovedFallback = '#ec0600a1'
 
+/**
+ * @param {any} ychange
+ * @returns {string}
+ */
 const calcYChangeStyle = ychange => {
   switch (ychange.type) {
     case 'removed':
@@ -13,9 +20,15 @@ const calcYChangeStyle = ychange => {
       return `background-color:${ychange.color?.light || colorAddedFallback}`
     case null:
       return ''
+    default:
+      return ''
   }
 }
 
+/**
+ * @param {import('prosemirror-model').Attrs} attrs
+ * @param {Record<string, any>} domAttrs
+ */
 const calcYchangeDomAttrs = (attrs, domAttrs = {}) => {
   domAttrs = Object.assign({}, domAttrs)
   if (attrs.ychange !== null) {
@@ -41,6 +54,9 @@ const hoverWrapper = (ychange, els) =>
 
 // :: Object
 // [Specs](#model.NodeSpec) for the nodes defined in this schema.
+/**
+ * @type {Object<string, import('prosemirror-model').NodeSpec>}
+ */
 export const nodes = {
   // :: NodeSpec The top level document node.
   doc: {
@@ -169,9 +185,17 @@ export const nodes = {
   }
 }
 
-const emDOM = ['em', 0]; const strongDOM = ['strong', 0]; const codeDOM = ['code', 0]
+/** @type {import('prosemirror-model').DOMOutputSpec} */
+const emDOM = ['em', 0]
+/** @type {import('prosemirror-model').DOMOutputSpec} */
+const strongDOM = ['strong', 0]
+/** @type {import('prosemirror-model').DOMOutputSpec} */
+const codeDOM = ['code', 0]
 
 // :: Object [Specs](#model.MarkSpec) for the marks in the schema.
+/**
+ * @type {Object<string, import('prosemirror-model').MarkSpec>}
+ */
 export const marks = {
   // :: MarkSpec A link. Has `href` and `title` attributes. `title`
   // defaults to the empty string. Rendered and parsed as an `<a>`
@@ -234,5 +258,4 @@ export const marks = {
   }
 }
 
-// @ts-ignore
 export const schema = new Schema({ nodes, marks })
