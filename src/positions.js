@@ -6,7 +6,7 @@ import * as s from 'lib0/schema'
  *
  * @param {import('prosemirror-model').ResolvedPos} resolvedPos
  * @param {Y.Type} type
- * @param {Y.AbstractAttributionManager} [am]
+ * @param {Y.AbstractAttributionManager | null} [am]
  * @return {Y.RelativePosition} relative position
  */
 export const absolutePositionToRelativePosition = (resolvedPos, type, am) => {
@@ -45,7 +45,7 @@ export const relativePositionToAbsolutePosition = (relPos, documentType, pmDoc, 
     return null
   }
   // (1) decodedPos.index is the absolute position starting at the referred  prosemirror node.
-  const decodedPos = Y.createAbsolutePositionFromRelativePosition(relPos, /** @type {Y.Doc} */ (documentType.doc), undefined, am)
+  const decodedPos = Y.createAbsolutePositionFromRelativePosition(relPos, /** @type {Y.Doc} */ (documentType.doc), undefined, am || Y.noAttributionsManager)
   if (decodedPos === null || (decodedPos.type !== documentType && !Y.isParentOf(documentType, decodedPos.type._item))) {
     return null
   }
@@ -94,32 +94,31 @@ export const relativePositionStore = (resolvedPos, type, am) => {
 
 /**
  * @callback CaptureMapping
+ * @param {Y.AbstractAttributionManager | null} [am] Attribution manager to use for the relative position
  * @param {boolean} [clear] If true, clears all previously stored positions and captures fresh values for the mapping
  * @returns {import('prosemirror-transform').Mappable}
  */
 
 /**
  * @callback RestoreMapping
- * @param {number} pos The position to restore
+ * @param {Y.Type} type Top level type that is bound to pView
+ * @param {import('prosemirror-model').Node} pmDoc Prosemirror document
+ * @param {Y.AbstractAttributionManager | null} [am] Attribution manager to use for the relative position
  * @returns {import('prosemirror-transform').Mappable}
  */
 
 /**
  * @param {Y.Type} type
- * @param {import('prosemirror-model').Node} pmDoc
- * @param {Y.AbstractAttributionManager} [am]
  * @returns {{captureMapping: CaptureMapping, restoreMapping: RestoreMapping}}
  */
-export const relativePositionStoreMapping = (type, pmDoc, am) => {
+export const relativePositionStoreMapping = (type) => {
   /**
    * @type {Map<number, Y.RelativePosition>}
    */
   const positionMapping = new Map()
 
   return {
-    // @TODO
-    // @ts-ignore
-    captureMapping: (clear = false) => {
+    captureMapping: (am, clear = false) => {
       if (clear) {
         positionMapping.clear()
       }

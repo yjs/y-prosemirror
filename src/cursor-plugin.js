@@ -4,10 +4,11 @@ import { Plugin } from 'prosemirror-state'
 import {
   absolutePositionToRelativePosition,
   relativePositionToAbsolutePosition
-} from '../sync/index.js'
+} from './positions.js'
 import { yCursorPluginKey, ySyncPluginKey } from './keys.js'
 
 import * as math from 'lib0/math'
+import { $syncPluginStateUpdate } from './sync-plugin.js'
 
 /**
  * @typedef {Object} User
@@ -178,13 +179,10 @@ export const yCursorPlugin = (
         )
       },
       apply (tr, prevState, _oldState, newState) {
-        /**
-         * @type {import('./sync/types.js').SyncPluginTransactionMeta | undefined}
-         */
-        const ySyncMeta = tr.getMeta(ySyncPluginKey)
+        const ySyncMeta = $syncPluginStateUpdate.nullable.expect(tr.getMeta(ySyncPluginKey) || null)
         const yCursorState = tr.getMeta(yCursorPluginKey)
         if (
-          (ySyncMeta?.type === 'remote-update') ||
+          (ySyncMeta) ||
           (yCursorState && yCursorState.awarenessUpdated)
         ) {
           return createDecorations(
@@ -207,7 +205,7 @@ export const yCursorPlugin = (
     view: (view) => {
       const awarenessListener = () => {
         // @ts-ignore
-        if (view.docView) { // TODO why is this using docView?
+        if (view.docView) { // TODO why is this using docView? Ask Kevin about this.
           view.state.tr.setMeta(yCursorPluginKey, { awarenessUpdated: true })
         }
       }

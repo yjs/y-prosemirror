@@ -28,7 +28,8 @@ export const $syncPluginState = s.$object({
 export const $syncPluginStateUpdate = s.$object({
   ytype: Y.$ytypeAny.nullable.optional,
   attributionManager: Y.$attributionManager.nullable.optional,
-  attributionMapper: /** @type {s.Schema<AttributionMapper>} */ (s.$function).nullable.optional
+  attributionMapper: /** @type {s.Schema<AttributionMapper>} */ (s.$function).nullable.optional,
+  change: /** @type {s.Schema<Y.YEvent<any>>} */ (s.$any).nullable.optional
 })
 const $maybeSyncPluginStateUpdate = $syncPluginStateUpdate.nullable
 
@@ -68,6 +69,12 @@ export function syncPlugin (opts = {}) {
           ).done()
           const ptr = deltaToPSteps(view.state.tr, d)
           ptr.setMeta('addToHistory', false)
+          ptr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
+            change,
+            attributionManager,
+            attributionMapper,
+            ytype
+          }))
           view.dispatch(ptr)
         })
       })
