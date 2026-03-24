@@ -6,13 +6,13 @@ import * as s from 'lib0/schema'
  *
  * @param {import('prosemirror-model').ResolvedPos} resolvedPos
  * @param {Y.Type} type
- * @param {Y.AbstractAttributionManager} [am]
+ * @param {Y.AbstractAttributionManager | null} [am]
  * @return {Y.RelativePosition} relative position
  */
-export const absolutePositionToRelativePosition = (resolvedPos, type, am = Y.noAttributionsManager) => {
+export const absolutePositionToRelativePosition = (resolvedPos, type, am) => {
   if (resolvedPos.pos === 0) {
     // if the type is later populated, we want to retain the 0 position (hence assoc=-1)
-    return Y.createRelativePositionFromTypeIndex(type, 0, type.length === 0 ? -1 : 0, am)
+    return Y.createRelativePositionFromTypeIndex(type, 0, type.length === 0 ? -1 : 0, am || Y.noAttributionsManager)
   }
   const depth = resolvedPos.depth
   // Navigate through the Y.js structure using the path from ResolvedPos
@@ -28,7 +28,7 @@ export const absolutePositionToRelativePosition = (resolvedPos, type, am = Y.noA
 
   return Y.createRelativePositionFromTypeIndex(currentYType, offset,
     // If we are at the end of a type, then we want to be associated to the end of the type
-    offset > 0 && offset === currentYType.length ? -1 : 0, am)
+    offset > 0 && offset === currentYType.length ? -1 : 0, am || Y.noAttributionsManager)
 }
 
 /**
@@ -36,12 +36,16 @@ export const absolutePositionToRelativePosition = (resolvedPos, type, am = Y.noA
  * @param {Y.RelativePosition} relPos Encoded Yjs based relative position
  * @param {Y.Type} documentType Top level type that is bound to pView
  * @param {import('prosemirror-model').Node} pmDoc
- * @param {Y.AbstractAttributionManager} [am]
+ * @param {Y.AbstractAttributionManager | null} [am]
  * @return {null|number} Prosemirror based absolute position
  */
-export const relativePositionToAbsolutePosition = (relPos, documentType, pmDoc, am = Y.noAttributionsManager) => {
+export const relativePositionToAbsolutePosition = (relPos, documentType, pmDoc, am) => {
+  const doc = documentType.doc
+  if (!doc) {
+    return null
+  }
   // (1) decodedPos.index is the absolute position starting at the referred  prosemirror node.
-  const decodedPos = Y.createAbsolutePositionFromRelativePosition(relPos, /** @type {Y.Doc} */ (documentType.doc), undefined, am)
+  const decodedPos = Y.createAbsolutePositionFromRelativePosition(relPos, /** @type {Y.Doc} */ (documentType.doc), undefined, am || Y.noAttributionsManager)
   if (decodedPos === null || (decodedPos.type !== documentType && !Y.isParentOf(documentType, decodedPos.type._item))) {
     return null
   }
@@ -75,32 +79,46 @@ export const relativePositionToAbsolutePosition = (relPos, documentType, pmDoc, 
  * @param {import('prosemirror-model').ResolvedPos} resolvedPos Absolute position in the Prosemirror document
  * @param {Y.Type} type Top level type that is bound to pView
  * @param {Y.AbstractAttributionManager} [am] Attribution manager to use for the relative position
- * @returns {(doc: import('prosemirror-model').Node, documentType?: Y.Type, attributionManager?: Y.AbstractAttributionManager) => number|null}
+ * @returns {(doc: import('prosemirror-model').Node, documentType?: Y.Type, attributionManager?: Y.AbstractAttributionManager) => number}
  */
 export const relativePositionStore = (resolvedPos, type, am) => {
   const relPos = absolutePositionToRelativePosition(resolvedPos, type, am)
   return (doc, documentType = type, attributionManager) => {
-    return relativePositionToAbsolutePosition(relPos, documentType, doc, attributionManager)
+    const absPos = relativePositionToAbsolutePosition(relPos, documentType, doc, attributionManager)
+    if (absPos === null) {
+      throw new Error('Failed to resolve absolute position')
+    }
+    return absPos
   }
 }
 
 /**
- *
- * @param {Y.Type} type
- * @param {import('prosemirror-model').Node} pmDoc
- * @param {Y.AbstractAttributionManager} [am]
- * @returns {{captureMapping: import('prosemirror-transform').Mappable, restoreMapping: (type: Y.Type, pmDoc: import('prosemirror-model').Node, am?: Y.AbstractAttributionManager) => import('prosemirror-transform').Mappable}}
+ * @callback CaptureMapping
+ * @param {Y.AbstractAttributionManager | null} [am] Attribution manager to use for the relative position
+ * @param {boolean} [clear] If true, clears all previously stored positions and captures fresh values for the mapping
+ * @returns {import('prosemirror-transform').Mappable}
  */
-export const relativePositionStoreMapping = (type, pmDoc, am) => {
+
+/**
+ * @callback RestoreMapping
+ * @param {Y.Type} type Top level type that is bound to pView
+ * @param {import('prosemirror-model').Node} pmDoc Prosemirror document
+ * @param {Y.AbstractAttributionManager | null} [am] Attribution manager to use for the relative position
+ * @returns {import('prosemirror-transform').Mappable}
+ */
+
+/**
+ * @param {Y.Type} type
+ * @returns {{captureMapping: CaptureMapping, restoreMapping: RestoreMapping}}
+ */
+export const relativePositionStoreMapping = (type) => {
   /**
    * @type {Map<number, Y.RelativePosition>}
    */
   const positionMapping = new Map()
 
   return {
-    // @TODO
-    // @ts-ignore
-    captureMapping: (clear = false) => {
+    captureMapping: (am, clear = false) => {
       if (clear) {
         positionMapping.clear()
       }
@@ -133,7 +151,11 @@ export const relativePositionStoreMapping = (type, pmDoc, am) => {
           if (!relPos) {
             throw new Error('Relative position not set')
           }
-          return s.$number.cast(relativePositionToAbsolutePosition(relPos, type, pmDoc, am))
+          const absPos = relativePositionToAbsolutePosition(relPos, type, pmDoc, am)
+          if (absPos === null) {
+            throw new Error('Failed to resolve absolute position')
+          }
+          return absPos
         },
         mapResult (originalPos) {
           const mappedPos = this.map(originalPos)

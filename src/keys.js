@@ -1,7 +1,7 @@
 import { PluginKey } from 'prosemirror-state' // eslint-disable-line
 
 /**
- * The unique prosemirror plugin key for {@link import('./sync').syncPlugin}
+ * The unique prosemirror plugin key for {@link import('./sync-plugin.js').syncPlugin}
  *
  * @public
  * @type {PluginKey<SyncPluginState>}
@@ -16,10 +16,11 @@ export const ySyncPluginKey = new PluginKey('y-sync')
 //  */
 // export const yUndoPluginKey = new PluginKey('y-undo')
 //
-// /**
-//  * The unique prosemirror plugin key for {@link import('./cursor').cursorPlugin}
-//  *
-//  * @public
-//  * @type {PluginKey<import('./cursor').CursorPluginState>}
-//  */
-// export const yCursorPluginKey = new PluginKey('yjs-cursor')
+
+/**
+ * The unique prosemirror plugin key for {@link import('./cursor-plugin.js').cursorPlugin}
+ *
+ * @public
+ * @type {PluginKey<import('prosemirror-view').DecorationSet>}
+ */
+export const yCursorPluginKey = new PluginKey('y-cursor')
