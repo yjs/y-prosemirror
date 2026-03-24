@@ -2,10 +2,7 @@
   "name": "@y/prosemirror",
   "version": "2.0.0-2",
   "description": "Prosemirror bindings for Yjs",
-  "main": "./dist/y-prosemirror.cjs",
-  "module": "./src/y-prosemirror.js",
   "type": "module",
-  "types": "./dist/src/y-prosemirror.d.ts",
   "sideEffects": false,
   "funding": {
     "type": "GitHub Sponsors ❤",
@@ -15,6 +12,7 @@
     "clean": "rm -rf dist",
     "dist": "npm run clean && rollup -c && (tsc --skipLibCheck || true)",
     "test": "node ./tests/index.node.js",
+    "test:debug": "node --inspect-brk ./tests/index.node.js",
     "lint": "standard && tsc --skipLibCheck",
     "watch": "rollup -wc",
     "debug": "concurrently '0serve -o test.html' 'npm run watch'",
@@ -31,7 +29,8 @@
   "files": [
     "dist/*",
     "!dist/test.*",
-    "src/*"
+    "src/*",
+    "./global.d.ts"
   ],
   "repository": {
     "type": "git",
@@ -54,11 +53,11 @@
   },
   "homepage": "https://github.com/yjs/y-prosemirror#readme",
   "dependencies": {
-    "lib0": "^1.0.0-rc.6"
+    "lib0": "^1.0.0-rc.7"
   },
   "peerDependencies": {
     "@y/protocols": "^1.0.6-rc.1",
-    "@y/y": "^14.0.0-rc.1",
+    "@y/y": "^14.0.0-rc.3",
     "prosemirror-model": "^1.7.1",
     "prosemirror-state": "^1.2.3",
     "prosemirror-view": "^1.9.10"
@@ -68,7 +67,6 @@
     "@rollup/plugin-node-resolve": "^16.0.3",
     "@y/websocket": "^4.0.0-rc.1",
     "@y/protocols": "^1.0.6-rc.1",
-    "@y/y": "^14.0.0-rc.1",
     "concurrently": "^4.1.0",
     "http-server": "^0.12.3",
     "jsdom": "^15.1.1",
