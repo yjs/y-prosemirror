@@ -25,7 +25,7 @@ const createProsemirrorView = async (ytype, attributionManager = Y.noAttribution
       plugins: [YPM.syncPlugin()]
     })
   })
-  YPM.configure(view.state, view.dispatch, { ytype, attributionManager })
+  YPM.configureYProsemirror({ ytype, attributionManager })(view.state, view.dispatch)
   await promise.wait(1)
   return view
 }

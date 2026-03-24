@@ -3,7 +3,7 @@ import { BlockNoteView } from '@blocknote/mantine'
 import '@blocknote/mantine/style.css'
 import * as Y from '@y/y'
 import { WebsocketProvider } from '@y/websocket'
-import { syncPlugin, configure } from '@y/prosemirror'
+import { syncPlugin, configureYProsemirror } from '@y/prosemirror'
 import { Extension } from '@tiptap/core'
 import { useEffect } from 'react'
 
@@ -28,7 +28,7 @@ export default function App () {
   useEffect(() => {
     const view = editor._tiptapEditor?.view
     if (view) {
-      configure(view.state, view.dispatch, { ytype: fragment })
+      configureYProsemirror({ ytype: fragment })(view.state, view.dispatch)
     }
   }, [editor])
 

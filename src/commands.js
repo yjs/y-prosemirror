@@ -28,14 +28,12 @@ export function pauseSync (state, dispatch) {
  * - render attributions
  * - pause sync (by setting ytype=null)
  *
- * @param {import('prosemirror-state').EditorState} state
- * @param {CommandDispatch?} dispatch
  * @param {object} [opts]
  * @param {YType?} [opts.ytype] Sync different ytype. Set to null to pause sync
  * @param {AttributionManager?} [opts.attributionManager] Optional attribution manager to switch to
- * @returns {boolean}
+ * @returns {(state:import('prosemirror-state').EditorState, dispatch?: CommandDispatch | null ) => boolean}
  */
-export function configure (state, dispatch, opts = {}) {
+export const configureYProsemirror = (opts = {}) => (state, dispatch) => {
   const pluginState = ySyncPluginKey.getState(state)
   const ytype = opts.ytype
   const attributionManager = opts.attributionManager
