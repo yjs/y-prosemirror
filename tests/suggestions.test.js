@@ -92,15 +92,11 @@ function setupTwoWaySync(doc1, doc2) {
   Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1));
   Y.applyUpdate(doc1, Y.encodeStateAsUpdate(doc2));
   // Live sync
-  doc1.on("update", (update, origin) => {
-    if (origin !== "remoste") {
-      Y.applyUpdate(doc2, update, "remote");
-    }
+  doc1.on("update", (update) => {
+    Y.applyUpdate(doc2, update);
   });
-  doc2.on("update", (update, origin) => {
-    if (origin !== "remoste") {
-      Y.applyUpdate(doc1, update, "remote");
-    }
+  doc2.on("update", (update) => {
+    Y.applyUpdate(doc1, update);
   });
 }
 
