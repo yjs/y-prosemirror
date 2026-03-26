@@ -5,5 +5,8 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     dedupe: ['prosemirror-state', 'prosemirror-view', 'prosemirror-model']
+  },
+  build: {
+    sourcemap: true
   }
 })

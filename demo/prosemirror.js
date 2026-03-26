@@ -1,7 +1,7 @@
 /* eslint-env browser */
 
 import * as Y from '@y/y'
-import { syncPlugin, ySyncPluginKey } from '../src/index.js'
+import { syncPlugin, ySyncPluginKey, configureYProsemirror } from '../src/index.js'
 import { EditorState } from 'prosemirror-state'
 import { schema } from './schema.js'
 import { exampleSetup } from 'prosemirror-example-setup'
@@ -74,7 +74,18 @@ elemSelectSuggestionMode.addEventListener('change', () => {
     })
   }
 
-  /** @type {any} */ (pluginState).setSuggestionMode(mode)
+  if (mode === 'off') { // normal mode
+    configureYProsemirror({ 
+      ytype: ydoc.get(),
+      attributionManager: null
+    })(currentView.state, currentView.dispatch)
+  } else { // suggestion mode - render suggestion doc with attributions
+    debugger
+    configureYProsemirror({ 
+      ytype: suggestionDoc.get(),
+      attributionManager: am 
+    })(currentView.state, currentView.dispatch)
+  }
   previousMode = mode
   updateSuggestionButtons()
 })
@@ -365,10 +376,10 @@ elemToggleConnect.checked && providerYdocSuggestions.connectBc()
 const am = /** @type {any} */ (Y).createAttributionManagerFromDiff(ydoc, suggestionDoc, { attrs: [Y.createContentAttribute('insert', ['nickthesick'])] })
 
 suggestionDoc.on('update', () => {
-  console.log('suggestionDoc updated', /** @type {any} */ (ydoc).getXmlFragment('prosemirror-s').toString())
+  console.log('suggestionDoc updated', ydoc.get().toString())
 })
 ydoc.on('update', () => {
-  console.log('ydoc updated', /** @type {any} */ (ydoc).getXmlFragment('prosemirror-s').toString())
+  console.log('ydoc updated', ydoc.get().toString())
 })
 /**
  * @type {EditorView?}
@@ -376,7 +387,7 @@ ydoc.on('update', () => {
 let currentView = null
 
 const initEditor = () => {
-  const ypm = /** @type {any} */ (ydoc).getXmlFragment('prosemirror-s')
+  const ypm = ydoc.get()
   currentView?.destroy()
   snapshots.length = 0 // Clear snapshots when reinitializing
   const ypmContainer = document.querySelector('#ypm-container')
@@ -385,24 +396,19 @@ const initEditor = () => {
   const editor = document.createElement('div')
   editor.setAttribute('class', 'yeditor')
   ypmContainer.insertBefore(editor, null)
-
   const state = EditorState.create({
     schema,
-    plugins: /** @type {any[]} */ ([]).concat(exampleSetup({ schema, history: false }), /** @type {any} */ (syncPlugin)(ypm, {
-      awareness: providerYdoc.awareness,
-      suggestionDoc,
-      attributionManager: am,
+    plugins: /** @type {any[]} */ ([]).concat(exampleSetup({ schema, history: false }), syncPlugin({
       mapAttributionToMark: (/** @type {any} */ format, /** @type {any} */ attribution) => {
         console.log('format', format, attribution)
         return object.assign({}, format, {
           ychange: attribution.delete
-            ? { type: 'removed', user: attribution.delete?.[0] }
-            : { type: 'added', user: attribution.insert?.[0] }
+            ? { type: 'removed', user: attribution.delete?.[0] || 'anon' }
+            : { type: 'added', user: attribution.insert?.[0] || 'anon' }
         })
       }
     }))
   })
-
   // Track last mode to detect changes
   /** @type {string | null} */
   let lastMode = null
@@ -430,6 +436,11 @@ const initEditor = () => {
       }
     }
   })
+  configureYProsemirror({ 
+    ytype: ypm,
+    attributionManager: null
+  })(state, currentView.dispatch)
+
 
   // Update snapshot UI
   updateSnapshotUI()

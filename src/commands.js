@@ -47,13 +47,10 @@ export const configureYProsemirror = (opts = {}) => (state, dispatch) => {
       /**
        * @type {ProsemirrorDelta}
        */
-      const ycontent = ytype.toDeltaDeep(attributionManager || Y.noAttributionsManager)
+      const ycontent = deltaAttributionToFormat(ytype.toDeltaDeep(attributionManager || Y.noAttributionsManager), pluginState.attributionMapper)
       const pcontent = nodeToDelta(tr.doc)
       const diff = d.diff(pcontent.done(), ycontent.done())
-      deltaToPSteps(tr, deltaAttributionToFormat(
-        diff,
-        pluginState.attributionMapper
-      ))
+      deltaToPSteps(tr, diff)
     }
     dispatch(tr)
   }
