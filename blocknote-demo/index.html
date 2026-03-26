@@ -4,6 +4,27 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BlockNote + @y/prosemirror Demo</title>
+    <style>
+      div[data-type="modification"] {
+  display: inline;
+}
+
+ins,
+[data-type="modification"] {
+  background: rgba(24, 122, 220, 0.1);
+  border-bottom: 2px solid rgba(24, 122, 220, 0.1);
+  color: rgb(20, 95, 170);
+  text-decoration: none;
+}
+
+del,
+[DISABLED-data-node-deletion] {
+  color: rgba(100, 90, 75, 0.3);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+    </style>
   </head>
   <body>
     <div id="root"></div>
