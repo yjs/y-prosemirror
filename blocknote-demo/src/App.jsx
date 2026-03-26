@@ -2,13 +2,14 @@ import { useCreateBlockNote } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/mantine'
 import '@blocknote/mantine/style.css'
 import * as Y from '@y/y'
-// import { WebsocketProvider } from '@y/websocket'
+import { WebsocketProvider } from '@y/websocket'
 import { syncPlugin, configureYProsemirror } from '@y/prosemirror'
 import { Extension } from '@tiptap/core'
 import { useEffect } from 'react'
 
 const doc = new Y.Doc()
-// const provider = new WebsocketProvider('wss://demos.yjs.dev/ws', 'blocknote-y-prosemirror-demo3', doc)
+// eslint-disable-next-line no-unused-vars
+const provider = new WebsocketProvider('wss://demos.yjs.dev/ws', 'blocknote-y-prosemirror-demo3', doc)
 const fragment = doc.get('blocknote')
 
 const YSyncExtension = Extension.create({
