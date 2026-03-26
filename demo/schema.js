@@ -8,6 +8,8 @@ const brDOM = ['br']
 const colorAddedFallback = '#6eeb83'
 const colorRemovedFallback = '#ec0600a1'
 
+// TODO: we should update this file to remove the ychange attrs (as we're using marks now)
+
 /**
  * @param {any} ychange
  * @returns {string}
@@ -86,6 +88,8 @@ export const nodes = {
   // :: NodeSpec A blockquote (`<blockquote>`) wrapping one or more blocks.
   blockquote: {
     attrs: { ychange: { default: null } },
+    // needs to explicitly set ychange to allow ychange node marks on children
+    marks: 'ychange',
     content: 'block+',
     group: 'block',
     defining: true,
