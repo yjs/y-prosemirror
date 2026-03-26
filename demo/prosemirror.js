@@ -75,15 +75,14 @@ elemSelectSuggestionMode.addEventListener('change', () => {
   }
 
   if (mode === 'off') { // normal mode
-    configureYProsemirror({ 
+    configureYProsemirror({
       ytype: ydoc.get(),
       attributionManager: null
     })(currentView.state, currentView.dispatch)
   } else { // suggestion mode - render suggestion doc with attributions
-    debugger
-    configureYProsemirror({ 
+    configureYProsemirror({
       ytype: suggestionDoc.get(),
-      attributionManager: am 
+      attributionManager: am
     })(currentView.state, currentView.dispatch)
   }
   previousMode = mode
@@ -436,11 +435,10 @@ const initEditor = () => {
       }
     }
   })
-  configureYProsemirror({ 
+  configureYProsemirror({
     ytype: ypm,
     attributionManager: null
   })(state, currentView.dispatch)
-
 
   // Update snapshot UI
   updateSnapshotUI()
