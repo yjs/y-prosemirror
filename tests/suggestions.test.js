@@ -92,11 +92,15 @@ function setupTwoWaySync(doc1, doc2) {
   Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1));
   Y.applyUpdate(doc1, Y.encodeStateAsUpdate(doc2));
   // Live sync
-  doc1.on("update", (update) => {
-    Y.applyUpdate(doc2, update);
+  doc1.on("update", (update, origin) => {
+    if (origin !== "remoste") {
+      Y.applyUpdate(doc2, update, "remote");
+    }
   });
-  doc2.on("update", (update) => {
-    Y.applyUpdate(doc1, update);
+  doc2.on("update", (update, origin) => {
+    if (origin !== "remoste") {
+      Y.applyUpdate(doc1, update, "remote");
+    }
   });
 }
 
@@ -148,7 +152,7 @@ async function createSuggestionSetup(opts = {}) {
   setupTwoWaySync(suggestionDoc, suggestionModeDoc);
 
   const viewA = await createPMView(doc.get("prosemirror"));
-  const viewSuggesting = await createPMView(
+  const viewSuggestion = await createPMView(
     suggestionDoc.get("prosemirror"),
     suggestionAM,
   );
@@ -175,7 +179,7 @@ async function createSuggestionSetup(opts = {}) {
     suggestionAM,
     suggestionModeAM,
     viewA,
-    viewSuggesting,
+    viewSuggestion,
     viewSuggestionMode,
   };
 }
@@ -193,7 +197,7 @@ const insertionMark = {
  * suggestion mode edits are isolated from base and show insertion marks in View Suggestions.
  */
 export const testSuggestionSyncAndMarks = async () => {
-  const { viewA, viewSuggesting, viewSuggestionMode } =
+  const { viewA, viewSuggestion, viewSuggestionMode } =
     await createSuggestionSetup({ baseContent: "hello" });
 
   const helloDoc = {
@@ -207,7 +211,7 @@ export const testSuggestionSyncAndMarks = async () => {
   // Base content appears everywhere without marks
   assertDocJSON(viewA.state.doc, helloDoc, "Client A has hello");
   assertDocJSON(
-    viewSuggesting.state.doc,
+    viewSuggestion.state.doc,
     helloDoc,
     "View Suggestions has hello, no marks",
   );
@@ -239,17 +243,17 @@ export const testSuggestionSyncAndMarks = async () => {
     ],
   };
   assertDocJSON(
-    viewSuggesting.state.doc,
+    viewSuggestion.state.doc,
     helloWorldDoc,
     "View Suggestions: ' world' has insertion mark",
   );
 
-  // TODO: "self" doc fails
-  // assertDocJSON(
-  //   viewSuggestionMode.state.doc,
-  //   helloWorldDoc,
-  //   "Suggestion Mode: ' world' has insertion mark",
-  // );
+  // TODO: "viewSuggestionMode" doc fails
+  assertDocJSON(
+    viewSuggestionMode.state.doc,
+    helloWorldDoc,
+    "Suggestion Mode: ' world' has insertion mark",
+  );
 };
 
 /**
@@ -257,7 +261,7 @@ export const testSuggestionSyncAndMarks = async () => {
  * Reproduces: "when adding 2 characters in right editor, left editor only shows marks on the second char"
  */
 export const testSequentialTypingMarks = async () => {
-  const { viewSuggesting, viewSuggestionMode } = await createSuggestionSetup({
+  const { viewSuggestion, viewSuggestionMode } = await createSuggestionSetup({
     baseContent: "hello",
   });
 
@@ -285,7 +289,7 @@ export const testSequentialTypingMarks = async () => {
 
   // BOTH 'a' and 'b' should have insertion marks
   assertDocJSON(
-    viewSuggesting.state.doc,
+    viewSuggestion.state.doc,
     abDoc,
     "View Suggestions: both 'a' and 'b' have insertion marks",
   );
@@ -303,7 +307,7 @@ export const testSequentialTypingMarks = async () => {
  * (Paragraph nodes themselves don't support marks in prosemirror-schema-basic.)
  */
 export const testBlockInsertionMarks = async () => {
-  const { viewA, viewSuggesting, viewSuggestionMode } =
+  const { viewA, viewSuggestion, viewSuggestionMode } =
     await createSuggestionSetup({ baseContent: "hello" });
 
   // Insert a new paragraph with text at the end of the document (before trailing empty paragraph)
@@ -346,7 +350,7 @@ export const testBlockInsertionMarks = async () => {
   };
 
   assertDocJSON(
-    viewSuggesting.state.doc,
+    viewSuggestion.state.doc,
     expectedDoc,
     "View Suggestions: new paragraph node and text have insertion marks",
   );
@@ -363,7 +367,7 @@ export const testBlockInsertionMarks = async () => {
  * should show insertion marks on the image.
  */
 export const testImageInsertionMarks = async () => {
-  const { viewA, viewSuggesting, viewSuggestionMode } =
+  const { viewA, viewSuggestion, viewSuggestionMode } =
     await createSuggestionSetup({ baseContent: "hello" });
 
   // Insert an image after "hello"
@@ -409,17 +413,17 @@ export const testImageInsertionMarks = async () => {
   };
 
   assertDocJSON(
-    viewSuggesting.state.doc,
+    viewSuggestion.state.doc,
     expectedDoc,
     "View Suggestions: image has insertion mark",
   );
 
-  // TODO: "self" doc fails
-  // assertDocJSON(
-  //   viewSuggestionMode.state.doc,
-  //   expectedDoc,
-  //   "Suggestion Mode: image has insertion mark",
-  // );
+  // TODO: "viewSuggestionMode" doc fails
+  assertDocJSON(
+    viewSuggestionMode.state.doc,
+    expectedDoc,
+    "Suggestion Mode: image has insertion mark",
+  );
 };
 
 // === PM Schema validation tests ===
