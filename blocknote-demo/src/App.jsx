@@ -8,6 +8,7 @@ import { Extension } from '@tiptap/core'
 import { useEffect } from 'react'
 
 const doc = new Y.Doc()
+// eslint-disable-next-line no-unused-vars
 const provider = new WebsocketProvider('wss://demos.yjs.dev/ws', 'blocknote-y-prosemirror-demo3', doc)
 const fragment = doc.get('blocknote')
 
