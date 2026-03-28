@@ -5,6 +5,7 @@ import jsdom from 'jsdom'
 
 // import * as prosemirror from './y-prosemirror.test.js'
 import * as delta from './delta.test.js'
+import * as suggestions from './suggestions.test.js'
 // import * as tr from './tr.test.js'
 
 import { runTests } from 'lib0/testing'
@@ -47,7 +48,8 @@ if (isBrowser) {
   log.createVConsole(document.body)
 }
 runTests({
-  delta
+  delta,
+  suggestions
   // prosemirror,
   // tr
 }).then(success => {
