@@ -1,7 +1,6 @@
 import * as YPM from '@y/prosemirror'
 import * as Y from '@y/y'
 import * as delta from 'lib0/delta'
-import * as promise from 'lib0/promise'
 import * as t from 'lib0/testing'
 import { Schema } from 'prosemirror-model'
 import * as basicSchema from 'prosemirror-schema-basic'
@@ -61,10 +60,7 @@ const schema = new Schema({
  * @param {Y.Type} ytype
  * @param {Y.AbstractAttributionManager} [attributionManager]
  */
-async function createPMView (
-  ytype,
-  attributionManager = Y.noAttributionsManager
-) {
+const createPMView = (ytype, attributionManager = Y.noAttributionsManager) => {
   const view = new EditorView(
     { mount: document.createElement('div') },
     {
@@ -78,7 +74,6 @@ async function createPMView (
     view.state,
     view.dispatch
   )
-  await promise.wait(1)
   return view
 }
 
@@ -87,7 +82,7 @@ async function createPMView (
  * @param {Y.Doc} doc1
  * @param {Y.Doc} doc2
  */
-function setupTwoWaySync (doc1, doc2) {
+const setupTwoWaySync = (doc1, doc2) => {
   // Initial state sync
   Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1))
   Y.applyUpdate(doc1, Y.encodeStateAsUpdate(doc2))
@@ -106,7 +101,7 @@ function setupTwoWaySync (doc1, doc2) {
  * @param {object} expected
  * @param {string} message
  */
-function assertDocJSON (doc, expected, message) {
+const assertDocJSON = (doc, expected, message) => {
   // PM creates mark attrs with Object.create(null) (null prototype), but t.compare
   // checks constructors and fails when comparing null-prototype vs regular objects.
   // JSON round-trip normalizes all objects to have Object prototype.
@@ -121,7 +116,7 @@ function assertDocJSON (doc, expected, message) {
  * @param {object} [opts]
  * @param {string} [opts.baseContent] - initial paragraph text content
  */
-async function createSuggestionSetup (opts = {}) {
+const createSuggestionSetup = (opts = {}) => {
   const { baseContent } = opts
 
   const doc = new Y.Doc()
@@ -147,12 +142,12 @@ async function createSuggestionSetup (opts = {}) {
   // Sync suggestion docs
   setupTwoWaySync(suggestionDoc, suggestionModeDoc)
 
-  const viewA = await createPMView(doc.get('prosemirror'))
-  const viewSuggestion = await createPMView(
+  const viewA = createPMView(doc.get('prosemirror'))
+  const viewSuggestion = createPMView(
     suggestionDoc.get('prosemirror'),
     suggestionAM
   )
-  const viewSuggestionMode = await createPMView(
+  const viewSuggestionMode = createPMView(
     suggestionModeDoc.get('prosemirror'),
     suggestionModeAM
   )
@@ -164,7 +159,6 @@ async function createSuggestionSetup (opts = {}) {
         .insert([delta.create('paragraph', {}, baseContent)])
         .done()
     )
-    await promise.wait(1)
   }
 
   return {
@@ -192,10 +186,8 @@ const insertionMark = {
  * Content sync + marks: base doc content flows to suggestion views without marks,
  * suggestion mode edits are isolated from base and show insertion marks in View Suggestions.
  */
-export const testSuggestionSyncAndMarks = async () => {
-  const { viewA, viewSuggestion, viewSuggestionMode } =
-    await createSuggestionSetup({ baseContent: 'hello' })
-
+export const testSuggestionSyncAndMarks = () => {
+  const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({ baseContent: 'hello' })
   const helloDoc = {
     type: 'doc',
     content: [
@@ -221,8 +213,6 @@ export const testSuggestionSyncAndMarks = async () => {
   viewSuggestionMode.dispatch(
     viewSuggestionMode.state.tr.insertText(' world', 6)
   )
-  await promise.wait(1)
-
   assertDocJSON(viewA.state.doc, helloDoc, 'Client A unchanged')
 
   const helloWorldDoc = {
@@ -256,18 +246,16 @@ export const testSuggestionSyncAndMarks = async () => {
  * Sequential typing: both characters should have marks in View Suggestions.
  * Reproduces: "when adding 2 characters in right editor, left editor only shows marks on the second char"
  */
-export const testSequentialTypingMarks = async () => {
-  const { viewSuggestion, viewSuggestionMode } = await createSuggestionSetup({
+export const testSequentialTypingMarks = () => {
+  const { viewSuggestion, viewSuggestionMode } = createSuggestionSetup({
     baseContent: 'hello'
   })
 
   // Type 'a' then 'b' as separate dispatches (like real typing)
   viewSuggestionMode.dispatch(viewSuggestionMode.state.tr.insertText('a', 6))
-  await promise.wait(1)
 
   // TODO: RangeError: Maximum call stack size exceeded
   viewSuggestionMode.dispatch(viewSuggestionMode.state.tr.insertText('b', 7))
-  await promise.wait(1)
 
   const abDoc = {
     type: 'doc',
@@ -302,10 +290,9 @@ export const testSequentialTypingMarks = async () => {
  * should show insertion marks on the new block's text content.
  * (Paragraph nodes themselves don't support marks in prosemirror-schema-basic.)
  */
-export const testBlockInsertionMarks = async () => {
-  const { viewA, viewSuggestion, viewSuggestionMode } =
-    await createSuggestionSetup({ baseContent: 'hello' })
-
+export const testBlockInsertionMarks = () => {
+  debugger
+  const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({ baseContent: 'hello' })
   // Insert a new paragraph with text at the end of the document (before trailing empty paragraph)
   const { tr } = viewSuggestionMode.state
   const insertPos = tr.doc.content.size - 2 // before the last empty paragraph's close
@@ -315,8 +302,6 @@ export const testBlockInsertionMarks = async () => {
       schema.nodes.paragraph.create(null, schema.text('new block'))
     )
   )
-  await promise.wait(1)
-
   const helloDoc = {
     type: 'doc',
     content: [
@@ -362,9 +347,8 @@ export const testBlockInsertionMarks = async () => {
  * Inline image insertion: inserting an image node in suggestion mode
  * should show insertion marks on the image.
  */
-export const testImageInsertionMarks = async () => {
-  const { viewA, viewSuggestion, viewSuggestionMode } =
-    await createSuggestionSetup({ baseContent: 'hello' })
+export const testImageInsertionMarks = () => {
+  const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({ baseContent: 'hello' })
 
   // Insert an image after "hello"
   viewSuggestionMode.dispatch(
@@ -373,8 +357,6 @@ export const testImageInsertionMarks = async () => {
       schema.nodes.image.create({ src: 'test.png', alt: 'test' })
     )
   )
-  await promise.wait(1)
-
   const helloDoc = {
     type: 'doc',
     content: [

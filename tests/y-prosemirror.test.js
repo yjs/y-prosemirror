@@ -441,7 +441,7 @@ export const testCursorPositionAfterUndoOnEndText = (_tc) => {
  *
  * @param {t.TestCase} _tc
  */
-export const testInitialCursorPosition = async (_tc) => {
+export const testInitialCursorPosition = (_tc) => {
   const ydoc = new Y.Doc()
   const yxml = ydoc.get('prosemirror', Y.XmlFragment)
   const p = new Y.XmlElement('paragraph')
@@ -450,19 +450,17 @@ export const testInitialCursorPosition = async (_tc) => {
   console.log('yxml', yxml.toString())
   const view = createNewProsemirrorView(ydoc)
   view.focus()
-  await promise.wait(10)
   console.log('anchor', view.state.selection.anchor)
   t.assert(view.state.selection.anchor === 1)
   t.assert(view.state.selection.head === 1)
 }
 
-export const testInitialCursorPosition2 = async (_tc) => {
+export const testInitialCursorPosition2 = (_tc) => {
   const ydoc = new Y.Doc()
   const yxml = ydoc.get('prosemirror', Y.XmlFragment)
   console.log('yxml', yxml.toString())
   const view = createNewProsemirrorView(ydoc)
   view.focus()
-  await promise.wait(10)
   const p = new Y.XmlElement('paragraph')
   p.insert(0, [new Y.XmlText('hello world!')])
   yxml.insert(0, [p])
@@ -471,7 +469,7 @@ export const testInitialCursorPosition2 = async (_tc) => {
   t.assert(view.state.selection.head === 1)
 }
 
-export const testVersioning = async (_tc) => {
+export const testVersioning = (_tc) => {
   const ydoc = new Y.Doc({ gc: false })
   const yxml = ydoc.get('prosemirror', Y.XmlFragment)
   const permanentUserData = new Y.PermanentUserData(ydoc)
@@ -491,7 +489,6 @@ export const testVersioning = async (_tc) => {
   view.dispatch(
     view.state.tr.setMeta(ySyncPluginKey, { snapshot: snapshot2, prevSnapshot: snapshot1, permanentUserData })
   )
-  await promise.wait(50)
   console.log('calculated diff via snapshots: ', view.state.doc.toJSON())
   // recreate the JSON, because ProseMirror messes with the constructors
   const viewstate1 = JSON.parse(JSON.stringify(view.state.doc.toJSON().content[0].content))
@@ -510,14 +507,12 @@ export const testVersioning = async (_tc) => {
   view.dispatch(
     view.state.tr.setMeta(ySyncPluginKey, { snapshot: snapshotDoc2, prevSnapshot: snapshotDoc1, permanentUserData })
   )
-  await promise.wait(50)
-
   const viewstate2 = JSON.parse(JSON.stringify(view.state.doc.toJSON().content[0].content))
   console.log('calculated diff via updates: ', JSON.stringify(viewstate2))
   t.compare(viewstate2, expectedState)
 }
 
-export const testVersioningWithGarbageCollection = async (_tc) => {
+export const testVersioningWithGarbageCollection = (_tc) => {
   const ydoc = new Y.Doc()
   const yxml = ydoc.get('prosemirror', Y.XmlFragment)
   const permanentUserData = new Y.PermanentUserData(ydoc)
@@ -534,7 +529,6 @@ export const testVersioningWithGarbageCollection = async (_tc) => {
   view.dispatch(
     view.state.tr.setMeta(ySyncPluginKey, { snapshot: snapshotDoc2, prevSnapshot: snapshotDoc1, permanentUserData })
   )
-  await promise.wait(50)
   console.log('calculated diff via snapshots: ', view.state.doc.toJSON())
   // recreate the JSON, because ProseMirror messes with the constructors
   const viewstate1 = JSON.parse(JSON.stringify(view.state.doc.toJSON().content[0].content))

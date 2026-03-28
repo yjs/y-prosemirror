@@ -18,7 +18,7 @@ const schema = new Schema({
  * @param {Y.Type} ytype
  * @param {Y.AbstractAttributionManager} attributionManager
  */
-const createProsemirrorView = async (ytype, attributionManager = Y.noAttributionsManager) => {
+const createProsemirrorView = (ytype, attributionManager = Y.noAttributionsManager) => {
   const view = new EditorView({ mount: document.createElement('div') }, {
     state: EditorState.create({
       schema,
@@ -26,7 +26,6 @@ const createProsemirrorView = async (ytype, attributionManager = Y.noAttribution
     })
   })
   YPM.configureYProsemirror({ ytype, attributionManager })(view.state, view.dispatch)
-  await promise.wait(1)
   return view
 }
 
@@ -58,7 +57,7 @@ const validate = pm => {
 /**
  * @param {Array<(opts:YPMTestConf)=>(delta.DeltaAny|import('prosemirror-state').Transaction|null)>} changes
  */
-const testHelper = async changes => {
+const testHelper = changes => {
   // sync two ydocs
   const ydoc = new Y.Doc()
   const ydoc2 = new Y.Doc()
@@ -72,8 +71,8 @@ const testHelper = async changes => {
   // never change this structure!
   // <heading>[1]Hello World![13]</heading>[14]<paragraph>[15]Lorem [21]ipsum..[28]</paragraph>[29]
   ytype.applyDelta(delta.create().insert([delta.create('heading', { level: 1 }, 'Hello World!'), delta.create('paragraph', {}, 'Lorem ipsum..')]).done())
-  const view = await createProsemirrorView(ytype)
-  const view2 = await createProsemirrorView(ydoc2.get('prosemirror'))
+  const view = createProsemirrorView(ytype)
+  const view2 = createProsemirrorView(ydoc2.get('prosemirror'))
 
   for (const change of changes) {
     const ytype = YPM.ySyncPluginKey.getState(view.state)?.ytype || null
@@ -93,7 +92,6 @@ const testHelper = async changes => {
     } else if (tr != null) {
       view.dispatch(tr)
     }
-    await promise.wait(1)
     validate(view)
     validate(view2)
     t.compare(ytype.toDeltaDeep(), ytype2.toDeltaDeep())
@@ -101,50 +99,50 @@ const testHelper = async changes => {
   console.log('final pm document:', JSON.stringify(view.state.doc.toJSON(), null, 2))
 }
 
-export const testBase = async () => {
-  await testHelper([])
+export const testBase = () => {
+  testHelper([])
 }
 
-export const testDeleteRangeOverPartialNodes = async () => {
-  await testHelper([
+export const testDeleteRangeOverPartialNodes = () => {
+  testHelper([
     ({ tr }) => tr.insert(0, schema.node('paragraph', undefined, schema.text('789'))).insert(0, schema.node('paragraph', undefined, schema.text('456'))).insert(0, schema.node('paragraph', undefined, schema.text('123'))),
     ({ tr }) => tr.delete(2, 12)
   ])
 }
 
-export const testDeleteRangeOverPartialNodes2 = async () => {
-  await testHelper([
+export const testDeleteRangeOverPartialNodes2 = () => {
+  testHelper([
     () => delta.create(null, {}, [delta.create('paragraph', {}, '123'), delta.create('paragraph', {}, '456'), delta.create('paragraph', {}, '789')]),
     ({ tr }) => tr.delete(2, 12)
   ])
 }
 
-export const testFormatting = async () => {
-  await testHelper([
+export const testFormatting = () => {
+  testHelper([
     ({ tr }) => tr.addMark(7, 12, schema.mark('strong'))
   ])
 }
 
-export const testBaseInsert = async () => {
-  await testHelper([
+export const testBaseInsert = () => {
+  testHelper([
     ({ tr }) => tr.insert(16, schema.text('XXX'))
   ])
 }
 
-export const testReplaceAround = async () => {
-  await testHelper([
+export const testReplaceAround = () => {
+  testHelper([
     ({ tr }) => tr.step(new ReplaceAroundStep(14, 29, 14, 29, new Slice(Fragment.from(schema.nodes.blockquote.create()), 0, 0), 1, true))
   ])
 }
 
-export const testAttrStep = async () => {
-  await testHelper([
+export const testAttrStep = () => {
+  testHelper([
     ({ tr }) => tr.setNodeAttribute(0, 'level', 2)
   ])
 }
 
-export const testMultipleSimpleSteps = async () => {
-  await testHelper([
+export const testMultipleSimpleSteps = () => {
+  testHelper([
     ({ tr }) => {
       tr.insertText('abc', 15)
 
@@ -154,8 +152,8 @@ export const testMultipleSimpleSteps = async () => {
   ])
 }
 
-export const testWrapping = async () => {
-  await testHelper([
+export const testWrapping = () => {
+  testHelper([
     ({ tr }) => {
       const blockRange = tr.doc.resolve(15).blockRange(tr.doc.resolve(28))
       t.assert(blockRange)
@@ -167,8 +165,8 @@ export const testWrapping = async () => {
   ])
 }
 
-export const testMultipleComplexSteps = async () => {
-  await testHelper([
+export const testMultipleComplexSteps = () => {
+  testHelper([
     ({ tr }) => {
       tr.insertText('abc', 16)
 
