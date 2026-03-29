@@ -5,12 +5,16 @@ import {
   defaultMapAttributionToMark,
   deltaAttributionToFormat,
   deltaToPSteps,
-  nodeToDelta
+  nodeToDelta,
+  formattingAttributesToMarks
 } from './sync-utils.js'
+import { ReplaceStep, AddMarkStep, RemoveMarkStep } from 'prosemirror-transform'
 import * as d from 'lib0/delta'
 import { ySyncPluginKey } from './keys.js'
 import * as s from 'lib0/schema'
 import * as object from 'lib0/object'
+import * as list from 'lib0/list'
+import * as error from 'lib0/error'
 
 /**
  * The y-prosemirror binding is a bi-directional synchronization with the provided Y.Type and the EditorView
@@ -32,6 +36,40 @@ export const $syncPluginStateUpdate = s.$object({
   change: /** @type {s.Schema<Y.YEvent<any>>} */ (s.$any).nullable.optional
 })
 const $maybeSyncPluginStateUpdate = $syncPluginStateUpdate.nullable
+
+// @todo compute this in the plugin state
+const attributionMarkNames = [
+  'y-attribution-insertion',
+  'y-attribution-deletion',
+  'y-attribution-format'
+]
+const attributionDeleteMark = 'y-attribution-deletion'
+
+/**
+ * only safe to use on diffed deltas
+ *
+ * 1. strip formats
+ * 2. transform delete-attribution to delete op
+ * @param {d.DeltaAny} delta
+ */
+const stripAttributionFormattingFromDelta = delta => {
+  for (const child of delta.children) {
+    if (d.$insertOp.check(child) || d.$textOp.check(child)) {
+      if (child.format?.[attributionDeleteMark] != null) {
+        list.replace(delta.children, child, new d.DeleteOp(child.length, null))
+        continue
+      }
+    }
+    if (!d.$deleteOp.check(child) && child.format != null) {
+      attributionMarkNames.forEach(n => {
+        delete child.format?.[n]
+      })
+    }
+    if (d.$modifyOp.check(child)) {
+      stripAttributionFormattingFromDelta(child.value)
+    }
+  }
+}
 
 /**
  * This Prosemirror {@link Plugin} is responsible for synchronizing the prosemirror {@link EditorState} with a {@link Y.XmlFragment}
@@ -56,7 +94,6 @@ export function syncPlugin (opts = {}) {
   function subscribeToYType ({ view, ytype, attributionManager, attributionMapper }) {
     // Unsubscribe from previous subscription if it exists
     unsubscribeFn?.()
-    unsubscribeFn = null
     if (ytype != null) {
       const yTypeCb = ytype.observeDeep(change => {
         if (!view || view.isDestroyed) {
@@ -102,6 +139,101 @@ export function syncPlugin (opts = {}) {
         return object.assign({}, prevPluginState, stateUpdate, stateUpdate.attributionManager == null ? { attributionManager: Y.noAttributionsManager } : {})
       }
     },
+    appendTransaction (trs, _oldState, newState) {
+      const pluginState = $syncPluginState.cast(ySyncPluginKey.getState(newState))
+      if (
+        pluginState.ytype == null ||
+          pluginState.attributionManager == null ||
+          pluginState.attributionManager === Y.noAttributionsManager ||
+          trs.some(tr => tr.getMeta('y-sync-transaction') ||
+          tr.getMeta('y-sync-append'))
+      ) {
+        return null
+      }
+      const schema = newState.schema
+      const attributionMapper = pluginState.attributionMapper
+      const deletionFormat = attributionMapper(null, { delete: [] })
+      const insertionFormat = attributionMapper(null, { insert: [] })
+      const formatFormat = attributionMapper(null, { format: {} })
+      if (formatFormat == null || insertionFormat == null || deletionFormat == null) error.unexpectedCase()
+      const deletionMarks = formattingAttributesToMarks(deletionFormat, schema)
+      const insertionMarks = formattingAttributesToMarks(insertionFormat, schema)
+      const formatMarks = formattingAttributesToMarks(formatFormat, schema)
+      const tr = newState.tr
+      let changed = false
+
+      /**
+       * Map a position from a step through all subsequent steps, subsequent
+       * transactions, and the appended transaction's own steps.
+       * @param {number} pos
+       * @param {Transaction} transaction
+       * @param {number} stepIndex
+       * @return {number}
+       */
+      const mapPos = (pos, transaction, stepIndex) => {
+        for (let j = stepIndex + 1; j < transaction.steps.length; j++) {
+          pos = transaction.steps[j].getMap().map(pos)
+        }
+        const trIndex = trs.indexOf(transaction)
+        for (let j = trIndex + 1; j < trs.length; j++) {
+          pos = trs[j].mapping.map(pos)
+        }
+        pos = tr.mapping.map(pos)
+        return pos
+      }
+
+      for (const transaction of trs) {
+        for (let i = 0; i < transaction.steps.length; i++) {
+          const step = transaction.steps[i]
+          if (step instanceof ReplaceStep) {
+            const deleted = transaction.docs[i].slice(step.from, step.to)
+            const insertedSize = step.slice.content.size
+            // Map position before any modifications to our tr
+            const pos = mapPos(step.from, transaction, i)
+            // Handle deletions: re-insert deleted content with deletion marks
+            if (deleted.content.size > 0) {
+              tr.insert(pos, deleted.content)
+              for (const mark of deletionMarks) {
+                tr.addMark(pos, pos + deleted.content.size, mark)
+              }
+              changed = true
+            }
+            // Handle insertions: add insertion marks to inserted content
+            // After re-inserting deleted content, inserted content is shifted by deleted size
+            if (insertedSize > 0) {
+              const insertPos = pos + deleted.content.size
+              for (const mark of insertionMarks) {
+                tr.addMark(insertPos, insertPos + insertedSize, mark)
+              }
+              // Also add marks to nodes themselves (addMark only affects inline content)
+              tr.doc.nodesBetween(insertPos, insertPos + insertedSize, (node, nodePos) => {
+                if (node.isBlock && insertPos <= nodePos && nodePos <= insertPos + insertedSize) {
+                  for (const mark of insertionMarks) {
+                    if (node.type.allowsMarkType(mark.type)) {
+                      tr.addNodeMark(nodePos, mark)
+                    }
+                  }
+                }
+              })
+              changed = true
+            }
+          } else if (step instanceof AddMarkStep || step instanceof RemoveMarkStep) {
+            // Handle mark changes: add format marks to the affected range
+            const from = mapPos(step.from, transaction, i)
+            const to = mapPos(step.to, transaction, i)
+            for (const mark of formatMarks) {
+              tr.addMark(from, to, mark)
+            }
+            changed = true
+          }
+        }
+      }
+
+      if (!changed) return null
+      tr.setMeta('y-sync-append', true)
+      tr.setMeta('addToHistory', false)
+      return tr
+    },
     view () {
       return {
         update (view, prevState) {
@@ -131,6 +263,7 @@ export function syncPlugin (opts = {}) {
               const ycontent = ytype.toDeltaDeep(attributionManager || Y.noAttributionsManager)
               const pcontent = nodeToDelta(view.state.doc)
               const diff = d.diff(ycontent.done(), pcontent.done())
+              if (attributionManager != null || attributionManager === Y.noAttributionsManager) { stripAttributionFormattingFromDelta(diff) }
               ytype.applyDelta(diff, attributionManager || Y.noAttributionsManager)
             })
           }
@@ -142,3 +275,11 @@ export function syncPlugin (opts = {}) {
     }
   })
 }
+
+// if (attributionManager != null) {
+//   // sync "attributed content" to prosemirror editor
+//   const ycontent = deltaAttributionToFormat(ytype.toDeltaDeep(attributionManager), pluginState.attributionMapper)
+//   const pcontent = nodeToDelta(tr.doc)
+//   const diff = d.diff(pcontent.done(), ycontent.done())
+//   deltaToPSteps(tr, diff)
+// }

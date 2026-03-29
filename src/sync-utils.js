@@ -106,7 +106,7 @@ const marksToFormattingAttributes = marks => {
  * @param {{[key:string]:any}|null} formatting
  * @param {import('prosemirror-model').Schema} schema
  */
-const formattingAttributesToMarks = (formatting, schema) => object.map(formatting ?? {}, (v, k) => schema.mark(k, v))
+export const formattingAttributesToMarks = (formatting, schema) => object.map(formatting ?? {}, (v, k) => schema.mark(k, v))
 
 /**
  * @param {Array<Node>} ns
