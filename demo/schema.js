@@ -5,54 +5,7 @@ import { Schema } from 'prosemirror-model'
  */
 const brDOM = ['br']
 
-const colorAddedFallback = '#6eeb83'
-const colorRemovedFallback = '#ec0600a1'
-
-// TODO: we should update this file to remove the ychange attrs (as we're using marks now)
-
-/**
- * @param {any} ychange
- * @returns {string}
- */
-const calcYChangeStyle = ychange => {
-  switch (ychange.type) {
-    case 'removed':
-      return `color:${ychange.color?.dark || colorRemovedFallback}`
-    case 'added':
-      return `background-color:${ychange.color?.light || colorAddedFallback}`
-    case null:
-      return ''
-    default:
-      return ''
-  }
-}
-
-/**
- * @param {import('prosemirror-model').Attrs} attrs
- * @param {Record<string, any>} domAttrs
- */
-const calcYchangeDomAttrs = (attrs, domAttrs = {}) => {
-  domAttrs = Object.assign({}, domAttrs)
-  if (attrs.ychange !== null) {
-    domAttrs.ychange_user = attrs.ychange.user
-    domAttrs.ychange_type = attrs.ychange.type
-    domAttrs.ychange_color = attrs.ychange.color?.light || colorAddedFallback
-    domAttrs.style = calcYChangeStyle(attrs.ychange)
-  }
-  return domAttrs
-}
-
-/**
- * @param {any} ychange
- * @param {Array<any>} els
- */
-const hoverWrapper = (ychange, els) =>
-  ychange === null
-    ? els
-    : [['span', {
-        class: 'ychange-hover',
-        style: `background-color:${ychange.color?.dark || '#123'}`
-      }, 'Unknown'], ['span', ...els]]
+const attributionMarkNames = 'y-attribution-insertion y-attribution-deletion y-attribution-format'
 
 // :: Object
 // [Specs](#model.NodeSpec) for the nodes defined in this schema.
@@ -63,58 +16,40 @@ export const nodes = {
   // :: NodeSpec The top level document node.
   doc: {
     content: 'block*',
-    // TODO Something that needs to be documented here. We need for prosemirror to respect that we can apply this mark to any node in the document
-    // We can also maybe check whether a mark is allowed on a node, and if not, then don't apply it
-    marks: 'ychange'
+    marks: attributionMarkNames
   },
 
   // :: NodeSpec A plain paragraph textblock. Represented in the DOM
   // as a `<p>` element.
   paragraph: {
-    attrs: { ychange: { default: null } },
     content: 'inline*',
     group: 'block',
     parseDOM: [{ tag: 'p' }],
-    toDOM (node) {
-      // only render changes if no child nodes
-      const renderChanges = node.content.size === 0
-      const attrs = renderChanges ? calcYchangeDomAttrs(node.attrs) : node.attrs
-      const defChildren = [0]
-      const children = renderChanges ? hoverWrapper(node.attrs.ychange, defChildren) : defChildren
-      return ['p', attrs, ...children]
-    }
+    toDOM () { return ['p', 0] }
   },
 
   // :: NodeSpec A blockquote (`<blockquote>`) wrapping one or more blocks.
   blockquote: {
-    attrs: { ychange: { default: null } },
-    // needs to explicitly set ychange to allow ychange node marks on children
-    marks: 'ychange',
+    marks: attributionMarkNames,
     content: 'block+',
     group: 'block',
     defining: true,
     parseDOM: [{ tag: 'blockquote' }],
-    toDOM (node) { return ['blockquote', calcYchangeDomAttrs(node.attrs), ...hoverWrapper(node.attrs.ychange, [0])] }
+    toDOM () { return ['blockquote', 0] }
   },
 
   // :: NodeSpec A horizontal rule (`<hr>`).
   horizontal_rule: {
-    attrs: { ychange: { default: null } },
     group: 'block',
     parseDOM: [{ tag: 'hr' }],
-    toDOM (node) {
-      return ['hr', calcYchangeDomAttrs(node.attrs), ...hoverWrapper(node.attrs.ychange, [])]
-    }
+    toDOM () { return ['hr'] }
   },
 
   // :: NodeSpec A heading textblock, with a `level` attribute that
   // should hold the number 1 to 6. Parsed and serialized as `<h1>` to
   // `<h6>` elements.
   heading: {
-    attrs: {
-      level: { default: 1 },
-      ychange: { default: null }
-    },
+    attrs: { level: { default: 1 } },
     content: 'inline*',
     group: 'block',
     defining: true,
@@ -124,21 +59,20 @@ export const nodes = {
       { tag: 'h4', attrs: { level: 4 } },
       { tag: 'h5', attrs: { level: 5 } },
       { tag: 'h6', attrs: { level: 6 } }],
-    toDOM (node) { return ['h' + node.attrs.level, calcYchangeDomAttrs(node.attrs), ...hoverWrapper(node.attrs.ychange, [0])] }
+    toDOM (node) { return ['h' + node.attrs.level, 0] }
   },
 
   // :: NodeSpec A code listing. Disallows marks or non-text inline
   // nodes by default. Represented as a `<pre>` element with a
   // `<code>` element inside of it.
   code_block: {
-    attrs: { ychange: { default: null } },
     content: 'text*',
     marks: '',
     group: 'block',
     code: true,
     defining: true,
     parseDOM: [{ tag: 'pre', preserveWhitespace: 'full' }],
-    toDOM (node) { return ['pre', calcYchangeDomAttrs(node.attrs), ...hoverWrapper(node.attrs.ychange, [['code', 0]])] }
+    toDOM () { return ['pre', ['code', 0]] }
   },
 
   // :: NodeSpec The text node.
@@ -152,7 +86,6 @@ export const nodes = {
   image: {
     inline: true,
     attrs: {
-      ychange: { default: null },
       src: {},
       alt: { default: null },
       title: { default: null }
@@ -170,12 +103,7 @@ export const nodes = {
       }
     }],
     toDOM (node) {
-      const domAttrs = {
-        src: node.attrs.src,
-        title: node.attrs.title,
-        alt: node.attrs.alt
-      }
-      return ['img', calcYchangeDomAttrs(node.attrs, domAttrs), ...hoverWrapper(node.attrs.ychange, [])]
+      return ['img', { src: node.attrs.src, title: node.attrs.title, alt: node.attrs.alt }]
     }
   },
 
@@ -243,21 +171,31 @@ export const marks = {
     parseDOM: [{ tag: 'code' }],
     toDOM () { return codeDOM }
   },
-  ychange: {
-    attrs: {
-      user: { default: null },
-      type: { default: null },
-      color: { default: null }
-    },
-    inclusive: false,
-    parseDOM: [{ tag: 'ychange' }],
-    toDOM (node) {
-      return ['ychange', {
-        ychange_user: 'test', // (node.attrs.user || '').join(', '),
-        ychange_type: node.attrs.type,
-        style: calcYChangeStyle(node.attrs),
-        ychange_color: node.attrs.color?.light || colorAddedFallback
-      }, ...hoverWrapper(node.attrs, [0])]
+
+  'y-attribution-insertion': {
+    attrs: { userIds: { default: null }, timestamp: { default: null } },
+    excludes: '',
+    parseDOM: [{ tag: 'y-ins' }],
+    toDOM () {
+      return /** @type {const} */ (['y-ins', 0])
+    }
+  },
+
+  'y-attribution-deletion': {
+    attrs: { userIds: { default: null }, timestamp: { default: null } },
+    excludes: '',
+    parseDOM: [{ tag: 'y-del' }],
+    toDOM () {
+      return /** @type {const} */ (['y-del', 0])
+    }
+  },
+
+  'y-attribution-format': {
+    attrs: { userIdsByAttr: { default: null }, timestamp: { default: null } },
+    excludes: '',
+    parseDOM: [{ tag: 'y-fmt' }],
+    toDOM () {
+      return /** @type {const} */ (['y-fmt', 0])
     }
   }
 }

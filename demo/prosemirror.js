@@ -1,7 +1,7 @@
 /* eslint-env browser */
 
 import * as Y from '@y/y'
-import { syncPlugin, ySyncPluginKey, configureYProsemirror } from '../src/index.js'
+import { syncPlugin, ySyncPluginKey, configureYProsemirror, defaultMapAttributionToMark } from '../src/index.js'
 import { EditorState } from 'prosemirror-state'
 import { schema } from './schema.js'
 import { exampleSetup } from 'prosemirror-example-setup'
@@ -9,7 +9,6 @@ import { WebsocketProvider } from '@y/websocket'
 import * as random from 'lib0/random'
 import * as error from 'lib0/error'
 import { EditorView } from 'prosemirror-view'
-import * as object from 'lib0/object'
 
 const roomName = 'pm-suggestion-demo-2'
 
@@ -376,10 +375,10 @@ elemToggleConnect.checked && providerYdocSuggestions.connectBc()
 const am = /** @type {any} */ (Y).createAttributionManagerFromDiff(ydoc, suggestionDoc, { attrs: [Y.createContentAttribute('insert', ['nickthesick'])] })
 
 suggestionDoc.on('update', () => {
-  console.log('suggestionDoc updated', ydoc.get().toString())
+  console.log('suggestionDoc updated', suggestionDoc.get().toDeltaDeep(am).toJSON())
 })
 ydoc.on('update', () => {
-  console.log('ydoc updated', ydoc.get().toString())
+  // console.log('ydoc updated', ydoc.get().toString())
 })
 /**
  * @type {EditorView?}
@@ -399,14 +398,7 @@ const initEditor = () => {
   const state = EditorState.create({
     schema,
     plugins: /** @type {any[]} */ ([]).concat(exampleSetup({ schema, history: false }), syncPlugin({
-      mapAttributionToMark: (/** @type {any} */ format, /** @type {any} */ attribution) => {
-        console.log('format', format, attribution)
-        return object.assign({}, format, {
-          ychange: attribution.delete
-            ? { type: 'removed', user: attribution.delete?.[0] || 'anon' }
-            : { type: 'added', user: attribution.insert?.[0] || 'anon' }
-        })
-      }
+      mapAttributionToMark: defaultMapAttributionToMark
     }))
   })
   // Track last mode to detect changes

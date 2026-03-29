@@ -112,40 +112,23 @@
         background-color: #eee;
       }
 
-      [ychange_type] {
-        position: relative;
-      }
-      .ychange-hover {
-        display: none;
-      }
-      *:hover > .ychange-hover {
-        display: inline;
-        position: absolute;
-        top: -14px;
-        left: 0;
-        font-size: 12px;
-        padding: 0 2px;
-        border-radius: 3px 3px 0 0;
-        color: #fdfdfe;
-        user-select: none;
-        word-break: normal;
+      /* Attribution marks: insertions */
+      y-ins {
+        background-color: #d4edda;
+        border-bottom: 2px solid #28a745;
       }
 
-      ychange[ychange_type="removed"],
-      p[ychange_type="removed"] {
+      /* Attribution marks: deletions */
+      y-del {
         text-decoration: line-through;
+        color: #dc3545;
+        background-color: #f8d7da;
       }
-      /*
-p[ychange_type='removed'] > span > br {
-  display: none;
-}
-*/
-      *:not(ychange)[ychange_type="removed"] {
-        background-color: #ff5a56;
-        color: inherit !important;
-      }
-      img[ychange_type="removed"] {
-        padding: 2px;
+
+      /* Attribution marks: format changes */
+      y-fmt {
+        background-color: #fff3cd;
+        border-bottom: 2px dotted #ffc107;
       }
       /* Demo UI Styles */
       body {

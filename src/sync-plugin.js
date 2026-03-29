@@ -54,16 +54,11 @@ const attributionDeleteMark = 'y-attribution-deletion'
  */
 const stripAttributionFormattingFromDelta = delta => {
   for (const child of delta.children) {
-    if (d.$insertOp.check(child) || d.$textOp.check(child)) {
+    if (!d.$deleteOp.check(child)) {
       if (child.format?.[attributionDeleteMark] != null) {
         list.replace(delta.children, child, new d.DeleteOp(child.length, null))
         continue
       }
-    }
-    if (!d.$deleteOp.check(child) && child.format != null) {
-      attributionMarkNames.forEach(n => {
-        delete child.format?.[n]
-      })
     }
     if (d.$modifyOp.check(child)) {
       stripAttributionFormattingFromDelta(child.value)
@@ -73,6 +68,11 @@ const stripAttributionFormattingFromDelta = delta => {
         if (d.$deltaAny.check(ins)) {
           stripAttributionFormattingFromDelta(ins)
         }
+      })
+    }
+    if (!d.$deleteOp.check(child) && child.format != null) {
+      attributionMarkNames.forEach(n => {
+        delete child.format?.[n]
       })
     }
   }

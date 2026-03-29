@@ -179,6 +179,11 @@ const insertionMark = {
   type: 'y-attribution-insertion',
   attrs: { userIds: [], timestamp: null }
 }
+/** Deletion mark as it appears in PM doc JSON */
+const deletionMark = {
+  type: 'y-attribution-deletion',
+  attrs: { userIds: [], timestamp: null }
+}
 
 // === Tests ===
 
@@ -566,4 +571,52 @@ export const testDeletionOfSuggestedContent = () => {
   })
   console.log({ doc, suggestionModeDoc, suggestionModeAM })
 }
+
+export const testDeleteSuggustion = () => {
+  const { viewA, viewSuggestion, viewSuggestionMode, suggestionModeDoc, doc, suggestionModeAM } = createSuggestionSetup({ baseContent: 'hello' })
+  t.group('populate content', () => {
+    const tr = viewA.state.tr
+    // Replace doc content with blockquote > paragraph
+    tr.replaceWith(
+      0,
+      tr.doc.content.size,
+      schema.nodes.paragraph.create(null, schema.text('hello world'))
+    )
+    viewA.dispatch(tr)
+  })
+  t.group('suggest delete', () => {
+    // Insert a new paragraph with text at the end of the document (before trailing empty paragraph)
+    const tr = viewSuggestionMode.state.tr
+    // delete 'hello'
+    viewSuggestionMode.dispatch(tr.delete(1, 6))
+    const baseDoc = {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'hello world' }] },
+      ]
+    }
+    assertDocJSON(
+      viewA.state.doc,
+      baseDoc,
+      'Client A unchanged'
+    )
+    const expectedDoc = {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'hello', marks: [deletionMark] }, { type: 'text', text: ' world' }] },
+      ]
+    }
+    assertDocJSON(
+      viewSuggestionMode.state.doc,
+      expectedDoc,
+      'Suggestion Mode: new paragraph node and text have insertion marks'
+    )
+    assertDocJSON(
+      viewSuggestion.state.doc,
+      expectedDoc,
+      'View Suggestions: new paragraph node and text have insertion marks'
+    )
+  })
+}
+
 
