@@ -291,7 +291,6 @@ export const testSequentialTypingMarks = () => {
  * (Paragraph nodes themselves don't support marks in prosemirror-schema-basic.)
  */
 export const testBlockInsertionMarks = () => {
-  debugger
   const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({ baseContent: 'hello' })
   // Insert a new paragraph with text at the end of the document (before trailing empty paragraph)
   const { tr } = viewSuggestionMode.state
@@ -478,3 +477,93 @@ export const testSchemaImageInParaNodeMark = () => {
     'image in paragraph has insertion mark'
   )
 }
+
+export const testDeletionOfSuggestedContent = () => {
+  const { viewA, viewSuggestion, viewSuggestionMode, suggestionModeDoc, doc, suggestionModeAM } = createSuggestionSetup({ baseContent: 'hello' })
+
+  t.group('insert suggestion', () => {
+    // Insert a new paragraph with text at the end of the document (before trailing empty paragraph)
+    const { tr } = viewSuggestionMode.state
+    const insertPos = tr.doc.content.size - 2 // before the last empty paragraph's close
+    viewSuggestionMode.dispatch(
+      tr.insert(
+        insertPos,
+        schema.nodes.paragraph.create(null, schema.text('new block'))
+      )
+    )
+    const helloDoc = {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'hello' }] },
+        { type: 'paragraph' }
+      ]
+    }
+
+    // Base doc unchanged
+    assertDocJSON(
+      viewA.state.doc,
+      helloDoc,
+      'Client A unchanged after block insert'
+    )
+
+    const expectedDoc = {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'hello' }] },
+        {
+          type: 'paragraph',
+          marks: [insertionMark],
+          content: [{ type: 'text', text: 'new block', marks: [insertionMark] }]
+        },
+        { type: 'paragraph' }
+      ]
+    }
+
+    assertDocJSON(
+      viewSuggestion.state.doc,
+      expectedDoc,
+      'View Suggestions: new paragraph node and text have insertion marks'
+    )
+
+    assertDocJSON(
+      viewSuggestionMode.state.doc,
+      expectedDoc,
+      'Suggestion Mode: new paragraph node and text have insertion marks'
+    )
+  })
+  t.group('delete suggested content', () => {
+    const { tr } = viewSuggestionMode.state
+    const deletePos = tr.doc.content.size - 5
+    // delete 'c'
+    viewSuggestionMode.dispatch(
+      tr.delete(deletePos, deletePos + 1)
+    )
+    const expectedDoc = {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'hello' }] },
+        {
+          type: 'paragraph',
+          marks: [insertionMark],
+          content: [{ type: 'text', text: 'new blok', marks: [insertionMark] }]
+        },
+        { type: 'paragraph' }
+      ]
+    }
+    console.log({
+      ydocSuggestionState: suggestionModeDoc.get('prosemirror').toDeltaDeep(suggestionModeAM).toJSON()
+    })
+    assertDocJSON(
+      viewSuggestion.state.doc,
+      expectedDoc,
+      'View Suggestions: expect that the deleted suggestion is actually deleted'
+    )
+    assertDocJSON(
+      viewSuggestionMode.state.doc,
+      expectedDoc,
+      'Suggestion Mode: expect that the deleted suggestion is actually deleted'
+    )
+  })
+  console.log({ doc, suggestionModeDoc, suggestionModeAM })
+}
+

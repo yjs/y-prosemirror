@@ -68,6 +68,13 @@ const stripAttributionFormattingFromDelta = delta => {
     if (d.$modifyOp.check(child)) {
       stripAttributionFormattingFromDelta(child.value)
     }
+    if (d.$insertOp.check(child)) {
+      child.insert.forEach(ins => {
+        if (d.$deltaAny.check(ins)) {
+          stripAttributionFormattingFromDelta(ins)
+        }
+      })
+    }
   }
 }
 
@@ -190,18 +197,31 @@ export function syncPlugin (opts = {}) {
             const insertedSize = step.slice.content.size
             // Map position before any modifications to our tr
             const pos = mapPos(step.from, transaction, i)
-            // Handle deletions: re-insert deleted content with deletion marks
+            // Handle deletions:
+            // - Content with y-attribution-insertion mark: actually delete (revert the suggestion)
+            // - Other content: re-insert with deletion marks
+            let reinsertedSize = 0
             if (deleted.content.size > 0) {
-              tr.insert(pos, deleted.content)
-              for (const mark of deletionMarks) {
-                tr.addMark(pos, pos + deleted.content.size, mark)
-              }
-              changed = true
+              const insertionMarkType = schema.marks['y-attribution-insertion']
+              deleted.content.forEach((node) => {
+                if (insertionMarkType && node.marks.some(m => m.type === insertionMarkType)) {
+                  // Suggested insertion — let it stay deleted
+                } else {
+                  // Non-attributed content — re-insert with deletion mark
+                  const insertAt = pos + reinsertedSize
+                  tr.insert(insertAt, node)
+                  for (const mark of deletionMarks) {
+                    tr.addMark(insertAt, insertAt + node.nodeSize, mark)
+                  }
+                  reinsertedSize += node.nodeSize
+                }
+              })
+              if (reinsertedSize > 0) changed = true
             }
             // Handle insertions: add insertion marks to inserted content
-            // After re-inserting deleted content, inserted content is shifted by deleted size
+            // After re-inserting deleted content, inserted content is shifted by reinserted size
             if (insertedSize > 0) {
-              const insertPos = pos + deleted.content.size
+              const insertPos = pos + reinsertedSize
               for (const mark of insertionMarks) {
                 tr.addMark(insertPos, insertPos + insertedSize, mark)
               }
@@ -217,7 +237,7 @@ export function syncPlugin (opts = {}) {
               })
               changed = true
             }
-          } else if (step instanceof AddMarkStep || step instanceof RemoveMarkStep) {
+          } else if ((step instanceof AddMarkStep || step instanceof RemoveMarkStep) && !step.mark.type.name.startsWith('y-attribution-')) {
             // Handle mark changes: add format marks to the affected range
             const from = mapPos(step.from, transaction, i)
             const to = mapPos(step.to, transaction, i)
@@ -263,7 +283,7 @@ export function syncPlugin (opts = {}) {
               const ycontent = ytype.toDeltaDeep(attributionManager || Y.noAttributionsManager)
               const pcontent = nodeToDelta(view.state.doc)
               const diff = d.diff(ycontent.done(), pcontent.done())
-              if (attributionManager != null || attributionManager === Y.noAttributionsManager) { stripAttributionFormattingFromDelta(diff) }
+              if (attributionManager != null && attributionManager !== Y.noAttributionsManager) { stripAttributionFormattingFromDelta(diff) }
               ytype.applyDelta(diff, attributionManager || Y.noAttributionsManager)
             })
           }
