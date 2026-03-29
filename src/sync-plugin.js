@@ -157,6 +157,12 @@ export function syncPlugin (opts = {}) {
       ) {
         return null
       }
+      // @ts-ignore
+      /**
+       * Whether to re-insert deletions as text or not
+       * @type {boolean}
+       */
+      const suggestionMode = /** @type {any} */ (pluginState.attributionManager).suggestionMode || false
       const schema = newState.schema
       const attributionMapper = pluginState.attributionMapper
       const deletionFormat = attributionMapper(null, { delete: [] })
@@ -206,7 +212,7 @@ export function syncPlugin (opts = {}) {
               deleted.content.forEach((node) => {
                 if (insertionMarkType && node.marks.some(m => m.type === insertionMarkType)) {
                   // Suggested insertion — let it stay deleted
-                } else {
+                } else if (suggestionMode) {
                   // Non-attributed content — re-insert with deletion mark
                   const insertAt = pos + reinsertedSize
                   tr.insert(insertAt, node)
@@ -220,7 +226,7 @@ export function syncPlugin (opts = {}) {
             }
             // Handle insertions: add insertion marks to inserted content
             // After re-inserting deleted content, inserted content is shifted by reinserted size
-            if (insertedSize > 0) {
+            if (insertedSize > 0 && suggestionMode) {
               const insertPos = pos + reinsertedSize
               for (const mark of insertionMarks) {
                 tr.addMark(insertPos, insertPos + insertedSize, mark)
@@ -237,7 +243,7 @@ export function syncPlugin (opts = {}) {
               })
               changed = true
             }
-          } else if ((step instanceof AddMarkStep || step instanceof RemoveMarkStep) && !step.mark.type.name.startsWith('y-attribution-')) {
+          } else if (suggestionMode && (step instanceof AddMarkStep || step instanceof RemoveMarkStep) && !step.mark.type.name.startsWith('y-attribution-')) {
             // Handle mark changes: add format marks to the affected range
             const from = mapPos(step.from, transaction, i)
             const to = mapPos(step.to, transaction, i)
@@ -284,6 +290,8 @@ export function syncPlugin (opts = {}) {
               const pcontent = nodeToDelta(view.state.doc)
               const diff = d.diff(ycontent.done(), pcontent.done())
               if (attributionManager != null && attributionManager !== Y.noAttributionsManager) { stripAttributionFormattingFromDelta(diff) }
+              // @todo remove
+              if (JSON.stringify(diff.toJSON()).indexOf('y-attribution') >= 0) debugger
               ytype.applyDelta(diff, attributionManager || Y.noAttributionsManager)
             })
           }

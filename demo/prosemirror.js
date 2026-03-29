@@ -80,6 +80,7 @@ elemSelectSuggestionMode.addEventListener('change', () => {
       attributionManager: null
     })(currentView.state, currentView.dispatch)
   } else { // suggestion mode - render suggestion doc with attributions
+    am.suggestionMode = mode === 'edit'
     configureYProsemirror({
       ytype: suggestionDoc.get(),
       attributionManager: am
