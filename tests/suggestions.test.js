@@ -119,12 +119,12 @@ const assertDocJSON = (doc, expected, message) => {
 const createSuggestionSetup = (opts = {}) => {
   const { baseContent } = opts
 
-  const doc = new Y.Doc()
+  const doc = new Y.Doc({ gc: false })
 
   // "suggestion" = show suggestions, but edit "main document" (if possible)
   // "suggestionMode" = show suggestions and behave like suggesting user (edits always go to sugestion doc)
-  const suggestionDoc = new Y.Doc({ isSuggestionDoc: true })
-  const suggestionModeDoc = new Y.Doc({ isSuggestionDoc: true })
+  const suggestionDoc = new Y.Doc({ isSuggestionDoc: true, gc: false })
+  const suggestionModeDoc = new Y.Doc({ isSuggestionDoc: true, gc: false })
 
   const attrs = new Y.Attributions()
   const suggestionAM = Y.createAttributionManagerFromDiff(doc, suggestionDoc, {
@@ -619,4 +619,134 @@ export const testDeleteSuggustion = () => {
   })
 }
 
+export const testReconfigureAfterDeletion = () => {
+  const { viewA, viewSuggestion, viewSuggestionMode, suggestionModeDoc, doc, suggestionModeAM } = createSuggestionSetup({ baseContent: 'hello' })
+  t.group('populate content', () => {
+    const tr = viewA.state.tr
+    // Replace doc content with blockquote > paragraph
+    tr.replaceWith(
+      0,
+      tr.doc.content.size,
+      schema.nodes.paragraph.create(null, schema.text('hello world'))
+    )
+    viewA.dispatch(tr)
+  })
+  const baseDoc = {
+    type: 'doc',
+    content: [
+      { type: 'paragraph', content: [{ type: 'text', text: 'hello world' }] },
+    ]
+  }
+  const expectedSuggestionDoc = {
+    type: 'doc',
+    content: [
+      { type: 'paragraph', content: [{ type: 'text', text: 'he' }, { type: 'text', text: 'llo', marks: [deletionMark] }, { type: 'text', text: ' world' }, { type: 'text', text: '!', marks: [insertionMark] }] },
+    ]
+  }
+  t.group('suggest delete', () => {
+    // Insert a new paragraph with text at the end of the document (before trailing empty paragraph)
+    const tr = viewSuggestionMode.state.tr
+    // delete 'hello', append '!'
+    viewSuggestionMode.dispatch(tr.delete(3, 6).insert(9, schema.text('!')))
+    assertDocJSON(
+      viewA.state.doc,
+      baseDoc,
+      'Client A unchanged'
+    )
+    assertDocJSON(
+      viewSuggestionMode.state.doc,
+      expectedSuggestionDoc,
+      'Suggestion Mode: new paragraph node and text have insertion marks'
+    )
+    assertDocJSON(
+      viewSuggestion.state.doc,
+      expectedSuggestionDoc,
+      'View Suggestions: new paragraph node and text have insertion marks'
+    )
+  })
+  t.group('reconfigure', () => {
+    YPM.configureYProsemirror({ ytype: doc.get('prosemirror') , attributionManager: Y.noAttributionsManager })(viewSuggestionMode.state, viewSuggestionMode.dispatch)
+    assertDocJSON(
+      viewSuggestionMode.state.doc,
+      baseDoc,
+      'suggestion mode doc reconfigured after deletion'
+    )
+    assertDocJSON(
+      viewSuggestion.state.doc,
+      expectedSuggestionDoc,
+      'suggestion doc didn\'t change after reconf of other editor'
+    )
+  })
+}
 
+export const testReconfigureAfterDeletion2 = () => {
+  const { viewA, viewSuggestion, viewSuggestionMode, suggestionModeDoc, doc, suggestionModeAM, suggestionDoc, suggestionAM } = createSuggestionSetup({ baseContent: 'hello' })
+  t.group('populate content', () => {
+    const tr = viewA.state.tr
+    // Replace doc content with blockquote > paragraph
+    tr.replaceWith(
+      0,
+      tr.doc.content.size,
+      schema.nodes.paragraph.create(null, schema.text('abc abc abc'))
+    )
+    viewA.dispatch(tr)
+  })
+  const baseDoc = {
+    type: 'doc',
+    content: [
+      { type: 'paragraph', content: [{ type: 'text', text: 'abc abc abc' }] },
+    ]
+  }
+  const expectedSuggestionDoc = {
+    type: 'doc',
+    content: [
+      { 
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'a' },
+          { type: 'text', text: 'bc', marks: [deletionMark] },
+          { type: 'text', text: '!', marks: [insertionMark] },
+          { type: 'text', text: ' a' },
+          { type: 'text', text: 'bc', marks: [deletionMark] },
+          { type: 'text', text: '!', marks: [insertionMark] },
+          { type: 'text', text: ' abc' }
+        ]
+      }
+    ]
+  }
+  t.group('suggest delete', () => {
+    const tr = viewSuggestionMode.state.tr
+    viewSuggestionMode.dispatch(tr.insert(8, schema.text('!')).delete(6, 8).insert(4, schema.text('!')).delete(2, 4))
+    assertDocJSON(
+      viewA.state.doc,
+      baseDoc,
+      'Client A unchanged'
+    )
+    assertDocJSON(
+      viewSuggestionMode.state.doc,
+      expectedSuggestionDoc,
+      'Suggestion Mode: new paragraph node and text have insertion marks'
+    )
+    console.log('suggestionDocContent', suggestionDoc.get('prosemirror').toDeltaDeep(suggestionAM).toJSON())
+    console.log('suggestionModeDocContent', suggestionModeDoc.get('prosemirror').toDeltaDeep(suggestionModeAM).toJSON())
+    // assertDocJSON(
+    //   viewSuggestion.state.doc,
+    //   expectedSuggestionDoc,
+    //   'View Suggestions: new paragraph node and text have insertion marks'
+    // )
+  })
+  t.group('reconfigure', () => {
+    YPM.configureYProsemirror({ ytype: doc.get('prosemirror') , attributionManager: Y.noAttributionsManager })(viewSuggestionMode.state, viewSuggestionMode.dispatch)
+    assertDocJSON(
+      viewSuggestionMode.state.doc,
+      baseDoc,
+      'suggestion mode doc reconfigured after deletion'
+    )
+    console.log('suggestionDocContent', suggestionDoc.get('prosemirror').toDeltaDeep(suggestionAM).toJSON())
+    assertDocJSON(
+      viewSuggestion.state.doc,
+      expectedSuggestionDoc,
+      'suggestion doc didn\'t change after reconf of other editor'
+    )
+  })
+}
