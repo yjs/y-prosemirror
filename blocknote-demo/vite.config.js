@@ -17,6 +17,15 @@ export default defineConfig({
   },
   build: {
     sourcemap: true
+  },
+  test: {
+    browser: {
+      enabled: true,
+      provider: 'playwright',
+      instances: [
+        { browser: 'chromium' }
+      ],
+    },
   }
   // For local linking:
   // optimizeDeps: {

@@ -5,7 +5,14 @@ import * as t from 'lib0/testing'
 import { Schema } from 'prosemirror-model'
 import * as basicSchema from 'prosemirror-schema-basic'
 import { EditorState } from 'prosemirror-state'
-import { EditorView } from 'prosemirror-view'
+
+import {
+  createPMView as _createPMView,
+  assertDocJSON,
+  deletionMark,
+  insertionMark,
+  setupTwoWaySync
+} from './helpers.js'
 
 // === Schema with attribution marks ===
 
@@ -60,53 +67,8 @@ const schema = new Schema({
  * @param {Y.Type} ytype
  * @param {Y.AbstractAttributionManager} [attributionManager]
  */
-const createPMView = (ytype, attributionManager = Y.noAttributionsManager) => {
-  const view = new EditorView(
-    { mount: document.createElement('div') },
-    {
-      state: EditorState.create({
-        schema,
-        plugins: [YPM.syncPlugin()]
-      })
-    }
-  )
-  YPM.configureYProsemirror({ ytype, attributionManager })(
-    view.state,
-    view.dispatch
-  )
-  return view
-}
-
-/**
- * Set up two-way sync between two Y.Docs.
- * @param {Y.Doc} doc1
- * @param {Y.Doc} doc2
- */
-const setupTwoWaySync = (doc1, doc2) => {
-  // Initial state sync
-  Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1))
-  Y.applyUpdate(doc1, Y.encodeStateAsUpdate(doc2))
-  // Live sync
-  doc1.on('update', (update) => {
-    Y.applyUpdate(doc2, update)
-  })
-  doc2.on('update', (update) => {
-    Y.applyUpdate(doc1, update)
-  })
-}
-
-/**
- * Assert that a PM doc's JSON matches the expected structure.
- * @param {import('prosemirror-model').Node} doc
- * @param {object} expected
- * @param {string} message
- */
-const assertDocJSON = (doc, expected, message) => {
-  // PM creates mark attrs with Object.create(null) (null prototype), but t.compare
-  // checks constructors and fails when comparing null-prototype vs regular objects.
-  // JSON round-trip normalizes all objects to have Object prototype.
-  t.compare(JSON.parse(JSON.stringify(doc.toJSON())), expected, message)
-}
+const createPMView = (ytype, attributionManager) =>
+  _createPMView(schema, ytype, attributionManager)
 
 /**
  * Set up the suggestion architecture:
@@ -174,16 +136,8 @@ const createSuggestionSetup = (opts = {}) => {
   }
 }
 
-/** Insertion mark as it appears in PM doc JSON */
-const insertionMark = {
-  type: 'y-attribution-insertion',
-  attrs: { userIds: [], timestamp: null }
-}
-/** Deletion mark as it appears in PM doc JSON */
-const deletionMark = {
-  type: 'y-attribution-deletion',
-  attrs: { userIds: [], timestamp: null }
-}
+/** Insertion mark as it appears in PM doc JSON — re-export kept for backwards compat */
+// insertionMark and deletionMark are imported from helpers.js
 
 // === Tests ===
 
@@ -192,7 +146,9 @@ const deletionMark = {
  * suggestion mode edits are isolated from base and show insertion marks in View Suggestions.
  */
 export const testSuggestionSyncAndMarks = () => {
-  const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({ baseContent: 'hello' })
+  const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({
+    baseContent: 'hello'
+  })
   const helloDoc = {
     type: 'doc',
     content: [
@@ -239,7 +195,6 @@ export const testSuggestionSyncAndMarks = () => {
     "View Suggestions: ' world' has insertion mark"
   )
 
-  // TODO: "viewSuggestionMode" doc fails
   assertDocJSON(
     viewSuggestionMode.state.doc,
     helloWorldDoc,
@@ -259,7 +214,6 @@ export const testSequentialTypingMarks = () => {
   // Type 'a' then 'b' as separate dispatches (like real typing)
   viewSuggestionMode.dispatch(viewSuggestionMode.state.tr.insertText('a', 6))
 
-  // TODO: RangeError: Maximum call stack size exceeded
   viewSuggestionMode.dispatch(viewSuggestionMode.state.tr.insertText('b', 7))
 
   const abDoc = {
@@ -296,7 +250,9 @@ export const testSequentialTypingMarks = () => {
  * (Paragraph nodes themselves don't support marks in prosemirror-schema-basic.)
  */
 export const testBlockInsertionMarks = () => {
-  const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({ baseContent: 'hello' })
+  const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({
+    baseContent: 'hello'
+  })
   // Insert a new paragraph with text at the end of the document (before trailing empty paragraph)
   const { tr } = viewSuggestionMode.state
   const insertPos = tr.doc.content.size - 2 // before the last empty paragraph's close
@@ -348,11 +304,142 @@ export const testBlockInsertionMarks = () => {
 }
 
 /**
+ * Enter key (split block): pressing Enter in the middle of a paragraph in
+ * suggestion mode should split the paragraph into two. The base doc stays
+ * unchanged, and the suggestion views should show the new paragraph with
+ * insertion marks.
+ */
+// TODO: FAILING - split paragraph insertion mark mismatch (array length mismatch in doc content)
+export const testEnterInSuggestionMode = () => {
+  const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({
+    baseContent: 'hello'
+  })
+
+  const helloDoc = {
+    type: 'doc',
+    content: [
+      { type: 'paragraph', content: [{ type: 'text', text: 'hello' }] },
+      { type: 'paragraph' }
+    ]
+  }
+
+  // Press Enter after "hel" (position 4 = after 'l' in "hel|lo")
+  const { tr } = viewSuggestionMode.state
+  viewSuggestionMode.dispatch(tr.split(4))
+
+  // Base doc should stay unchanged
+  assertDocJSON(viewA.state.doc, helloDoc, 'Client A unchanged after Enter')
+
+  const expectedDoc = {
+    type: 'doc',
+    content: [
+      { type: 'paragraph', content: [{ type: 'text', text: 'hel' }] },
+      {
+        type: 'paragraph',
+        marks: [insertionMark],
+        content: [{ type: 'text', text: 'lo' }]
+      },
+      { type: 'paragraph' }
+    ]
+  }
+
+  assertDocJSON(
+    viewSuggestion.state.doc,
+    expectedDoc,
+    'View Suggestions: split paragraph shows insertion mark on new block'
+  )
+
+  assertDocJSON(
+    viewSuggestionMode.state.doc,
+    expectedDoc,
+    'Suggestion Mode: split paragraph shows insertion mark on new block'
+  )
+}
+
+/**
+ * Backspace merge (join blocks): pressing Backspace at the start of a paragraph
+ * in suggestion mode should merge it with the previous paragraph. The base doc
+ * stays unchanged, and the suggestion views should show a deletion mark on the
+ * joined boundary.
+ */
+// TODO: FAILING - merged paragraph after join mismatch (array length mismatch in doc content)
+export const testBackspaceJoinInSuggestionMode = () => {
+  const { doc, viewA, viewSuggestion, viewSuggestionMode } =
+    createSuggestionSetup()
+
+  // Set up two paragraphs in the base doc: "hel" and "lo"
+  doc.get('prosemirror').applyDelta(
+    delta
+      .create()
+      .insert([
+        delta.create('paragraph', {}, 'hel'),
+        delta.create('paragraph', {}, 'lo')
+      ])
+      .done()
+  )
+
+  const twoParaDoc = {
+    type: 'doc',
+    content: [
+      { type: 'paragraph', content: [{ type: 'text', text: 'hel' }] },
+      { type: 'paragraph', content: [{ type: 'text', text: 'lo' }] },
+      { type: 'paragraph' }
+    ]
+  }
+
+  assertDocJSON(viewA.state.doc, twoParaDoc, 'Base doc has two paragraphs')
+  assertDocJSON(
+    viewSuggestionMode.state.doc,
+    twoParaDoc,
+    'Suggestion mode starts with two paragraphs'
+  )
+
+  // Backspace at start of second paragraph → join at the boundary (pos 5)
+  // doc structure: <doc><p>hel</p><p>lo</p><p></p></doc>
+  //                0    1  4  5   6 8  9  10
+  // join depth 1 at pos 5 (between </p> and <p>)
+  const { tr } = viewSuggestionMode.state
+  viewSuggestionMode.dispatch(tr.join(5))
+
+  // Base doc should stay unchanged
+  assertDocJSON(
+    viewA.state.doc,
+    twoParaDoc,
+    'Client A unchanged after Backspace join'
+  )
+
+  const expectedDoc = {
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        content: [{ type: 'text', text: 'hello' }]
+      },
+      { type: 'paragraph' }
+    ]
+  }
+
+  assertDocJSON(
+    viewSuggestion.state.doc,
+    expectedDoc,
+    'View Suggestions: merged paragraph after join'
+  )
+
+  assertDocJSON(
+    viewSuggestionMode.state.doc,
+    expectedDoc,
+    'Suggestion Mode: merged paragraph after join'
+  )
+}
+
+/**
  * Inline image insertion: inserting an image node in suggestion mode
  * should show insertion marks on the image.
  */
 export const testImageInsertionMarks = () => {
-  const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({ baseContent: 'hello' })
+  const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({
+    baseContent: 'hello'
+  })
 
   // Insert an image after "hello"
   viewSuggestionMode.dispatch(
@@ -484,7 +571,14 @@ export const testSchemaImageInParaNodeMark = () => {
 }
 
 export const testDeletionOfSuggestedContent = () => {
-  const { viewA, viewSuggestion, viewSuggestionMode, suggestionModeDoc, doc, suggestionModeAM } = createSuggestionSetup({ baseContent: 'hello' })
+  const {
+    viewA,
+    viewSuggestion,
+    viewSuggestionMode,
+    suggestionModeDoc,
+    doc,
+    suggestionModeAM
+  } = createSuggestionSetup({ baseContent: 'hello' })
 
   t.group('insert suggestion', () => {
     // Insert a new paragraph with text at the end of the document (before trailing empty paragraph)
@@ -518,7 +612,9 @@ export const testDeletionOfSuggestedContent = () => {
         {
           type: 'paragraph',
           marks: [insertionMark],
-          content: [{ type: 'text', text: 'new block', marks: [insertionMark] }]
+          content: [
+            { type: 'text', text: 'new block', marks: [insertionMark] }
+          ]
         },
         { type: 'paragraph' }
       ]
@@ -540,9 +636,7 @@ export const testDeletionOfSuggestedContent = () => {
     const { tr } = viewSuggestionMode.state
     const deletePos = tr.doc.content.size - 5
     // delete 'c'
-    viewSuggestionMode.dispatch(
-      tr.delete(deletePos, deletePos + 1)
-    )
+    viewSuggestionMode.dispatch(tr.delete(deletePos, deletePos + 1))
     const expectedDoc = {
       type: 'doc',
       content: [
@@ -556,7 +650,10 @@ export const testDeletionOfSuggestedContent = () => {
       ]
     }
     console.log({
-      ydocSuggestionState: suggestionModeDoc.get('prosemirror').toDeltaDeep(suggestionModeAM).toJSON()
+      ydocSuggestionState: suggestionModeDoc
+        .get('prosemirror')
+        .toDeltaDeep(suggestionModeAM)
+        .toJSON()
     })
     assertDocJSON(
       viewSuggestion.state.doc,
@@ -573,7 +670,11 @@ export const testDeletionOfSuggestedContent = () => {
 }
 
 export const testDeleteSuggustion = () => {
-  const { viewA, viewSuggestion, viewSuggestionMode, suggestionModeDoc, doc, suggestionModeAM } = createSuggestionSetup({ baseContent: 'hello' })
+  const {
+    viewA,
+    viewSuggestion,
+    viewSuggestionMode
+  } = createSuggestionSetup({ baseContent: 'hello' })
   t.group('populate content', () => {
     const tr = viewA.state.tr
     // Replace doc content with blockquote > paragraph
@@ -592,18 +693,20 @@ export const testDeleteSuggustion = () => {
     const baseDoc = {
       type: 'doc',
       content: [
-        { type: 'paragraph', content: [{ type: 'text', text: 'hello world' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'hello world' }] }
       ]
     }
-    assertDocJSON(
-      viewA.state.doc,
-      baseDoc,
-      'Client A unchanged'
-    )
+    assertDocJSON(viewA.state.doc, baseDoc, 'Client A unchanged')
     const expectedDoc = {
       type: 'doc',
       content: [
-        { type: 'paragraph', content: [{ type: 'text', text: 'hello', marks: [deletionMark] }, { type: 'text', text: ' world' }] },
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'hello', marks: [deletionMark] },
+            { type: 'text', text: ' world' }
+          ]
+        }
       ]
     }
     assertDocJSON(
@@ -620,7 +723,12 @@ export const testDeleteSuggustion = () => {
 }
 
 export const testReconfigureAfterDeletion = () => {
-  const { viewA, viewSuggestion, viewSuggestionMode, suggestionModeDoc, doc, suggestionModeAM } = createSuggestionSetup({ baseContent: 'hello' })
+  const {
+    viewA,
+    viewSuggestion,
+    viewSuggestionMode,
+    doc
+  } = createSuggestionSetup({ baseContent: 'hello' })
   t.group('populate content', () => {
     const tr = viewA.state.tr
     // Replace doc content with blockquote > paragraph
@@ -634,13 +742,21 @@ export const testReconfigureAfterDeletion = () => {
   const baseDoc = {
     type: 'doc',
     content: [
-      { type: 'paragraph', content: [{ type: 'text', text: 'hello world' }] },
+      { type: 'paragraph', content: [{ type: 'text', text: 'hello world' }] }
     ]
   }
   const expectedSuggestionDoc = {
     type: 'doc',
     content: [
-      { type: 'paragraph', content: [{ type: 'text', text: 'he' }, { type: 'text', text: 'llo', marks: [deletionMark] }, { type: 'text', text: ' world' }, { type: 'text', text: '!', marks: [insertionMark] }] },
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'he' },
+          { type: 'text', text: 'llo', marks: [deletionMark] },
+          { type: 'text', text: ' world' },
+          { type: 'text', text: '!', marks: [insertionMark] }
+        ]
+      }
     ]
   }
   t.group('suggest delete', () => {
@@ -648,11 +764,7 @@ export const testReconfigureAfterDeletion = () => {
     const tr = viewSuggestionMode.state.tr
     // delete 'hello', append '!'
     viewSuggestionMode.dispatch(tr.delete(3, 6).insert(9, schema.text('!')))
-    assertDocJSON(
-      viewA.state.doc,
-      baseDoc,
-      'Client A unchanged'
-    )
+    assertDocJSON(viewA.state.doc, baseDoc, 'Client A unchanged')
     assertDocJSON(
       viewSuggestionMode.state.doc,
       expectedSuggestionDoc,
@@ -665,7 +777,10 @@ export const testReconfigureAfterDeletion = () => {
     )
   })
   t.group('reconfigure', () => {
-    YPM.configureYProsemirror({ ytype: doc.get('prosemirror') , attributionManager: Y.noAttributionsManager })(viewSuggestionMode.state, viewSuggestionMode.dispatch)
+    YPM.configureYProsemirror({
+      ytype: doc.get('prosemirror'),
+      attributionManager: Y.noAttributionsManager
+    })(viewSuggestionMode.state, viewSuggestionMode.dispatch)
     assertDocJSON(
       viewSuggestionMode.state.doc,
       baseDoc,
@@ -674,13 +789,23 @@ export const testReconfigureAfterDeletion = () => {
     assertDocJSON(
       viewSuggestion.state.doc,
       expectedSuggestionDoc,
-      'suggestion doc didn\'t change after reconf of other editor'
+      "suggestion doc didn't change after reconf of other editor"
     )
   })
 }
 
+// TODO: FAILING — suggestion mode doc reconfigured after deletion (array length mismatch in blockGroup content)
 export const testReconfigureAfterDeletion2 = () => {
-  const { viewA, viewSuggestion, viewSuggestionMode, suggestionModeDoc, doc, suggestionModeAM, suggestionDoc, suggestionAM } = createSuggestionSetup({ baseContent: 'hello' })
+  const {
+    viewA,
+    viewSuggestion,
+    viewSuggestionMode,
+    suggestionModeDoc,
+    doc,
+    suggestionModeAM,
+    suggestionDoc,
+    suggestionAM
+  } = createSuggestionSetup({ baseContent: 'hello' })
   t.group('populate content', () => {
     const tr = viewA.state.tr
     // Replace doc content with blockquote > paragraph
@@ -694,13 +819,13 @@ export const testReconfigureAfterDeletion2 = () => {
   const baseDoc = {
     type: 'doc',
     content: [
-      { type: 'paragraph', content: [{ type: 'text', text: 'abc abc abc' }] },
+      { type: 'paragraph', content: [{ type: 'text', text: 'abc abc abc' }] }
     ]
   }
   const expectedSuggestionDoc = {
     type: 'doc',
     content: [
-      { 
+      {
         type: 'paragraph',
         content: [
           { type: 'text', text: 'a' },
@@ -716,19 +841,30 @@ export const testReconfigureAfterDeletion2 = () => {
   }
   t.group('suggest delete', () => {
     const tr = viewSuggestionMode.state.tr
-    viewSuggestionMode.dispatch(tr.insert(8, schema.text('!')).delete(6, 8).insert(4, schema.text('!')).delete(2, 4))
-    assertDocJSON(
-      viewA.state.doc,
-      baseDoc,
-      'Client A unchanged'
+    viewSuggestionMode.dispatch(
+      tr
+        .insert(8, schema.text('!'))
+        .delete(6, 8)
+        .insert(4, schema.text('!'))
+        .delete(2, 4)
     )
+    assertDocJSON(viewA.state.doc, baseDoc, 'Client A unchanged')
     assertDocJSON(
       viewSuggestionMode.state.doc,
       expectedSuggestionDoc,
       'Suggestion Mode: new paragraph node and text have insertion marks'
     )
-    console.log('suggestionDocContent', suggestionDoc.get('prosemirror').toDeltaDeep(suggestionAM).toJSON())
-    console.log('suggestionModeDocContent', suggestionModeDoc.get('prosemirror').toDeltaDeep(suggestionModeAM).toJSON())
+    console.log(
+      'suggestionDocContent',
+      suggestionDoc.get('prosemirror').toDeltaDeep(suggestionAM).toJSON()
+    )
+    console.log(
+      'suggestionModeDocContent',
+      suggestionModeDoc
+        .get('prosemirror')
+        .toDeltaDeep(suggestionModeAM)
+        .toJSON()
+    )
     // assertDocJSON(
     //   viewSuggestion.state.doc,
     //   expectedSuggestionDoc,
@@ -736,17 +872,23 @@ export const testReconfigureAfterDeletion2 = () => {
     // )
   })
   t.group('reconfigure', () => {
-    YPM.configureYProsemirror({ ytype: doc.get('prosemirror') , attributionManager: Y.noAttributionsManager })(viewSuggestionMode.state, viewSuggestionMode.dispatch)
+    YPM.configureYProsemirror({
+      ytype: doc.get('prosemirror'),
+      attributionManager: Y.noAttributionsManager
+    })(viewSuggestionMode.state, viewSuggestionMode.dispatch)
     assertDocJSON(
       viewSuggestionMode.state.doc,
       baseDoc,
       'suggestion mode doc reconfigured after deletion'
     )
-    console.log('suggestionDocContent', suggestionDoc.get('prosemirror').toDeltaDeep(suggestionAM).toJSON())
+    console.log(
+      'suggestionDocContent',
+      suggestionDoc.get('prosemirror').toDeltaDeep(suggestionAM).toJSON()
+    )
     assertDocJSON(
       viewSuggestion.state.doc,
       expectedSuggestionDoc,
-      'suggestion doc didn\'t change after reconf of other editor'
+      "suggestion doc didn't change after reconf of other editor"
     )
   })
 }
