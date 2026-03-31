@@ -97,6 +97,19 @@ function findEndOfFirstBlockContainer (doc) {
   return pos
 }
 
+/** Find the end-of-text position inside the first blockContent node. */
+function findEndOfFirstBlock (doc) {
+  let pos = 0
+  doc.descendants((node, nodePos) => {
+    if (pos === 0 && node.type.spec.group && node.type.spec.group.includes('blockContent')) {
+      pos = nodePos + node.nodeSize - 1
+      return false
+    }
+    return true
+  })
+  return pos
+}
+
 /** Get block text contents from a PM doc. */
 function getBlocks (doc) {
   const blocks = []
@@ -110,6 +123,36 @@ function getBlocks (doc) {
 }
 
 describe('BlockNote sync', () => {
+  /**
+   * BUG REPRO: d.diff stack overflow when bold formatting exists.
+   * Insert text, bold it, then insert more text → the last dispatch triggers
+   * d.diff in the sync plugin's view.update, which overflows the stack.
+   * TODO: FAILING — d.diff stack overflow with bold formatting
+   */
+  test('bold then insert does not overflow', () => {
+    const doc1 = new Y.Doc()
+    const { view: view1 } = createEditor(doc1.get('doc'))
+
+    // Insert "Hello"
+    const pos = findFirstTextPosition(view1.state.doc)
+    view1.dispatch(view1.state.tr.insertText('Hello', pos))
+
+    // Insert " world"
+    const end = findEndOfFirstBlock(view1.state.doc)
+    view1.dispatch(view1.state.tr.insertText(' world', end))
+
+    // Bold "Hello"
+    const boldFrom = findFirstTextPosition(view1.state.doc)
+    const boldMark = view1.state.schema.marks.bold.create()
+    view1.dispatch(view1.state.tr.addMark(boldFrom, boldFrom + 5, boldMark))
+
+    // Insert "!" at end — overflows in d.diff during reverse sync
+    const end2 = findEndOfFirstBlock(view1.state.doc)
+    view1.dispatch(view1.state.tr.insertText('!', end2))
+
+    expect(view1.state.doc.textContent).toContain('Hello world!')
+  })
+
   /**
    * BUG REPRO: two blocks "aaa" + "a", set cursor after "aa", press Enter.
    * BlockNote's splitBlock + UniqueID appendTransaction produce a single
