@@ -297,7 +297,7 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
  * @param {delta.FormattingAttributes|null} dformat
  * @return {Node}
  */
-const deltaToPNode = (d, schema, dformat) => {
+export const deltaToPNode = (d, schema, dformat) => {
   /**
    * @type {Object<string,any>}
    */

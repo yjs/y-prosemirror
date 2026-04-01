@@ -1,6 +1,6 @@
 import * as d from 'lib0/delta'
 import { ySyncPluginKey } from './keys.js'
-import { deltaToPSteps, deltaAttributionToFormat, nodeToDelta } from './sync-utils.js'
+import { deltaToPSteps, deltaAttributionToFormat, nodeToDelta, deltaToPNode } from './sync-utils.js'
 import * as Y from '@y/y'
 
 /**
@@ -21,6 +21,8 @@ export function pauseSync (state, dispatch) {
   }
   return true
 }
+
+const debugging = false
 
 /**
  * Reconfigure y-prosemirror.
@@ -48,9 +50,15 @@ export const configureYProsemirror = (opts = {}) => (state, dispatch) => {
        * @type {ProsemirrorDelta}
        */
       const ycontent = deltaAttributionToFormat(ytype.toDeltaDeep(attributionManager || Y.noAttributionsManager), pluginState.attributionMapper)
-      const pcontent = nodeToDelta(tr.doc)
-      const diff = d.diff(pcontent.done(), ycontent.done())
-      deltaToPSteps(tr, diff)
+      // @todo it is preferred to apply the minimal diff - at least for debugging purposes. the
+      // document replacal is more reliable though
+      if (debugging) {
+        const pcontent = nodeToDelta(tr.doc)
+        const diff = d.diff(pcontent.done(), ycontent.done())
+        deltaToPSteps(tr, diff)
+      } else {
+        tr.replaceWith(0, tr.doc.content.size, deltaToPNode(ycontent, tr.doc.type.schema, null))
+      }
     }
     dispatch(tr)
   }
