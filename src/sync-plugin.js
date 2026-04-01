@@ -289,8 +289,6 @@ export function syncPlugin (opts = {}) {
               const pcontent = nodeToDelta(view.state.doc)
               const diff = d.diff(ycontent.done(), pcontent.done())
               if (attributionManager != null && attributionManager !== Y.noAttributionsManager) { stripAttributionFormattingFromDelta(diff) }
-              // @todo remove
-              if (JSON.stringify(diff.toJSON()).indexOf('y-attribution') >= 0) debugger
               ytype.applyDelta(diff, attributionManager || Y.noAttributionsManager)
             })
           }

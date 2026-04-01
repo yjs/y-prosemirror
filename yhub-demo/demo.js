@@ -28,7 +28,6 @@ const ydoc = new Y.Doc()
 const wsUrl = 'ws://localhost:3002/ws/' + org
 const provider = new WebsocketProvider(wsUrl, docid, ydoc)
 const yxmlFragment = ydoc.get('prosemirror')
-const prevDoc = new Y.Doc()
 
 provider.awareness.setLocalStateField('user', {
   name: 'User ' + Math.floor(Math.random() * 100),
@@ -41,13 +40,14 @@ const editorParent = /** @type {HTMLElement} */ (document.querySelector('#editor
 /**
  * @type {EditorView}
  */
-let currentView = new EditorView(editorParent, { state: EditorState.create({
+const currentView = new EditorView(editorParent, {
+  state: EditorState.create({
     schema,
     plugins: /** @type {any[]} */ ([]).concat(
       exampleSetup({ schema, history: false }),
       syncPlugin({ mapAttributionToMark: defaultMapAttributionToMark })
     )
-  }) 
+  })
 })
 
 /**
@@ -60,6 +60,8 @@ let isViewingVersion = false
 const suggestionDoc = new Y.Doc({ gc: false, isSuggestionDoc: true })
 const suggestionProvider = new WebsocketProvider(wsUrl, docid + '--suggestions', suggestionDoc, { params: { gc: false } })
 let suggestionOtherClientID = random.uint53()
+
+console.log({ suggestionDoc, suggestionProvider })
 
 const am = /** @type {any} */ (Y).createAttributionManagerFromDiff(ydoc, suggestionDoc, {
   attrs: [Y.createContentAttribute('insert', ['User'])]
@@ -182,7 +184,7 @@ const initLiveEditor = () => {
  */
 const initVersionDiffEditor = (prev, next, attributions) => {
   isViewingVersion = true
-  const diffAM = Y.createAttributionManagerFromDiff(prev, next, /* { attrs: attributions } */)
+  const diffAM = Y.createAttributionManagerFromDiff(prev, next /* { attrs: attributions } */)
   const versionFragment = next.get('prosemirror')
   configureYProsemirror({
     ytype: versionFragment,
@@ -471,4 +473,3 @@ rollbackBtn.addEventListener('click', rollback)
 
 fetchActivity()
 setInterval(fetchActivity, 5000)
-

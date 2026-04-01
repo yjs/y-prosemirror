@@ -573,7 +573,7 @@ export const testDeletionOfSuggestedContent = () => {
 }
 
 export const testDeleteSuggustion = () => {
-  const { viewA, viewSuggestion, viewSuggestionMode, suggestionModeDoc, doc, suggestionModeAM } = createSuggestionSetup({ baseContent: 'hello' })
+  const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({ baseContent: 'hello' })
   t.group('populate content', () => {
     const tr = viewA.state.tr
     // Replace doc content with blockquote > paragraph
@@ -592,7 +592,7 @@ export const testDeleteSuggustion = () => {
     const baseDoc = {
       type: 'doc',
       content: [
-        { type: 'paragraph', content: [{ type: 'text', text: 'hello world' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'hello world' }] }
       ]
     }
     assertDocJSON(
@@ -603,7 +603,7 @@ export const testDeleteSuggustion = () => {
     const expectedDoc = {
       type: 'doc',
       content: [
-        { type: 'paragraph', content: [{ type: 'text', text: 'hello', marks: [deletionMark] }, { type: 'text', text: ' world' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'hello', marks: [deletionMark] }, { type: 'text', text: ' world' }] }
       ]
     }
     assertDocJSON(
@@ -620,7 +620,7 @@ export const testDeleteSuggustion = () => {
 }
 
 export const testReconfigureAfterDeletion = () => {
-  const { viewA, viewSuggestion, viewSuggestionMode, suggestionModeDoc, doc, suggestionModeAM } = createSuggestionSetup({ baseContent: 'hello' })
+  const { viewA, viewSuggestion, viewSuggestionMode, doc } = createSuggestionSetup({ baseContent: 'hello' })
   t.group('populate content', () => {
     const tr = viewA.state.tr
     // Replace doc content with blockquote > paragraph
@@ -634,13 +634,13 @@ export const testReconfigureAfterDeletion = () => {
   const baseDoc = {
     type: 'doc',
     content: [
-      { type: 'paragraph', content: [{ type: 'text', text: 'hello world' }] },
+      { type: 'paragraph', content: [{ type: 'text', text: 'hello world' }] }
     ]
   }
   const expectedSuggestionDoc = {
     type: 'doc',
     content: [
-      { type: 'paragraph', content: [{ type: 'text', text: 'he' }, { type: 'text', text: 'llo', marks: [deletionMark] }, { type: 'text', text: ' world' }, { type: 'text', text: '!', marks: [insertionMark] }] },
+      { type: 'paragraph', content: [{ type: 'text', text: 'he' }, { type: 'text', text: 'llo', marks: [deletionMark] }, { type: 'text', text: ' world' }, { type: 'text', text: '!', marks: [insertionMark] }] }
     ]
   }
   t.group('suggest delete', () => {
@@ -665,7 +665,7 @@ export const testReconfigureAfterDeletion = () => {
     )
   })
   t.group('reconfigure', () => {
-    YPM.configureYProsemirror({ ytype: doc.get('prosemirror') , attributionManager: Y.noAttributionsManager })(viewSuggestionMode.state, viewSuggestionMode.dispatch)
+    YPM.configureYProsemirror({ ytype: doc.get('prosemirror'), attributionManager: Y.noAttributionsManager })(viewSuggestionMode.state, viewSuggestionMode.dispatch)
     assertDocJSON(
       viewSuggestionMode.state.doc,
       baseDoc,
@@ -680,7 +680,7 @@ export const testReconfigureAfterDeletion = () => {
 }
 
 export const testReconfigureAfterDeletion2 = () => {
-  const { viewA, viewSuggestion, viewSuggestionMode, suggestionModeDoc, doc, suggestionModeAM, suggestionDoc, suggestionAM } = createSuggestionSetup({ baseContent: 'hello' })
+  const { viewA, viewSuggestionMode, suggestionModeDoc, doc, suggestionModeAM, suggestionDoc, suggestionAM } = createSuggestionSetup({ baseContent: 'hello' })
   t.group('populate content', () => {
     const tr = viewA.state.tr
     // Replace doc content with blockquote > paragraph
@@ -694,13 +694,13 @@ export const testReconfigureAfterDeletion2 = () => {
   const baseDoc = {
     type: 'doc',
     content: [
-      { type: 'paragraph', content: [{ type: 'text', text: 'abc abc abc' }] },
+      { type: 'paragraph', content: [{ type: 'text', text: 'abc abc abc' }] }
     ]
   }
   const expectedSuggestionDoc = {
     type: 'doc',
     content: [
-      { 
+      {
         type: 'paragraph',
         content: [
           { type: 'text', text: 'a' },
@@ -743,7 +743,7 @@ export const testReconfigureAfterDeletion2 = () => {
     // )
   })
   t.group('reconfigure', () => {
-    YPM.configureYProsemirror({ ytype: doc.get('prosemirror') , attributionManager: Y.noAttributionsManager })(viewSuggestionMode.state, viewSuggestionMode.dispatch)
+    YPM.configureYProsemirror({ ytype: doc.get('prosemirror'), attributionManager: Y.noAttributionsManager })(viewSuggestionMode.state, viewSuggestionMode.dispatch)
     assertDocJSON(
       viewSuggestionMode.state.doc,
       baseDoc,

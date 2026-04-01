@@ -7,7 +7,6 @@ import { Fragment, Schema, Slice } from 'prosemirror-model'
 import * as delta from 'lib0/delta'
 import { findWrapping, ReplaceAroundStep } from 'prosemirror-transform'
 import { EditorView } from 'prosemirror-view'
-import * as promise from 'lib0/promise'
 
 const schema = new Schema({
   nodes: basicSchema.nodes,
