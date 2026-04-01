@@ -5,6 +5,7 @@ import path, { dirname } from 'path'
 
 // import * as prosemirror from './y-prosemirror.test.js'
 import * as blocknotesuggestions from './blocknote/suggestions.test.js'
+import * as blocknoteSchema from './blocknote/schema.test.js'
 import * as blocknotesync from './blocknote/sync.test.js'
 import * as delta from './delta.test.js'
 import * as suggestions from './suggestions/suggestions.test.js'
@@ -54,6 +55,7 @@ runTests({
   delta,
   suggestions,
   suggestionsSchema,
+  blocknoteSchema,
   blocknotesync,
   blocknotesuggestions
   // prosemirror,
