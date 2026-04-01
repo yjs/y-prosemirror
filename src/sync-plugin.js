@@ -110,8 +110,7 @@ export function syncPlugin (opts = {}) {
         pluginState.ytype == null ||
           pluginState.attributionManager == null ||
           pluginState.attributionManager === Y.noAttributionsManager ||
-          trs.some(tr => tr.getMeta('y-sync-transaction') ||
-          tr.getMeta('y-sync-append'))
+          trs.some(tr => tr.getMeta('y-sync-transaction') || tr.getMeta(ySyncPluginKey) || tr.getMeta('y-sync-append'))
       ) {
         return null
       }

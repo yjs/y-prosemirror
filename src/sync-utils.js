@@ -306,7 +306,7 @@ export const deltaToPNode = (d, schema, dformat) => {
     attrs[attr.key] = attr.value
   }
   const dc = d.children.map(c => delta.$insertOp.check(c) ? c.insert.map(cn => deltaToPNode(cn, schema, c.format)) : (delta.$textOp.check(c) ? [schema.text(c.insert, formattingAttributesToMarks(c.format, schema))] : []))
-  return schema.node(d.name, attrs, dc.flat(1), formattingAttributesToMarks(dformat, schema))
+  return schema.node(d.name ?? 'doc', attrs, dc.flat(1), formattingAttributesToMarks(dformat, schema))
 }
 
 /**
