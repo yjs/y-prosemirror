@@ -25,7 +25,6 @@ import { Schema } from 'prosemirror-model'
 import * as basicSchema from 'prosemirror-schema-basic'
 import { findWrapping } from 'prosemirror-transform'
 import { schema as complexSchema } from './complexSchema.js'
-import * as promise from 'lib0/promise'
 
 const schema = new Schema({
   nodes: basicSchema.nodes,
