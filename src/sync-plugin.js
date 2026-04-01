@@ -86,48 +86,6 @@ const stripAttributionFormattingFromDelta = delta => {
  * @returns {Plugin}
  */
 export function syncPlugin (opts = {}) {
-  const mutex = mux.createMutex()
-  // Store the current subscription unsubscribe function
-  /** @type {(() => void) | null} */
-  let unsubscribeFn = null
-  /**
-   * Subscribe to ytype changes and apply remote updates to prosemirror
-   * @param {object} opts
-   * @param {import('prosemirror-view').EditorView} opts.view
-   * @param {Y.Type?} opts.ytype
-   * @param {Y.AbstractAttributionManager?} opts.attributionManager
-   * @param {AttributionMapper} opts.attributionMapper
-   */
-  function subscribeToYType ({ view, ytype, attributionManager, attributionMapper }) {
-    // Unsubscribe from previous subscription if it exists
-    unsubscribeFn?.()
-    if (ytype != null) {
-      const yTypeCb = ytype.observeDeep(change => {
-        if (!view || view.isDestroyed) {
-          return unsubscribeFn?.()
-        }
-        mutex(() => {
-          const d = deltaAttributionToFormat(
-            change.getDelta(attributionManager || Y.noAttributionsManager, { deep: true }),
-            attributionMapper
-          ).done()
-          const ptr = deltaToPSteps(view.state.tr, d)
-          ptr.setMeta('addToHistory', false)
-          ptr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
-            change,
-            attributionManager,
-            attributionMapper,
-            ytype
-          }))
-          view.dispatch(ptr)
-        })
-      })
-      unsubscribeFn = () => {
-        ytype.unobserveDeep(yTypeCb)
-        unsubscribeFn = null
-      }
-    }
-  }
   return new Plugin({
     key: ySyncPluginKey,
     state: {
@@ -261,6 +219,48 @@ export function syncPlugin (opts = {}) {
       return tr
     },
     view () {
+      const mutex = mux.createMutex()
+      // Store the current subscription unsubscribe function
+      /** @type {(() => void) | null} */
+      let unsubscribeFn = null
+      /**
+       * Subscribe to ytype changes and apply remote updates to prosemirror
+       * @param {object} opts
+       * @param {import('prosemirror-view').EditorView} opts.view
+       * @param {Y.Type?} opts.ytype
+       * @param {Y.AbstractAttributionManager?} opts.attributionManager
+       * @param {AttributionMapper} opts.attributionMapper
+       */
+      function subscribeToYType ({ view, ytype, attributionManager, attributionMapper }) {
+        // Unsubscribe from previous subscription if it exists
+        unsubscribeFn?.()
+        if (ytype != null) {
+          const yTypeCb = ytype.observeDeep(change => {
+            if (!view || view.isDestroyed) {
+              return unsubscribeFn?.()
+            }
+            mutex(() => {
+              const d = deltaAttributionToFormat(
+                change.getDelta(attributionManager || Y.noAttributionsManager, { deep: true }),
+                attributionMapper
+              ).done()
+              const ptr = deltaToPSteps(view.state.tr, d)
+              ptr.setMeta('addToHistory', false)
+              ptr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
+                change,
+                attributionManager,
+                attributionMapper,
+                ytype
+              }))
+              view.dispatch(ptr)
+            })
+          })
+          unsubscribeFn = () => {
+            ytype.unobserveDeep(yTypeCb)
+            unsubscribeFn = null
+          }
+        }
+      }
       return {
         update (view, prevState) {
           const pluginState = $syncPluginState.cast(ySyncPluginKey.getState(view.state))
