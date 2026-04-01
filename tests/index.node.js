@@ -7,7 +7,8 @@ import path, { dirname } from 'path'
 import * as blocknotesuggestions from './blocknote/suggestions.test.js'
 import * as blocknotesync from './blocknote/sync.test.js'
 import * as delta from './delta.test.js'
-import * as suggestions from './suggestions.test.js'
+import * as suggestions from './suggestions/suggestions.test.js'
+import * as suggestionsSchema from './suggestions/schema.test.js'
 // import * as tr from './tr.test.js'
 
 import { isBrowser, isNode } from 'lib0/environment'
@@ -52,6 +53,7 @@ if (isBrowser) {
 runTests({
   delta,
   suggestions,
+  suggestionsSchema,
   blocknotesync,
   blocknotesuggestions
   // prosemirror,

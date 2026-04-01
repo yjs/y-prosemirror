@@ -2,142 +2,15 @@ import * as YPM from '@y/prosemirror'
 import * as Y from '@y/y'
 import * as delta from 'lib0/delta'
 import * as t from 'lib0/testing'
-import { Schema } from 'prosemirror-model'
-import * as basicSchema from 'prosemirror-schema-basic'
-import { EditorState } from 'prosemirror-state'
 
 import {
-  createPMView as _createPMView,
   assertDocJSON,
   deletionMark,
-  insertionMark,
-  setupTwoWaySync
-} from './helpers.js'
+  insertionMark
+} from '../helpers.js'
 
-// === Schema with attribution marks ===
-
-// AddNodeMarkStep validates marks against the parent node's markSet.
-// PM defaults markSet to [] for nodes without inline content, so container
-// nodes that hold marked children need attribution marks in their spec.
-const attributionMarkNames =
-  'y-attribution-insertion y-attribution-deletion y-attribution-format'
-const nodes = Object.assign({}, basicSchema.nodes, {
-  doc: Object.assign({}, basicSchema.nodes.doc, {
-    marks: attributionMarkNames
-  }),
-  blockquote: Object.assign({}, basicSchema.nodes.blockquote, {
-    marks: attributionMarkNames
-  })
-})
-
-const schema = new Schema({
-  nodes,
-  marks: Object.assign({}, basicSchema.marks, {
-    'y-attribution-insertion': {
-      attrs: { userIds: { default: null }, timestamp: { default: null } },
-      excludes: '',
-      parseDOM: [{ tag: 'y-ins' }],
-      toDOM () {
-        return /** @type {const} */ (['y-ins', 0])
-      }
-    },
-    'y-attribution-deletion': {
-      attrs: { userIds: { default: null }, timestamp: { default: null } },
-      excludes: '',
-      parseDOM: [{ tag: 'y-del' }],
-      toDOM () {
-        return /** @type {const} */ (['y-del', 0])
-      }
-    },
-    'y-attribution-format': {
-      attrs: { userIdsByAttr: { default: null }, timestamp: { default: null } },
-      excludes: '',
-      parseDOM: [{ tag: 'y-fmt' }],
-      toDOM () {
-        return /** @type {const} */ (['y-fmt', 0])
-      }
-    }
-  })
-})
-
-// === Helpers ===
-
-/**
- * Create a ProseMirror EditorView backed by a Y.js type.
- * @param {Y.Type} ytype
- * @param {Y.AbstractAttributionManager} [attributionManager]
- */
-const createPMView = (ytype, attributionManager) =>
-  _createPMView(schema, ytype, attributionManager)
-
-/**
- * Set up the suggestion architecture:
- *   doc (base)
- *   suggestionDoc (view suggestions, suggestionMode=false) ↔ suggestionModeDoc (edit suggestions, suggestionMode=true)
- *
- * @param {object} [opts]
- * @param {string} [opts.baseContent] - initial paragraph text content
- */
-const createSuggestionSetup = (opts = {}) => {
-  const { baseContent } = opts
-
-  const doc = new Y.Doc({ gc: false })
-
-  // "suggestion" = show suggestions, but edit "main document" (if possible)
-  // "suggestionMode" = show suggestions and behave like suggesting user (edits always go to sugestion doc)
-  const suggestionDoc = new Y.Doc({ isSuggestionDoc: true, gc: false })
-  const suggestionModeDoc = new Y.Doc({ isSuggestionDoc: true, gc: false })
-
-  const attrs = new Y.Attributions()
-  const suggestionAM = Y.createAttributionManagerFromDiff(doc, suggestionDoc, {
-    attrs
-  })
-  suggestionAM.suggestionMode = false
-
-  const suggestionModeAM = Y.createAttributionManagerFromDiff(
-    doc,
-    suggestionModeDoc,
-    { attrs }
-  )
-  suggestionModeAM.suggestionMode = true
-
-  // Sync suggestion docs
-  setupTwoWaySync(suggestionDoc, suggestionModeDoc)
-
-  const viewA = createPMView(doc.get('prosemirror'))
-  const viewSuggestion = createPMView(
-    suggestionDoc.get('prosemirror'),
-    suggestionAM
-  )
-  const viewSuggestionMode = createPMView(
-    suggestionModeDoc.get('prosemirror'),
-    suggestionModeAM
-  )
-
-  if (baseContent) {
-    doc.get('prosemirror').applyDelta(
-      delta
-        .create()
-        .insert([delta.create('paragraph', {}, baseContent)])
-        .done()
-    )
-  }
-
-  return {
-    doc,
-    suggestionDoc,
-    suggestionModeDoc,
-    attrs,
-    suggestionAM,
-    suggestionModeAM,
-    viewA,
-    viewSuggestion,
-    viewSuggestionMode
-  }
-}
-
-/** Insertion mark as it appears in PM doc JSON — re-export kept for backwards compat */
-// insertionMark and deletionMark are imported from helpers.js
+import { schema } from './schema.js'
+import { createSuggestionSetup } from './helpers.js'
 
 // === Tests ===
 
@@ -492,81 +365,6 @@ export const testImageInsertionMarks = () => {
     viewSuggestionMode.state.doc,
     expectedDoc,
     'Suggestion Mode: image has insertion mark'
-  )
-}
-
-// === PM Schema validation tests ===
-// Verify that addNodeMark works for the node types we care about.
-
-/**
- * Schema: paragraph in doc can have an insertion node mark (doc allows attribution marks).
- */
-export const testSchemaParaInDocNodeMark = () => {
-  const state = EditorState.create({ schema })
-  const tr = state.tr
-  const mark = schema.marks['y-attribution-insertion'].create({
-    userIds: [],
-    timestamp: null
-  })
-  // pos 0 = the default paragraph
-  tr.addNodeMark(0, mark)
-  t.assert(
-    tr.doc.firstChild?.marks.some(
-      (m) => m.type.name === 'y-attribution-insertion'
-    ),
-    'paragraph in doc has insertion mark'
-  )
-}
-
-/**
- * Schema: paragraph in blockquote can have an insertion node mark.
- */
-export const testSchemaParaInBlockquoteNodeMark = () => {
-  const state = EditorState.create({ schema })
-  const tr = state.tr
-  // Replace doc content with blockquote > paragraph
-  tr.replaceWith(
-    0,
-    tr.doc.content.size,
-    schema.nodes.blockquote.create(
-      null,
-      schema.nodes.paragraph.create(null, schema.text('quoted'))
-    )
-  )
-  const mark = schema.marks['y-attribution-insertion'].create({
-    userIds: [],
-    timestamp: null
-  })
-  // pos 1 = the paragraph inside the blockquote
-  tr.addNodeMark(1, mark)
-  const bq = tr.doc.firstChild
-  t.assert(bq?.type.name === 'blockquote', 'first child is blockquote')
-  const para = bq?.firstChild
-  t.assert(
-    para?.marks.some((m) => m.type.name === 'y-attribution-insertion'),
-    'paragraph in blockquote has insertion mark'
-  )
-}
-
-/**
- * Schema: image in paragraph can have an insertion node mark.
- */
-export const testSchemaImageInParaNodeMark = () => {
-  const state = EditorState.create({ schema })
-  const tr = state.tr
-  // Insert image into the default paragraph
-  tr.insert(1, schema.nodes.image.create({ src: 'test.png' }))
-  const mark = schema.marks['y-attribution-insertion'].create({
-    userIds: [],
-    timestamp: null
-  })
-  // pos 1 = the image node
-  tr.addNodeMark(1, mark)
-  const img = tr.doc.firstChild?.firstChild
-  t.assert(img?.type.name === 'image', 'first inline child is image')
-  t.assert(
-    img?.marks.some((m) => m.type.name === 'y-attribution-insertion'),
-    'image in paragraph has insertion mark'
   )
 }
 

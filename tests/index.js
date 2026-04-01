@@ -1,6 +1,7 @@
 // import * as prosemirror from './y-prosemirror.test.js'
 import * as delta from './delta.test.js'
-import * as suggestions from './suggestions.test.js'
+import * as suggestions from './suggestions/suggestions.test.js'
+import * as suggestionsSchema from './suggestions/schema.test.js'
 // import * as tr from './tr.test.js'
 
 import { runTests } from 'lib0/testing'
@@ -12,7 +13,8 @@ if (isBrowser) {
 }
 runTests({
   delta,
-  suggestions
+  suggestions,
+  suggestionsSchema
   // prosemirror,
   // tr
 }).then(success => {
