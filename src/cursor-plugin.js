@@ -63,7 +63,7 @@ export const defaultSelectionBuilder = (user) => {
 }
 
 /**
- * @param {any} state
+ * @param {import('prosemirror-state').EditorState} state
  * @param {import('@y/protocols/awareness').Awareness} awareness
  * @param {AwarenessFilter} awarenessFilter
  * @param {(user: User, clientId: number) => Element} createCursor
@@ -206,7 +206,7 @@ export const yCursorPlugin = (
       const awarenessListener = () => {
         // @ts-ignore
         if (view.docView) { // TODO why is this using docView? Ask Kevin about this.
-          view.state.tr.setMeta(yCursorPluginKey, { awarenessUpdated: true })
+          view.dispatch(view.state.tr.setMeta(yCursorPluginKey, { awarenessUpdated: true }))
         }
       }
       const updateCursorInfo = () => {
