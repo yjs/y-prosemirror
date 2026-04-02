@@ -23,8 +23,14 @@ export const absolutePositionToRelativePosition = (resolvedPos, type, am) => {
     // @ts-ignore
     currentYType = currentYType.get(childIndex, am) // @todo get method should support attribution manager
   }
-  // Use the parent offset as the position within the target Y.js type
-  const offset = resolvedPos.parentOffset
+  // Use the parent offset as the position within the target Y.js type.
+  // For inline content (text containers), parentOffset equals the Y type index.
+  // For block content (containers like doc, blockquote, lists), parentOffset is a
+  // cumulative nodeSize sum, so we use the child index instead.
+  const parentNode = resolvedPos.node(depth)
+  const offset = parentNode.inlineContent
+    ? resolvedPos.parentOffset
+    : resolvedPos.index(depth)
 
   return Y.createRelativePositionFromTypeIndex(currentYType, offset,
     // If we are at the end of a type, then we want to be associated to the end of the type
@@ -57,7 +63,7 @@ export const relativePositionToAbsolutePosition = (relPos, documentType, pmDoc, 
    */
   const path = s.$array(s.$number).cast(Y.getPathTo(documentType, decodedPos.type))
   // TODO what if the ytype is a grandchild of the documentType? I think this assumes a direct child relationship
-  let pos = 1 // Start inside the document
+  let pos = 0 // Start at the beginning of the document
   let currentNode = pmDoc
   // Traverse the path to find the nested position
   for (let i = 0; i < path.length; i++) {
@@ -70,8 +76,18 @@ export const relativePositionToAbsolutePosition = (relPos, documentType, pmDoc, 
     pos += 1
     currentNode = currentNode.child(childIndex)
   }
-  // Add the offset within the target node
-  return pos + decodedPos.index
+  // Add the offset within the target node.
+  // For inline content (text containers), decodedPos.index equals the PM parentOffset.
+  // For block content (containers like doc, blockquote, lists), decodedPos.index is a
+  // child count, so we convert it to a PM offset by summing preceding children's node sizes.
+  if (currentNode.inlineContent) {
+    return pos + decodedPos.index
+  }
+  let blockOffset = 0
+  for (let j = 0; j < decodedPos.index; j++) {
+    blockOffset += currentNode.child(j).nodeSize
+  }
+  return pos + blockOffset
 }
 
 /**
