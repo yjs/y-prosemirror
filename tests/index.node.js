@@ -5,6 +5,7 @@ import jsdom from 'jsdom'
 
 // import * as prosemirror from './y-prosemirror.test.js'
 import * as delta from './delta.test.js'
+import * as positions from './positions.test.js'
 import * as suggestions from './suggestions.test.js'
 // import * as tr from './tr.test.js'
 
@@ -49,6 +50,7 @@ if (isBrowser) {
 }
 runTests({
   delta,
+  positions,
   suggestions
   // prosemirror,
   // tr
