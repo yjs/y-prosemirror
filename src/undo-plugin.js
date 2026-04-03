@@ -122,7 +122,7 @@ export const yUndoPlugin = ({ protectedNodes = defaultProtectedNodes, trackedOri
       undoManager = um
       onStackItemAdded = um.on('stack-item-added', ({ stackItem }) => {
         const prevSel = yUndoPluginKey.getState(view.state)?.prevSel
-        if (prevSel) {
+        if (prevSel && !stackItem.meta.has(yUndoPluginKey)) {
           stackItem.meta.set(yUndoPluginKey, prevSel)
         }
       })
