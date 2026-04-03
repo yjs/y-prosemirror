@@ -138,7 +138,7 @@ export const yUndoPlugin = ({ protectedNodes = defaultProtectedNodes, trackedOri
         const isMerge = currentLength === lastUndoStackLength
         if (!isMerge) {
           // New undo group — capture the selection from before this edit
-          currentGroupSel = prevSel
+          currentGroupSel = prevSel ?? null
         }
         // Always set on the (possibly new/replaced) stack item, using the group's original selection
         if (currentGroupSel) {
