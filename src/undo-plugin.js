@@ -6,7 +6,7 @@ import { yUndoPluginKey, ySyncPluginKey } from './keys.js'
 /**
  * @typedef {Object} UndoPluginState
  * @property {import('@y/y').UndoManager | null} undoManager
- * @property {{ bookmark: import('prosemirror-state').SelectionBookmark, mapping: ReturnType<ReturnType<typeof relativePositionStoreMapping>['captureMapping']> } | null} prevSel
+ * @property {{ bookmark: import('prosemirror-state').SelectionBookmark, restoreMapping: ReturnType<typeof relativePositionStoreMapping>['restoreMapping'] } | null} prevSel
  * @property {boolean} hasUndoOps
  * @property {boolean} hasRedoOps
  * @property {boolean} addToHistory
@@ -26,18 +26,20 @@ export const defaultDeleteFilter = (item, protectedNodes) => !(item instanceof I
 
 /**
  * Captures the current selection as a bookmark mapped through relative positions.
+ * Returns both the bookmark and the restoreMapping function from the same closure,
+ * so that restoration can look up the stored relative positions.
  *
  * @param {import('prosemirror-state').EditorState} state
- * @returns {{ bookmark: import('prosemirror-state').SelectionBookmark, mapping: ReturnType<ReturnType<typeof relativePositionStoreMapping>['captureMapping']> } | null}
+ * @returns {{ bookmark: import('prosemirror-state').SelectionBookmark, restoreMapping: ReturnType<typeof relativePositionStoreMapping>['restoreMapping'] } | null}
  */
 const getRelativeSelection = (state) => {
   const syncState = ySyncPluginKey.getState(state)
   if (!syncState?.ytype || syncState.ytype.length === 0) return null
   try {
-    const { captureMapping } = relativePositionStoreMapping(syncState.ytype)
+    const { captureMapping, restoreMapping } = relativePositionStoreMapping(syncState.ytype)
     const mappable = captureMapping(state.doc, syncState.attributionManager, true)
     const bookmark = state.selection.getBookmark().map(mappable)
-    return { bookmark, mapping: mappable }
+    return { bookmark, restoreMapping }
   } catch {
     return null
   }
@@ -89,8 +91,12 @@ export const yUndoPlugin = ({ protectedNodes = defaultProtectedNodes, trackedOri
       }
       const hasUndoOps = undoManager.undoStack.length > 0
       const hasRedoOps = undoManager.redoStack.length > 0
-      const prevSel = getRelativeSelection(oldState)
-      if (prevSel) {
+      // Only capture prevSel from user-initiated transactions, not plugin-generated ones.
+      // Plugin transactions (sync, appends) overwrite prevSel with intermediate positions,
+      // causing the cursor to land at the wrong location after undo (see yjs/y-prosemirror#38).
+      const isPluginTr = tr.getMeta('y-sync-transaction') || tr.getMeta(ySyncPluginKey) || tr.getMeta('y-sync-append') || tr.getMeta('addToHistory') === false
+      const prevSel = isPluginTr ? val.prevSel : getRelativeSelection(oldState)
+      if (prevSel !== val.prevSel) {
         return { undoManager, prevSel, hasUndoOps, hasRedoOps, addToHistory: true }
       }
       if (hasUndoOps !== val.hasUndoOps || hasRedoOps !== val.hasRedoOps || val.addToHistory !== true) {
@@ -118,23 +124,38 @@ export const yUndoPlugin = ({ protectedNodes = defaultProtectedNodes, trackedOri
     /** @type {((...args: any[]) => void) | null} */
     let onStackItemPopped = null
 
+    let lastUndoStackLength = 0
+    /** @type {UndoPluginState['prevSel']} */
+    let currentGroupSel = null
+
     const bindUndoManager = (/** @type {import('@y/y').UndoManager} */ um) => {
       undoManager = um
-      onStackItemAdded = um.on('stack-item-added', ({ stackItem }) => {
+      lastUndoStackLength = um.undoStack.length
+      onStackItemAdded = um.on('stack-item-added', ({ stackItem, type }) => {
+        if (type !== 'undo') return
         const prevSel = yUndoPluginKey.getState(view.state)?.prevSel
-        if (prevSel && !stackItem.meta.has(yUndoPluginKey)) {
-          stackItem.meta.set(yUndoPluginKey, prevSel)
+        const currentLength = um.undoStack.length
+        const isMerge = currentLength === lastUndoStackLength
+        if (!isMerge) {
+          // New undo group — capture the selection from before this edit
+          currentGroupSel = prevSel
         }
+        // Always set on the (possibly new/replaced) stack item, using the group's original selection
+        if (currentGroupSel) {
+          stackItem.meta.set(yUndoPluginKey, currentGroupSel)
+        }
+        lastUndoStackLength = currentLength
       })
       onStackItemPopped = um.on('stack-item-popped', ({ stackItem }) => {
+        lastUndoStackLength = um.undoStack.length
+        currentGroupSel = null
         const sel = stackItem.meta.get(yUndoPluginKey)
         if (sel) {
           const syncState = ySyncPluginKey.getState(view.state)
           if (syncState?.ytype) {
             try {
-              const { restoreMapping } = relativePositionStoreMapping(syncState.ytype)
               const restoredBookmark = sel.bookmark.map(
-                restoreMapping(syncState.ytype, view.state.doc, syncState.attributionManager)
+                sel.restoreMapping(syncState.ytype, view.state.doc, syncState.attributionManager)
               )
               const selection = restoredBookmark.resolve(view.state.doc)
               const tr = view.state.tr.setSelection(selection)

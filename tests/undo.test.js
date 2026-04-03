@@ -158,6 +158,174 @@ export const testUndoDeleteRestoresContent = () => {
   t.assert(view.state.doc.textContent === 'hello ', 'content was re-deleted after redo')
 }
 
+/**
+ * Type text, move cursor elsewhere (simulating a click), then undo →
+ * cursor should jump to where the text was typed, not stay at click position.
+ */
+export const testCursorAfterTypeThenMoveThenUndo = () => {
+  const ydoc = new Y.Doc()
+  const ytype = ydoc.get('prosemirror')
+  const view = createProsemirrorView(ytype)
+
+  // Set up a document with two paragraphs to have a place to click away to
+  insertParagraph(view, 'existing content')
+  const um = /** @type {import('@y/y').UndoManager} */ (YPM.yUndoPluginKey.getState(view.state)?.undoManager)
+  um.stopCapturing()
+
+  // Move cursor to start of "existing content", then type "NEW" (like real typing at cursor)
+  view.dispatch(view.state.tr.setSelection(
+    TextSelection.near(view.state.doc.resolve(1))
+  ))
+  view.dispatch(view.state.tr.insertText('NEW'))
+  t.assert(view.state.doc.textContent.includes('NEW'), 'NEW was typed')
+  const cursorAfterTyping = view.state.selection.anchor
+  t.assert(cursorAfterTyping === 4, 'cursor is right after NEW')
+  um.stopCapturing()
+
+  // Simulate clicking away — move cursor to the empty paragraph at the end
+  const emptyParaPos = view.state.doc.content.size - 2
+  view.dispatch(view.state.tr.setSelection(
+    TextSelection.near(view.state.doc.resolve(emptyParaPos))
+  ))
+  const cursorAfterClick = view.state.selection.anchor
+  t.assert(cursorAfterClick !== cursorAfterTyping, 'cursor moved away from typing position')
+
+  // Undo the "NEW" insertion
+  YPM.undo(view.state)
+  t.assert(!view.state.doc.textContent.includes('NEW'), 'NEW was undone')
+  // Cursor should NOT stay at the click position — it should jump to where "NEW" was removed
+  t.assert(view.state.selection.anchor !== cursorAfterClick, 'cursor moved from click position to undone change location')
+}
+
+/**
+ * Type multiple characters that merge into one undo group, move cursor, undo →
+ * cursor should go to where the FIRST character was typed, not the last.
+ * Reproduces the merge bug where UndoManager creates fresh StackItems on merge.
+ */
+export const testCursorAfterMergedTypesThenMoveThenUndo = () => {
+  const ydoc = new Y.Doc()
+  const ytype = ydoc.get('prosemirror')
+  const view = createProsemirrorView(ytype)
+
+  // Set up initial content
+  insertParagraph(view, 'existing content')
+  const um = /** @type {import('@y/y').UndoManager} */ (YPM.yUndoPluginKey.getState(view.state)?.undoManager)
+  um.stopCapturing()
+
+  // Move cursor to start, then type 3 characters one by one (will merge in UndoManager)
+  view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(1))))
+  const cursorBeforeTyping = view.state.selection.anchor
+  view.dispatch(view.state.tr.insertText('a'))
+  view.dispatch(view.state.tr.insertText('b'))
+  view.dispatch(view.state.tr.insertText('c'))
+  t.assert(view.state.doc.textContent.startsWith('abc'), 'abc was typed')
+  um.stopCapturing()
+
+  // Click away to the empty paragraph
+  const emptyParaPos = view.state.doc.content.size - 2
+  view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(emptyParaPos))))
+  const cursorAfterClick = view.state.selection.anchor
+
+  // Undo — should undo all of "abc" and cursor should go to position before typing
+  YPM.undo(view.state)
+  t.assert(!view.state.doc.textContent.includes('abc'), 'abc was undone')
+  t.assert(view.state.selection.anchor !== cursorAfterClick, 'cursor moved from click position')
+  t.assert(view.state.selection.anchor === cursorBeforeTyping, 'cursor restored to position before first character was typed')
+}
+
+/**
+ * Multiple undo groups with cursor moves in between — each undo should restore
+ * to the correct position for that group.
+ */
+export const testCursorRestorationAcrossMultipleUndoGroups = () => {
+  const ydoc = new Y.Doc()
+  const ytype = ydoc.get('prosemirror')
+  const view = createProsemirrorView(ytype)
+
+  // Set up a paragraph with some text
+  insertParagraph(view, 'hello world')
+  const um = /** @type {import('@y/y').UndoManager} */ (YPM.yUndoPluginKey.getState(view.state)?.undoManager)
+  um.stopCapturing()
+
+  // Group 1: type at position 1
+  view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(1))))
+  const pos1 = view.state.selection.anchor
+  view.dispatch(view.state.tr.insertText('AAA'))
+  um.stopCapturing()
+
+  // Group 2: type at position 8 (after "AAA" shifted things)
+  view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(8))))
+  const pos2 = view.state.selection.anchor
+  view.dispatch(view.state.tr.insertText('BBB'))
+  um.stopCapturing()
+
+  // Move cursor somewhere else entirely
+  const endPos = view.state.doc.content.size - 2
+  view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(endPos))))
+
+  // Undo group 2 — cursor should go to pos2
+  YPM.undo(view.state)
+  t.assert(!view.state.doc.textContent.includes('BBB'), 'BBB was undone')
+  t.assert(view.state.selection.anchor === pos2, 'cursor restored to group 2 typing position')
+
+  // Undo group 1 — cursor should go to pos1
+  YPM.undo(view.state)
+  t.assert(!view.state.doc.textContent.includes('AAA'), 'AAA was undone')
+  t.assert(view.state.selection.anchor === pos1, 'cursor restored to group 1 typing position')
+}
+
+/**
+ * Same as testCursorAfterTypeThenMoveThenUndo but with two synced editors —
+ * remote changes should not interfere with cursor restoration after undo.
+ */
+export const testCursorAfterTypeThenMoveThenUndoWithSync = () => {
+  const ydoc1 = new Y.Doc()
+  const ydoc2 = new Y.Doc()
+  const ytype1 = ydoc1.get('prosemirror')
+  const ytype2 = ydoc2.get('prosemirror')
+  const view1 = createProsemirrorView(ytype1)
+  const view2 = createProsemirrorView(ytype2)
+
+  // Sync docs bidirectionally
+  const sync = () => {
+    const sv1 = Y.encodeStateVector(ydoc1)
+    const sv2 = Y.encodeStateVector(ydoc2)
+    const update1 = Y.encodeStateAsUpdate(ydoc1, sv2)
+    const update2 = Y.encodeStateAsUpdate(ydoc2, sv1)
+    Y.applyUpdate(ydoc1, update2)
+    Y.applyUpdate(ydoc2, update1)
+  }
+
+  // Editor 1: set up initial content
+  insertParagraph(view1, 'existing content')
+  sync()
+  const um = /** @type {import('@y/y').UndoManager} */ (YPM.yUndoPluginKey.getState(view1.state)?.undoManager)
+  um.stopCapturing()
+
+  // Editor 1: move cursor to start, then type "NEW" (like real typing)
+  view1.dispatch(view1.state.tr.setSelection(
+    TextSelection.near(view1.state.doc.resolve(1))
+  ))
+  view1.dispatch(view1.state.tr.insertText('NEW'))
+  t.assert(view1.state.doc.textContent.includes('NEW'), 'NEW was typed in editor 1')
+  um.stopCapturing()
+  sync()
+
+  // Editor 1: move cursor to the empty paragraph at the end
+  const emptyParaPos = view1.state.doc.content.size - 2
+  view1.dispatch(view1.state.tr.setSelection(
+    TextSelection.near(view1.state.doc.resolve(emptyParaPos))
+  ))
+  const cursorAfterClick = view1.state.selection.anchor
+
+  // Editor 1: undo
+  YPM.undo(view1.state)
+  t.assert(!view1.state.doc.textContent.includes('NEW'), 'NEW was undone')
+  t.assert(view1.state.selection.anchor !== cursorAfterClick, 'cursor moved from click position to undone change location (with sync)')
+
+  view2.destroy()
+}
+
 export const testAddToHistoryIgnore = () => {
   const ydoc = new Y.Doc()
   const ytype = ydoc.get('prosemirror')
@@ -182,6 +350,65 @@ export const testAddToHistoryIgnore = () => {
   YPM.undo(view.state)
   // After undoing the first batch (123 + 456), only the non-tracked 'abc' should remain
   t.assert(view.state.doc.textContent === 'abc', 'first batch (123+456) was undone, only abc remains')
+}
+
+/**
+ * Reproduces https://github.com/yjs/y-prosemirror/issues/38
+ * Type in a paragraph, press Enter (new paragraph, cursor on line 2), undo →
+ * cursor should return to line 1, not stay on line 2.
+ */
+export const testCursorPositionAfterUndoNewline = () => {
+  const ydoc = new Y.Doc()
+  const ytype = ydoc.get('prosemirror')
+  const view = createProsemirrorView(ytype)
+
+  // Type "hello" into the empty paragraph
+  view.dispatch(view.state.tr.insertText('hello', 1))
+  t.assert(view.state.doc.textContent === 'hello', 'typed hello')
+
+  const um = /** @type {import('@y/y').UndoManager} */ (YPM.yUndoPluginKey.getState(view.state)?.undoManager)
+  um.stopCapturing()
+
+  // Press Enter — split the paragraph, cursor moves to the new (second) paragraph
+  const pos = view.state.selection.from
+  view.dispatch(view.state.tr.split(pos))
+  const cursorAfterEnter = view.state.selection.anchor
+  t.assert(cursorAfterEnter > pos, 'cursor moved to second paragraph after Enter')
+
+  // Undo the Enter — cursor should return to end of "hello" (line 1)
+  YPM.undo(view.state)
+  t.assert(view.state.selection.anchor <= pos, 'cursor returned to first paragraph after undo (issue #38)')
+}
+
+/**
+ * Type at position A, move cursor to position B, undo →
+ * cursor should jump to position A (where the undone change was), not stay at B.
+ */
+export const testCursorJumpsToUndoneChangeLocation = () => {
+  const ydoc = new Y.Doc()
+  const ytype = ydoc.get('prosemirror')
+  const view = createProsemirrorView(ytype)
+
+  // Insert two paragraphs so we have room to move the cursor
+  insertParagraph(view, 'first')
+  const um = /** @type {import('@y/y').UndoManager} */ (YPM.yUndoPluginKey.getState(view.state)?.undoManager)
+  um.stopCapturing()
+
+  insertParagraph(view, 'second')
+  um.stopCapturing()
+
+  // Move cursor to the end of "first" paragraph (far from where "second" was inserted)
+  const firstParaEnd = view.state.doc.resolve(6) // inside "first"
+  view.dispatch(view.state.tr.setSelection(TextSelection.near(firstParaEnd)))
+  const cursorBeforeUndo = view.state.selection.anchor
+  t.assert(cursorBeforeUndo > 1, 'cursor is inside first paragraph')
+
+  // Undo the "second" insertion — cursor should jump to where "second" was, not stay in "first"
+  YPM.undo(view.state)
+  t.assert(!view.state.doc.textContent.includes('second'), 'second was undone')
+  // After undoing "second", cursor should NOT remain at its pre-undo position inside "first"
+  // It should move to where the undone content was (position 0 area, since "second" was inserted at pos 0)
+  t.assert(view.state.selection.anchor !== cursorBeforeUndo, 'cursor moved away from pre-undo position to the undone change location')
 }
 
 export const testUndoCommand = () => {
