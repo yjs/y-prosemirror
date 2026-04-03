@@ -110,6 +110,7 @@ export const relativePositionStore = (resolvedPos, type, am) => {
 
 /**
  * @callback CaptureMapping
+ * @param {import('prosemirror-model').Node} doc Prosemirror document used to resolve positions
  * @param {Y.AbstractAttributionManager | null} [am] Attribution manager to use for the relative position
  * @param {boolean} [clear] If true, clears all previously stored positions and captures fresh values for the mapping
  * @returns {import('prosemirror-transform').Mappable}
@@ -124,6 +125,9 @@ export const relativePositionStore = (resolvedPos, type, am) => {
  */
 
 /**
+ * Creates a pair of Mappable-compatible objects for capturing and restoring positions
+ * via Y.js relative positions. Designed to work with ProseMirror's SelectionBookmark.map().
+ *
  * @param {Y.Type} type
  * @returns {{captureMapping: CaptureMapping, restoreMapping: RestoreMapping}}
  */
@@ -134,7 +138,7 @@ export const relativePositionStoreMapping = (type) => {
   const positionMapping = new Map()
 
   return {
-    captureMapping: (am, clear = false) => {
+    captureMapping: (doc, am, clear = false) => {
       if (clear) {
         positionMapping.clear()
       }
@@ -143,10 +147,9 @@ export const relativePositionStoreMapping = (type) => {
          * @param {number} pos
          */
         map (pos) {
+          const resolvedPos = doc.resolve(pos)
           // Store the relative position using the position as the key
-          // @TODO
-          // @ts-ignore
-          positionMapping.set(pos, absolutePositionToRelativePosition(pos, type, am))
+          positionMapping.set(pos, absolutePositionToRelativePosition(resolvedPos, type, am))
 
           // Pass through the position unchanged, since we are just using it to store the relative position
           return pos
