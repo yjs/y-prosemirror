@@ -7,6 +7,7 @@ import jsdom from 'jsdom'
 import * as delta from './delta.test.js'
 import * as positions from './positions.test.js'
 import * as suggestions from './suggestions.test.js'
+import * as undo from './undo.test.js'
 // import * as tr from './tr.test.js'
 
 import { runTests } from 'lib0/testing'
@@ -51,7 +52,8 @@ if (isBrowser) {
 runTests({
   delta,
   positions,
-  suggestions
+  suggestions,
+  undo
   // prosemirror,
   // tr
 }).then(success => {

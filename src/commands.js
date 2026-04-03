@@ -1,5 +1,5 @@
 import * as d from 'lib0/delta'
-import { ySyncPluginKey } from './keys.js'
+import { ySyncPluginKey, yUndoPluginKey } from './keys.js'
 import { deltaToPSteps, deltaAttributionToFormat, nodeToDelta, deltaToPNode } from './sync-utils.js'
 import * as Y from '@y/y'
 
@@ -45,7 +45,7 @@ export const configureYProsemirror = (opts = {}) => (state, dispatch) => {
   if (dispatch) {
     const tr = state.tr.setMeta(ySyncPluginKey, opts)
     tr.setMeta('addToHistory', false)
-    if (ytype) {
+    if (ytype && ytype.length > 0) {
       /**
        * @type {ProsemirrorDelta}
        */
@@ -64,3 +64,29 @@ export const configureYProsemirror = (opts = {}) => (state, dispatch) => {
   }
   return true
 }
+
+/**
+ * Undo the last user action
+ *
+ * @param {import('prosemirror-state').EditorState} state
+ * @return {boolean} whether a change was undone
+ */
+export const undo = state => yUndoPluginKey.getState(state)?.undoManager?.undo() != null
+
+/**
+ * Redo the last user action
+ *
+ * @param {import('prosemirror-state').EditorState} state
+ * @return {boolean} whether a change was redone
+ */
+export const redo = state => yUndoPluginKey.getState(state)?.undoManager?.redo() != null
+
+/**
+ * @type {import('prosemirror-state').Command}
+ */
+export const undoCommand = (state, dispatch) => dispatch == null ? (yUndoPluginKey.getState(state)?.undoManager?.canUndo() || false) : undo(state)
+
+/**
+ * @type {import('prosemirror-state').Command}
+ */
+export const redoCommand = (state, dispatch) => dispatch == null ? (yUndoPluginKey.getState(state)?.undoManager?.canRedo() || false) : redo(state)
