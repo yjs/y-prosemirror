@@ -1,0 +1,31 @@
+{
+  "name": "yhub-prosemirror-demo",
+  "version": "1.0.0",
+  "description": "",
+  "license": "MIT",
+  "author": "",
+  "type": "module",
+  "main": "demo.js",
+  "scripts": {
+    "build": "rollup -c",
+    "start": "rollup -c && 0serve",
+    "dev": "concurrently 'rollup -wc' 0serve"
+  },
+  "dependencies": {
+    "@y/prosemirror": "file:..",
+    "@y/y": "^14.0.0-rc.10",
+    "@y/protocols": "^1.0.6-rc.1",
+    "@y/websocket": "^4.0.0-rc.1",
+    "lib0": "^1.0.0-rc.10",
+    "prosemirror-example-setup": "^1.2.1",
+    "prosemirror-model": "^1.18.1",
+    "prosemirror-state": "^1.4.1",
+    "prosemirror-view": "^1.26.2"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^29.0.2",
+    "@rollup/plugin-node-resolve": "^16.0.3",
+    "concurrently": "^9.2.1",
+    "rollup": "^4.60.1"
+  }
+}

@@ -1,11 +1,11 @@
 /* eslint-env browser */
 import * as Y from '@y/y'
-import { syncPlugin, ySyncPluginKey, configureYProsemirror, defaultMapAttributionToMark } from '../src/index.js'
+import { syncPlugin, ySyncPluginKey, configureYProsemirror, defaultMapAttributionToMark } from '@y/prosemirror'
 import { WebsocketProvider } from '@y/websocket'
 import { EditorState } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { exampleSetup } from 'prosemirror-example-setup'
-import { schema } from '../demo/schema.js'
+import { schema } from './schema.js'
 import * as random from 'lib0/random'
 import * as buffer from 'lib0/buffer'
 
