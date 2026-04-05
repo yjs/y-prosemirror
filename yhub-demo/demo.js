@@ -22,10 +22,10 @@ const usercolors = [
 const userColor = usercolors[random.uint32() % usercolors.length]
 const org = 'yhub-pro-demo'
 const docid = 'prosemirror-demo3'
-const yhubApiUrl = 'http://localhost:3002'
+const yhubApiUrl = 'https://yhub-standalone-x9kss.ondigitalocean.app' // 'http://localhost:3002'
 
 const ydoc = new Y.Doc()
-const wsUrl = 'ws://localhost:3002/ws/' + org
+const wsUrl = yhubApiUrl + '/ws/' + org
 const provider = new WebsocketProvider(wsUrl, docid, ydoc)
 const yxmlFragment = ydoc.get('prosemirror')
 
