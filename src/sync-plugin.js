@@ -289,7 +289,9 @@ export function syncPlugin (opts = {}) {
               const pcontent = nodeToDelta(view.state.doc)
               const diff = d.diff(ycontent.done(), pcontent.done())
               if (attributionManager != null && attributionManager !== Y.noAttributionsManager) { stripAttributionFormattingFromDelta(diff) }
-              ytype.applyDelta(diff, attributionManager || Y.noAttributionsManager)
+              /** @type {Y.Doc} */ (ytype.doc).transact(() => {
+                ytype.applyDelta(diff, attributionManager || Y.noAttributionsManager)
+              }, ySyncPluginKey)
             })
           }
         },
