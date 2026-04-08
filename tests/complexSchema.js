@@ -6,18 +6,7 @@ import { Schema } from 'prosemirror-model'
  */
 const brDOM = ['br']
 
-/**
- * @param {import('prosemirror-model').Attrs} attrs
- * @param {Record<string, any>} domAttrs
- */
-const calcYchangeDomAttrs = (attrs, domAttrs = {}) => {
-  domAttrs = Object.assign({}, domAttrs)
-  if (attrs.ychange != null) {
-    domAttrs.ychange_user = attrs.ychange.user
-    domAttrs.ychange_state = attrs.ychange.state
-  }
-  return domAttrs
-}
+const attributionMarkNames = 'y-attribution-insertion y-attribution-deletion y-attribution-format'
 
 /**
  * @type {Object<string, import('prosemirror-model').NodeSpec>}
@@ -25,7 +14,8 @@ const calcYchangeDomAttrs = (attrs, domAttrs = {}) => {
 export const nodes = {
   // :: NodeSpec The top level document node.
   doc: {
-    content: 'block+'
+    content: 'block*',
+    marks: attributionMarkNames
   },
 
   custom: {
@@ -41,34 +31,32 @@ export const nodes = {
   // :: NodeSpec A plain paragraph textblock. Represented in the DOM
   // as a `<p>` element.
   paragraph: {
-    attrs: { ychange: { default: null } },
     content: 'inline*',
     group: 'block',
     parseDOM: [{ tag: 'p' }],
-    toDOM (node) {
-      return ['p', calcYchangeDomAttrs(node.attrs), 0]
+    toDOM () {
+      return ['p', 0]
     }
   },
 
   // :: NodeSpec A blockquote (`<blockquote>`) wrapping one or more blocks.
   blockquote: {
-    attrs: { ychange: { default: null } },
     content: 'block+',
     group: 'block',
+    marks: attributionMarkNames,
     defining: true,
     parseDOM: [{ tag: 'blockquote' }],
-    toDOM (node) {
-      return ['blockquote', calcYchangeDomAttrs(node.attrs), 0]
+    toDOM () {
+      return ['blockquote', 0]
     }
   },
 
   // :: NodeSpec A horizontal rule (`<hr>`).
   horizontal_rule: {
-    attrs: { ychange: { default: null } },
     group: 'block',
     parseDOM: [{ tag: 'hr' }],
-    toDOM (node) {
-      return ['hr', calcYchangeDomAttrs(node.attrs)]
+    toDOM () {
+      return ['hr']
     }
   },
 
@@ -77,8 +65,7 @@ export const nodes = {
   // `<h6>` elements.
   heading: {
     attrs: {
-      level: { default: 1 },
-      ychange: { default: null }
+      level: { default: 1 }
     },
     content: 'inline*',
     group: 'block',
@@ -92,7 +79,7 @@ export const nodes = {
       { tag: 'h6', attrs: { level: 6 } }
     ],
     toDOM (node) {
-      return ['h' + node.attrs.level, calcYchangeDomAttrs(node.attrs), 0]
+      return ['h' + node.attrs.level, 0]
     }
   },
 
@@ -100,15 +87,14 @@ export const nodes = {
   // nodes by default. Represented as a `<pre>` element with a
   // `<code>` element inside of it.
   code_block: {
-    attrs: { ychange: { default: null } },
     content: 'text*',
     marks: '',
     group: 'block',
     code: true,
     defining: true,
     parseDOM: [{ tag: 'pre', preserveWhitespace: 'full' }],
-    toDOM (node) {
-      return ['pre', calcYchangeDomAttrs(node.attrs), ['code', 0]]
+    toDOM () {
+      return ['pre', ['code', 0]]
     }
   },
 
@@ -123,7 +109,6 @@ export const nodes = {
   image: {
     inline: true,
     attrs: {
-      ychange: { default: null },
       src: {},
       alt: { default: null },
       title: { default: null }
@@ -143,12 +128,7 @@ export const nodes = {
       }
     ],
     toDOM (node) {
-      const domAttrs = {
-        src: node.attrs.src,
-        title: node.attrs.title,
-        alt: node.attrs.alt
-      }
-      return ['img', calcYchangeDomAttrs(node.attrs, domAttrs)]
+      return ['img', { src: node.attrs.src, title: node.attrs.title, alt: node.attrs.alt }]
     }
   },
 
@@ -266,6 +246,33 @@ export const marks = {
     parseDOM: [{ tag: 'comment' }],
     toDOM (node) {
       return ['comment', { comment_id: node.attrs.id }]
+    }
+  },
+
+  'y-attribution-insertion': {
+    attrs: { userIds: { default: null }, timestamp: { default: null } },
+    excludes: '',
+    parseDOM: [{ tag: 'y-ins' }],
+    toDOM () {
+      return /** @type {const} */ (['y-ins', 0])
+    }
+  },
+
+  'y-attribution-deletion': {
+    attrs: { userIds: { default: null }, timestamp: { default: null } },
+    excludes: '',
+    parseDOM: [{ tag: 'y-del' }],
+    toDOM () {
+      return /** @type {const} */ (['y-del', 0])
+    }
+  },
+
+  'y-attribution-format': {
+    attrs: { userIdsByAttr: { default: null }, timestamp: { default: null } },
+    excludes: '',
+    parseDOM: [{ tag: 'y-fmt' }],
+    toDOM () {
+      return /** @type {const} */ (['y-fmt', 0])
     }
   }
 }
