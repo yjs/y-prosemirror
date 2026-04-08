@@ -1,6 +1,6 @@
 /* eslint-env browser */
 import * as Y from '@y/y'
-import { syncPlugin, ySyncPluginKey, configureYProsemirror, defaultMapAttributionToMark } from '@y/prosemirror'
+import { syncPlugin, ySyncPluginKey, configureYProsemirror, defaultMapAttributionToMark, yCursorPlugin } from '@y/prosemirror'
 import { WebsocketProvider } from '@y/websocket'
 import { EditorState } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
@@ -45,7 +45,8 @@ const currentView = new EditorView(editorParent, {
     schema,
     plugins: /** @type {any[]} */ ([]).concat(
       exampleSetup({ schema, history: false }),
-      syncPlugin({ mapAttributionToMark: defaultMapAttributionToMark })
+      syncPlugin({ mapAttributionToMark: defaultMapAttributionToMark }),
+      yCursorPlugin(provider.awareness)
     )
   })
 })

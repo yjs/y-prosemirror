@@ -4,6 +4,7 @@ import '@blocknote/mantine/style.css'
 import { useCreateBlockNote } from '@blocknote/react'
 import { Extension } from '@tiptap/core'
 import { configureYProsemirror, syncPlugin } from '@y/prosemirror'
+import { yCursorPlugin } from '../../src/cursor-plugin.js'
 import { Awareness } from '@y/protocols/awareness'
 import * as Y from '@y/y'
 import { useEffect } from 'react'
@@ -36,15 +37,24 @@ const YSyncExtension = Extension.create({
   }
 })
 
+const createYCursorExtension = (awareness) => Extension.create({
+  name: 'yCursor',
+  addProseMirrorPlugins () {
+    return [yCursorPlugin(awareness)]
+  }
+})
+
 const doc = new Y.Doc()
 const provider = {
   awareness: new Awareness(doc)
 }
+provider.awareness.setLocalStateField('user', { name: 'Client A', color: '#30bced' })
 
 const doc2 = new Y.Doc()
 const provider2 = {
   awareness: new Awareness(doc2)
 }
+provider2.awareness.setLocalStateField('user', { name: 'Client B', color: '#6eeb83' })
 
 const attrs = new Y.Attributions()
 
@@ -52,6 +62,7 @@ const suggestingDoc = new Y.Doc({ isSuggestionDoc: true })
 const suggestingProvider = {
   awareness: new Awareness(suggestingDoc)
 }
+suggestingProvider.awareness.setLocalStateField('user', { name: 'View Suggestions', color: '#ffbc42' })
 const suggestingAttributionManager = Y.createAttributionManagerFromDiff(
   doc,
   suggestingDoc,
@@ -63,6 +74,7 @@ const suggestionModeDoc = new Y.Doc({ isSuggestionDoc: true })
 const suggestionModeProvider = {
   awareness: new Awareness(suggestionModeDoc)
 }
+suggestionModeProvider.awareness.setLocalStateField('user', { name: 'Suggestion Mode', color: '#ee6352' })
 const suggestionModeAttributionManager = Y.createAttributionManagerFromDiff(
   doc,
   suggestionModeDoc,
@@ -130,7 +142,7 @@ window.addEventListener('unhandledrejection', (e) => {
 function Editor ({ fragment, provider, attributionManager }) {
   const editor = useCreateBlockNote({
     _tiptapOptions: {
-      extensions: [YSyncExtension]
+      extensions: [YSyncExtension, createYCursorExtension(provider.awareness)]
     }
   })
 
