@@ -17,7 +17,7 @@ const getUndoManager = (state) => {
 }
 
 const schema = new Schema({
-  nodes: basicSchema.nodes,
+  nodes: { ...basicSchema.nodes, doc: { ...basicSchema.nodes.doc, content: 'block*' } },
   marks: basicSchema.marks
 })
 
@@ -57,13 +57,13 @@ export const testBasicUndoRedo = () => {
   const view = createProsemirrorView(ytype)
 
   insertParagraph(view, '123')
-  t.assert(ytype.length === 2, 'contains inserted paragraph + empty paragraph')
+  t.assert(ytype.length === 1, 'contains inserted paragraph')
 
   YPM.undo(view.state)
   t.assert(view.state.doc.textContent === '', 'insertion was undone')
 
   YPM.redo(view.state)
-  t.assert(ytype.length === 2, 'insertion was redone')
+  t.assert(ytype.length === 1, 'insertion was redone')
 
   YPM.undo(view.state)
   t.assert(view.state.doc.textContent === '', 'insertion was undone again')
@@ -75,13 +75,13 @@ export const testAddToHistory = () => {
   const view = createProsemirrorView(ytype)
 
   insertParagraph(view, '123')
-  t.assert(ytype.length === 2, 'contains inserted content')
+  t.assert(ytype.length === 1, 'contains inserted content')
 
   YPM.undo(view.state)
   t.assert(view.state.doc.textContent === '', 'insertion was undone')
 
   YPM.redo(view.state)
-  t.assert(ytype.length === 2, 'insertion was redone')
+  t.assert(ytype.length === 1, 'insertion was redone')
 
   YPM.undo(view.state)
   t.assert(view.state.doc.textContent === '', 'insertion was undone')
@@ -100,7 +100,7 @@ export const testCursorPositionAfterUndo = () => {
   const view = createProsemirrorView(ytype)
 
   insertParagraph(view, '123')
-  t.assert(ytype.length === 2, 'contains inserted content')
+  t.assert(ytype.length === 1, 'contains inserted content')
 
   // Set cursor to end of "123" (position 4)
   view.dispatch(view.state.tr.setSelection(
@@ -133,19 +133,19 @@ export const testMultipleUndoRedo = () => {
   um.stopCapturing()
   insertParagraph(view, 'third')
 
-  t.assert(ytype.length === 4, '3 inserted paragraphs + empty paragraph')
+  t.assert(ytype.length === 3, '3 inserted paragraphs')
 
   YPM.undo(view.state)
-  t.assert(ytype.length === 3, 'third was undone')
+  t.assert(ytype.length === 2, 'third was undone')
 
   YPM.undo(view.state)
-  t.assert(ytype.length === 2, 'second was undone')
+  t.assert(ytype.length === 1, 'second was undone')
 
   YPM.redo(view.state)
-  t.assert(ytype.length === 3, 'second was redone')
+  t.assert(ytype.length === 2, 'second was redone')
 
   YPM.redo(view.state)
-  t.assert(ytype.length === 4, 'third was redone')
+  t.assert(ytype.length === 3, 'third was redone')
 }
 
 export const testUndoDeleteRestoresContent = () => {
@@ -344,15 +344,15 @@ export const testAddToHistoryIgnore = () => {
   // Two tracked changes — should merge into single undo item
   insertParagraph(view, '123')
   insertParagraph(view, '456')
-  t.assert(ytype.length === 3, 'contains two inserted paragraphs + empty')
+  t.assert(ytype.length === 2, 'contains two inserted paragraphs')
 
   // One non-tracked change
   insertParagraph(view, 'abc', 0, { addToHistory: false })
-  t.assert(ytype.length === 4, 'contains three paragraphs + empty')
+  t.assert(ytype.length === 3, 'contains three paragraphs')
 
   // One more tracked change
   insertParagraph(view, 'xyz')
-  t.assert(ytype.length === 5, 'contains four paragraphs + empty')
+  t.assert(ytype.length === 4, 'contains four paragraphs')
 
   YPM.undo(view.state)
   t.assert(!view.state.doc.textContent.includes('xyz'), 'xyz was undone')
@@ -372,16 +372,17 @@ export const testCursorPositionAfterUndoNewline = () => {
   const ytype = ydoc.get('prosemirror')
   const view = createProsemirrorView(ytype)
 
-  // Type "hello" into the empty paragraph
-  view.dispatch(view.state.tr.insertText('hello', 1))
+  // Insert a paragraph with "hello"
+  insertParagraph(view, 'hello')
   t.assert(view.state.doc.textContent === 'hello', 'typed hello')
 
   const um = /** @type {import('@y/y').UndoManager} */ (YPM.yUndoPluginKey.getState(view.state)?.undoManager)
   um.stopCapturing()
 
-  // Press Enter — split the paragraph, cursor moves to the new (second) paragraph
-  const pos = view.state.selection.from
-  view.dispatch(view.state.tr.split(pos))
+  // Move cursor to end of "hello" and press Enter (split the paragraph)
+  const pos = 6 // end of "hello" inside the paragraph
+  view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, pos)))
+  view.dispatch(view.state.tr.split(view.state.selection.from))
   const cursorAfterEnter = view.state.selection.anchor
   t.assert(cursorAfterEnter > pos, 'cursor moved to second paragraph after Enter')
 

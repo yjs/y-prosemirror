@@ -45,7 +45,7 @@ export const configureYProsemirror = (opts = {}) => (state, dispatch) => {
   if (dispatch) {
     const tr = state.tr.setMeta(ySyncPluginKey, opts)
     tr.setMeta('addToHistory', false)
-    if (ytype && ytype.length > 0) {
+    if (ytype) {
       /**
        * @type {ProsemirrorDelta}
        */
