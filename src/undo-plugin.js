@@ -61,16 +61,20 @@ const getRelativeSelection = (state) => {
 export const yUndoPlugin = ({ protectedNodes = defaultProtectedNodes, trackedOrigins = [], undoManager = null } = {}) => {
   /**
    * @param {import('@y/y').Type} ytype
+   * @param {import('prosemirror-state').Plugin} syncPlugin
    * @returns {import('@y/y').UndoManager}
    */
-  const getOrCreateUndoManager = (ytype) => {
+  const getOrCreateUndoManager = (ytype, syncPlugin) => {
     let um = undoManagerByYType.get(ytype)
     if (!um) {
       um = new UndoManager(ytype, {
-        trackedOrigins: new Set([ySyncPluginKey].concat(trackedOrigins)),
+        trackedOrigins: new Set([syncPlugin].concat(trackedOrigins)),
         deleteFilter: (item) => defaultDeleteFilter(item, protectedNodes)
       })
       undoManagerByYType.set(ytype, um)
+    } else {
+      // Ensure this editor's sync plugin instance is tracked (multiple editors may share a ytype)
+      um.trackedOrigins.add(syncPlugin)
     }
     return um
   }
@@ -80,8 +84,13 @@ export const yUndoPlugin = ({ protectedNodes = defaultProtectedNodes, trackedOri
     state: {
       init: (_initargs, state) => {
         const ystate = ySyncPluginKey.getState(state)
+        const syncPlugin = ySyncPluginKey.get(state)
         const ytype = ystate?.ytype
-        const _undoManager = undoManager || (ytype ? getOrCreateUndoManager(ytype) : null)
+        const _undoManager = undoManager || (ytype && syncPlugin ? getOrCreateUndoManager(ytype, syncPlugin) : null)
+        // Ensure user-provided UndoManagers also track the sync plugin instance
+        if (undoManager && syncPlugin) {
+          undoManager.trackedOrigins.add(syncPlugin)
+        }
         return /** @type {UndoPluginState} */ ({
           undoManager: _undoManager,
           prevSel: null,
@@ -108,7 +117,8 @@ export const yUndoPlugin = ({ protectedNodes = defaultProtectedNodes, trackedOri
           const batchAddToHistory = tr.getMeta('addToHistory') !== false &&
           !(rootTr && rootTr.getMeta('addToHistory') === false)
           if (!batchAddToHistory) {
-            val.undoManager?.trackedOrigins.delete(ySyncPluginKey)
+            const syncPlugin = ySyncPluginKey.get(newState)
+            if (syncPlugin) val.undoManager?.trackedOrigins.delete(syncPlugin)
             return { ...val, addToHistory: false }
           }
         }
@@ -118,7 +128,8 @@ export const yUndoPlugin = ({ protectedNodes = defaultProtectedNodes, trackedOri
         }
         // Restore tracked origin after a non-tracked transaction
         if (val.addToHistory === false) {
-          undoManager.trackedOrigins.add(ySyncPluginKey)
+          const syncPlugin = ySyncPluginKey.get(newState)
+          if (syncPlugin) undoManager.trackedOrigins.add(syncPlugin)
         }
         const hasUndoOps = undoManager.undoStack.length > 0
         const hasRedoOps = undoManager.redoStack.length > 0
@@ -208,8 +219,9 @@ export const yUndoPlugin = ({ protectedNodes = defaultProtectedNodes, trackedOri
           // Handle deferred UndoManager creation when ytype becomes available
           if (!undoManager && pluginState) {
             const syncState = ySyncPluginKey.getState(view.state)
-            if (syncState?.ytype) {
-              const newUm = getOrCreateUndoManager(syncState.ytype)
+            const syncPlugin = ySyncPluginKey.get(view.state)
+            if (syncState?.ytype && syncPlugin) {
+              const newUm = getOrCreateUndoManager(syncState.ytype, syncPlugin)
               const tr = view.state.tr.setMeta(yUndoPluginKey, { undoManager: newUm })
               tr.setMeta('addToHistory', false)
               bindUndoManager(newUm)

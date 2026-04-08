@@ -639,9 +639,10 @@ export const testUserProvidedUndoManagerNotDestroyed = () => {
   const ydoc = new Y.Doc()
   const ytype = ydoc.get('prosemirror')
 
-  // User creates their own UndoManager
+  // User creates their own UndoManager (the undo plugin will automatically
+  // add the sync plugin instance to trackedOrigins)
   const userUm = new Y.UndoManager(ytype, {
-    trackedOrigins: new Set([YPM.ySyncPluginKey])
+    trackedOrigins: new Set()
   })
 
   const view = new EditorView({ mount: document.createElement('div') }, {

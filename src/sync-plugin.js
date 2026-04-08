@@ -291,7 +291,7 @@ export function syncPlugin (opts = {}) {
               if (attributionManager != null && attributionManager !== Y.noAttributionsManager) { stripAttributionFormattingFromDelta(diff) }
               /** @type {Y.Doc} */ (ytype.doc).transact(() => {
                 ytype.applyDelta(diff, attributionManager || Y.noAttributionsManager)
-              }, ySyncPluginKey)
+              }, ySyncPluginKey.get(view.state))
             })
           }
         },
