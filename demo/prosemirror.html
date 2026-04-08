@@ -316,19 +316,6 @@
         border: 1px solid #90caf9;
       }
 
-      #snapshot-controls {
-        max-width: none;
-      }
-
-      #snapshot-controls button {
-        width: auto;
-      }
-
-      #btn-render-snapshot {
-        width: 100% !important;
-        margin-right: 0;
-      }
-
       #ypm-container {
         background: white;
         border-radius: 8px;
@@ -354,23 +341,11 @@
 
     <div class="controls-container">
       <div class="control-section">
-        <h3>Connection & Sync</h3>
+        <h3>Connection</h3>
         <div class="control-group">
           <label>
             <input id="toggle-connect" type="checkbox" />
             <span>Connect to WebSocket</span>
-          </label>
-        </div>
-        <div class="control-group">
-          <label>
-            <input id="toggle-pause-sync" type="checkbox" />
-            <span>Pause Sync</span>
-          </label>
-        </div>
-        <div class="control-group">
-          <label>
-            <input id="toggle-keep-changes" type="checkbox" />
-            <span>Keep Changes (when resuming sync)</span>
           </label>
         </div>
       </div>
@@ -393,30 +368,6 @@
           <button id="btn-accept-all-changes">Accept All Changes</button>
           <button id="btn-reject-all-changes">Reject All Changes</button>
         </div>
-      </div>
-
-      <div class="control-section" id="snapshot-controls">
-        <h3>Snapshot Management</h3>
-        <div style="margin-bottom: 12px">
-          <button id="btn-take-snapshot">Take Snapshot</button>
-          <button id="btn-resume-sync" disabled>Resume Sync</button>
-        </div>
-        <div class="control-group">
-          <label class="select-label"> From (prevSnapshot): </label>
-          <select id="select-prev-snapshot">
-            <option value="">-- None (single snapshot view) --</option>
-          </select>
-        </div>
-        <div class="control-group">
-          <label class="select-label"> To (snapshot): </label>
-          <select id="select-snapshot">
-            <option value="">-- Select a snapshot --</option>
-          </select>
-        </div>
-        <div>
-          <button id="btn-render-snapshot" disabled>Render Snapshot</button>
-        </div>
-        <div id="snapshot-info" class="info-text"></div>
       </div>
     </div>
 
