@@ -2,56 +2,9 @@ import * as YPM from '@y/prosemirror'
 import * as Y from '@y/y'
 import * as delta from 'lib0/delta'
 import * as t from 'lib0/testing'
-import { Schema } from 'prosemirror-model'
-import * as basicSchema from 'prosemirror-schema-basic'
 import { EditorState } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
-
-// === Schema with attribution marks ===
-
-// AddNodeMarkStep validates marks against the parent node's markSet.
-// PM defaults markSet to [] for nodes without inline content, so container
-// nodes that hold marked children need attribution marks in their spec.
-const attributionMarkNames =
-  'y-attribution-insertion y-attribution-deletion y-attribution-format'
-const nodes = Object.assign({}, basicSchema.nodes, {
-  doc: Object.assign({}, basicSchema.nodes.doc, {
-    marks: attributionMarkNames
-  }),
-  blockquote: Object.assign({}, basicSchema.nodes.blockquote, {
-    marks: attributionMarkNames
-  })
-})
-
-const schema = new Schema({
-  nodes,
-  marks: Object.assign({}, basicSchema.marks, {
-    'y-attribution-insertion': {
-      attrs: { userIds: { default: null }, timestamp: { default: null } },
-      excludes: '',
-      parseDOM: [{ tag: 'y-ins' }],
-      toDOM () {
-        return /** @type {const} */ (['y-ins', 0])
-      }
-    },
-    'y-attribution-deletion': {
-      attrs: { userIds: { default: null }, timestamp: { default: null } },
-      excludes: '',
-      parseDOM: [{ tag: 'y-del' }],
-      toDOM () {
-        return /** @type {const} */ (['y-del', 0])
-      }
-    },
-    'y-attribution-format': {
-      attrs: { userIdsByAttr: { default: null }, timestamp: { default: null } },
-      excludes: '',
-      parseDOM: [{ tag: 'y-fmt' }],
-      toDOM () {
-        return /** @type {const} */ (['y-fmt', 0])
-      }
-    }
-  })
-})
+import { schema } from './complexSchema.js'
 
 // === Helpers ===
 
@@ -196,8 +149,7 @@ export const testSuggestionSyncAndMarks = () => {
   const helloDoc = {
     type: 'doc',
     content: [
-      { type: 'paragraph', content: [{ type: 'text', text: 'hello' }] },
-      { type: 'paragraph' }
+      { type: 'paragraph', content: [{ type: 'text', text: 'hello' }] }
     ]
   }
 
@@ -229,8 +181,7 @@ export const testSuggestionSyncAndMarks = () => {
           { type: 'text', text: 'hello' },
           { type: 'text', text: ' world', marks: [insertionMark] }
         ]
-      },
-      { type: 'paragraph' }
+      }
     ]
   }
   assertDocJSON(
@@ -271,8 +222,7 @@ export const testSequentialTypingMarks = () => {
           { type: 'text', text: 'hello' },
           { type: 'text', text: 'ab', marks: [insertionMark] }
         ]
-      },
-      { type: 'paragraph' }
+      }
     ]
   }
 
@@ -299,7 +249,7 @@ export const testBlockInsertionMarks = () => {
   const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({ baseContent: 'hello' })
   // Insert a new paragraph with text at the end of the document (before trailing empty paragraph)
   const { tr } = viewSuggestionMode.state
-  const insertPos = tr.doc.content.size - 2 // before the last empty paragraph's close
+  const insertPos = tr.doc.content.size // before the last empty paragraph's close
   viewSuggestionMode.dispatch(
     tr.insert(
       insertPos,
@@ -309,8 +259,7 @@ export const testBlockInsertionMarks = () => {
   const helloDoc = {
     type: 'doc',
     content: [
-      { type: 'paragraph', content: [{ type: 'text', text: 'hello' }] },
-      { type: 'paragraph' }
+      { type: 'paragraph', content: [{ type: 'text', text: 'hello' }] }
     ]
   }
 
@@ -329,8 +278,7 @@ export const testBlockInsertionMarks = () => {
         type: 'paragraph',
         marks: [insertionMark], // TODO: this fails because it's not in output. AddNodeMarkStep never called?
         content: [{ type: 'text', text: 'new block', marks: [insertionMark] }]
-      },
-      { type: 'paragraph' }
+      }
     ]
   }
 
@@ -364,8 +312,7 @@ export const testImageInsertionMarks = () => {
   const helloDoc = {
     type: 'doc',
     content: [
-      { type: 'paragraph', content: [{ type: 'text', text: 'hello' }] },
-      { type: 'paragraph' }
+      { type: 'paragraph', content: [{ type: 'text', text: 'hello' }] }
     ]
   }
 
@@ -389,8 +336,7 @@ export const testImageInsertionMarks = () => {
             marks: [insertionMark]
           }
         ]
-      },
-      { type: 'paragraph' }
+      }
     ]
   }
 
@@ -415,13 +361,16 @@ export const testImageInsertionMarks = () => {
  * Schema: paragraph in doc can have an insertion node mark (doc allows attribution marks).
  */
 export const testSchemaParaInDocNodeMark = () => {
-  const state = EditorState.create({ schema })
+  const state = EditorState.create({
+    schema,
+    doc: schema.node('doc', null, [schema.node('paragraph', null, [schema.text('test')])])
+  })
   const tr = state.tr
   const mark = schema.marks['y-attribution-insertion'].create({
     userIds: [],
     timestamp: null
   })
-  // pos 0 = the default paragraph
+  // pos 0 = the paragraph
   tr.addNodeMark(0, mark)
   t.assert(
     tr.doc.firstChild?.marks.some(
@@ -435,17 +384,15 @@ export const testSchemaParaInDocNodeMark = () => {
  * Schema: paragraph in blockquote can have an insertion node mark.
  */
 export const testSchemaParaInBlockquoteNodeMark = () => {
-  const state = EditorState.create({ schema })
+  const state = EditorState.create({
+    schema,
+    doc: schema.node('doc', null, [
+      schema.node('blockquote', null, [
+        schema.node('paragraph', null, [schema.text('quoted')])
+      ])
+    ])
+  })
   const tr = state.tr
-  // Replace doc content with blockquote > paragraph
-  tr.replaceWith(
-    0,
-    tr.doc.content.size,
-    schema.nodes.blockquote.create(
-      null,
-      schema.nodes.paragraph.create(null, schema.text('quoted'))
-    )
-  )
   const mark = schema.marks['y-attribution-insertion'].create({
     userIds: [],
     timestamp: null
@@ -465,9 +412,12 @@ export const testSchemaParaInBlockquoteNodeMark = () => {
  * Schema: image in paragraph can have an insertion node mark.
  */
 export const testSchemaImageInParaNodeMark = () => {
-  const state = EditorState.create({ schema })
+  const state = EditorState.create({
+    schema,
+    doc: schema.node('doc', null, [schema.node('paragraph')])
+  })
   const tr = state.tr
-  // Insert image into the default paragraph
+  // Insert image into the paragraph
   tr.insert(1, schema.nodes.image.create({ src: 'test.png' }))
   const mark = schema.marks['y-attribution-insertion'].create({
     userIds: [],
@@ -489,7 +439,7 @@ export const testDeletionOfSuggestedContent = () => {
   t.group('insert suggestion', () => {
     // Insert a new paragraph with text at the end of the document (before trailing empty paragraph)
     const { tr } = viewSuggestionMode.state
-    const insertPos = tr.doc.content.size - 2 // before the last empty paragraph's close
+    const insertPos = tr.doc.content.size // before the last empty paragraph's close
     viewSuggestionMode.dispatch(
       tr.insert(
         insertPos,
@@ -499,8 +449,7 @@ export const testDeletionOfSuggestedContent = () => {
     const helloDoc = {
       type: 'doc',
       content: [
-        { type: 'paragraph', content: [{ type: 'text', text: 'hello' }] },
-        { type: 'paragraph' }
+        { type: 'paragraph', content: [{ type: 'text', text: 'hello' }] }
       ]
     }
 
@@ -519,8 +468,7 @@ export const testDeletionOfSuggestedContent = () => {
           type: 'paragraph',
           marks: [insertionMark],
           content: [{ type: 'text', text: 'new block', marks: [insertionMark] }]
-        },
-        { type: 'paragraph' }
+        }
       ]
     }
 
@@ -538,7 +486,7 @@ export const testDeletionOfSuggestedContent = () => {
   })
   t.group('delete suggested content', () => {
     const { tr } = viewSuggestionMode.state
-    const deletePos = tr.doc.content.size - 5
+    const deletePos = tr.doc.content.size - 3
     // delete 'c'
     viewSuggestionMode.dispatch(
       tr.delete(deletePos, deletePos + 1)
@@ -551,8 +499,7 @@ export const testDeletionOfSuggestedContent = () => {
           type: 'paragraph',
           marks: [insertionMark],
           content: [{ type: 'text', text: 'new blok', marks: [insertionMark] }]
-        },
-        { type: 'paragraph' }
+        }
       ]
     }
     console.log({
