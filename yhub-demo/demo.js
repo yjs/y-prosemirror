@@ -1,6 +1,6 @@
 /* eslint-env browser */
 import * as Y from '@y/y'
-import { syncPlugin, ySyncPluginKey, configureYProsemirror, defaultMapAttributionToMark, yCursorPlugin } from '@y/prosemirror'
+import { syncPlugin, ySyncPluginKey, configureYProsemirror, defaultMapAttributionToMark, yCursorPlugin } from '../src/index.js'
 import { WebsocketProvider } from '@y/websocket'
 import { EditorState } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
