@@ -45,8 +45,6 @@ const am = /** @type {any} */ (Y).createAttributionManagerFromDiff(ydoc, suggest
 
 const yxmlFragment = ydoc.get()
 
-
-
 // when in suggestion-mode, we should use a different clientId to reduce some overhead. This is not
 // strictly necessary.
 let otherClientID = random.uint53()
