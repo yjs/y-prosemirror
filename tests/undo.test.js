@@ -25,10 +25,26 @@ const schema = new Schema({
  * @param {Y.Type} ytype
  */
 const createProsemirrorView = (ytype) => {
+  const undoManager = new Y.UndoManager(ytype)
   const view = new EditorView({ mount: document.createElement('div') }, {
     state: EditorState.create({
       schema,
-      plugins: [YPM.syncPlugin(), YPM.yUndoPlugin()]
+      plugins: [YPM.syncPlugin(), YPM.yUndoPlugin(undoManager)]
+    })
+  })
+  YPM.configureYProsemirror({ ytype })(view.state, view.dispatch)
+  return view
+}
+
+/**
+ * @param {Y.Type} ytype
+ * @param {import('@y/y').UndoManager} undoManager
+ */
+const createProsemirrorViewWithUm = (ytype, undoManager) => {
+  const view = new EditorView({ mount: document.createElement('div') }, {
+    state: EditorState.create({
+      schema,
+      plugins: [YPM.syncPlugin(), YPM.yUndoPlugin(undoManager)]
     })
   })
   YPM.configureYProsemirror({ ytype })(view.state, view.dispatch)
@@ -427,37 +443,26 @@ export const testCursorJumpsToUndoneChangeLocation = () => {
  * StrictMode or plugin reconfiguration. The UndoManager should survive
  * and undo history should be preserved.
  */
+/**
+ * Since the caller owns the UndoManager, passing the same one to a new view
+ * after destroy preserves undo history (simulates React StrictMode remount).
+ */
 export const testUndoSurvivesViewRecreation = () => {
   const ydoc = new Y.Doc()
   const ytype = ydoc.get('prosemirror')
-  const view = createProsemirrorView(ytype)
+  const undoManager = new Y.UndoManager(ytype)
+  const view = createProsemirrorViewWithUm(ytype, undoManager)
 
   insertParagraph(view, 'hello')
   t.assert(view.state.doc.textContent === 'hello', 'contains hello')
-
-  const undoManager = getUndoManager(view.state)
   t.assert(undoManager.undoStack.length > 0, 'has undo history')
 
-  // Save the state, destroy the view (simulates StrictMode unmount)
-  const savedState = view.state
   view.destroy()
-  t.assert(view.isDestroyed, 'view is destroyed')
-
-  // UndoManager should NOT be destroyed yet (lazy cleanup hasn't fired)
   t.assert(undoManager.undoStack.length > 0, 'undo history preserved after view destroy')
 
-  // Recreate the view with the same state (simulates StrictMode remount)
-  const view2 = new EditorView({ mount: document.createElement('div') }, {
-    state: savedState
-  })
-  // Re-bind the sync plugin to the ytype (pause then reconfigure to force re-subscription)
-  YPM.pauseSync(view2.state, view2.dispatch.bind(view2))
-  YPM.configureYProsemirror({ ytype })(view2.state, view2.dispatch.bind(view2))
-
-  const undoManager2 = getUndoManager(view2.state)
-  t.assert(undoManager2 === undoManager, 'same UndoManager reused after view recreation')
-
-  // Undo should work with preserved history
+  // Recreate with the same UndoManager
+  const view2 = createProsemirrorViewWithUm(ytype, undoManager)
+  t.assert(getUndoManager(view2.state) === undoManager, 'same UndoManager reused')
   t.assert(YPM.undo(view2.state), 'undo succeeded on recreated view')
   t.assert(view2.state.doc.textContent === '', 'insertion was undone after view recreation')
 
@@ -465,71 +470,54 @@ export const testUndoSurvivesViewRecreation = () => {
 }
 
 /**
- * Destroy the view — the UndoManager should survive (lives in WeakMap).
- * It keeps capturing and will be reused by the next editor on the same ytype.
+ * UndoManager survives view destroy — caller controls its lifecycle.
  */
 export const testUndoManagerSurvivesViewDestroy = () => {
   const ydoc = new Y.Doc()
   const ytype = ydoc.get('prosemirror')
-  const view = createProsemirrorView(ytype)
+  const undoManager = new Y.UndoManager(ytype)
+  const view = createProsemirrorViewWithUm(ytype, undoManager)
 
   insertParagraph(view, 'hello')
-  const undoManager = getUndoManager(view.state)
-  const stackSizeBeforeDestroy = undoManager.undoStack.length
-  t.assert(stackSizeBeforeDestroy > 0, 'has undo history')
+  const stackSize = undoManager.undoStack.length
+  t.assert(stackSize > 0, 'has undo history')
 
   view.destroy()
-  t.assert(view.isDestroyed, 'view is destroyed')
+  t.assert(undoManager.undoStack.length === stackSize, 'undo history preserved after view destroy')
 
-  // UndoManager is still alive — history preserved for reuse
-  t.assert(undoManager.undoStack.length === stackSizeBeforeDestroy, 'undo history preserved after view destroy')
-
-  // New editor on same ytype gets the same UndoManager with history
-  const view2 = createProsemirrorView(ytype)
-  const um2 = getUndoManager(view2.state)
-  t.assert(um2 === undoManager, 'new editor reuses the same UndoManager')
-  t.assert(um2.undoStack.length > 0, 'undo history available to new editor')
-  t.assert(YPM.undo(view2.state), 'new editor can undo old edits')
+  // New view with the same UndoManager gets the history
+  const view2 = createProsemirrorViewWithUm(ytype, undoManager)
+  t.assert(getUndoManager(view2.state) === undoManager, 'new view reuses same UndoManager')
+  t.assert(YPM.undo(view2.state), 'new view can undo old edits')
 
   view2.destroy()
 }
 
 /**
- * Multiple rapid destroy/recreate cycles on the same state —
- * simulates React StrictMode in development with hot reloading.
- * UndoManager should remain functional throughout.
+ * Multiple rapid destroy/recreate cycles — UndoManager stays functional
+ * since the caller passes the same instance each time.
  */
 export const testMultipleDestroyRecreateCycles = () => {
   const ydoc = new Y.Doc()
   const ytype = ydoc.get('prosemirror')
-  const view1 = createProsemirrorView(ytype)
+  const undoManager = new Y.UndoManager(ytype)
+  const view1 = createProsemirrorViewWithUm(ytype, undoManager)
 
   insertParagraph(view1, 'persistent content')
-  const um = getUndoManager(view1.state)
-  t.assert(um.undoStack.length > 0, 'has undo history after insert')
+  t.assert(undoManager.undoStack.length > 0, 'has undo history after insert')
 
-  let state = view1.state
+  view1.destroy()
 
-  // Simulate 5 rapid destroy/recreate cycles (like repeated hot reloads)
+  // Simulate 5 rapid destroy/recreate cycles
   for (let i = 0; i < 5; i++) {
-    const currentView = new EditorView({ mount: document.createElement('div') }, { state })
-    // Re-bind sync so the view is fully functional
-    YPM.pauseSync(currentView.state, currentView.dispatch.bind(currentView))
-    YPM.configureYProsemirror({ ytype })(currentView.state, currentView.dispatch.bind(currentView))
-
-    const currentUm = getUndoManager(currentView.state)
-    t.assert(currentUm === um, `cycle ${i}: same UndoManager reused`)
-    t.assert(currentUm.undoStack.length > 0, `cycle ${i}: undo history preserved`)
-
-    state = currentView.state
+    const currentView = createProsemirrorViewWithUm(ytype, undoManager)
+    t.assert(getUndoManager(currentView.state) === undoManager, `cycle ${i}: same UndoManager`)
+    t.assert(undoManager.undoStack.length > 0, `cycle ${i}: undo history preserved`)
     currentView.destroy()
   }
 
   // Final recreation — undo should still work
-  const finalView = new EditorView({ mount: document.createElement('div') }, { state })
-  YPM.pauseSync(finalView.state, finalView.dispatch.bind(finalView))
-  YPM.configureYProsemirror({ ytype })(finalView.state, finalView.dispatch.bind(finalView))
-
+  const finalView = createProsemirrorViewWithUm(ytype, undoManager)
   t.assert(YPM.undo(finalView.state), 'undo still works after 5 destroy/recreate cycles')
   t.assert(finalView.state.doc.textContent === '', 'content was undone after cycles')
 
@@ -537,29 +525,23 @@ export const testMultipleDestroyRecreateCycles = () => {
 }
 
 /**
- * Multiple editors on the same ytype share the same UndoManager.
- * Destroying one editor should not affect the shared UndoManager.
+ * Two editors sharing the same UndoManager — destroying one doesn't affect the other.
  */
 export const testMultipleEditorsOnSameYType = () => {
   const ydoc = new Y.Doc()
   const ytype = ydoc.get('prosemirror')
-  const view1 = createProsemirrorView(ytype)
-  const view2 = createProsemirrorView(ytype)
+  const undoManager = new Y.UndoManager(ytype)
+  const view1 = createProsemirrorViewWithUm(ytype, undoManager)
+  const view2 = createProsemirrorViewWithUm(ytype, undoManager)
 
-  const um1 = getUndoManager(view1.state)
-  const um2 = getUndoManager(view2.state)
-  t.assert(um1 === um2, 'editors on same ytype share one UndoManager')
+  t.assert(getUndoManager(view1.state) === getUndoManager(view2.state), 'editors share one UndoManager')
 
-  // Edit in editor 1
   insertParagraph(view1, 'from editor 1')
-  t.assert(um1.undoStack.length > 0, 'shared UndoManager has undo history')
+  t.assert(undoManager.undoStack.length > 0, 'shared UndoManager has undo history')
 
-  // Destroy editor 1 — shared UndoManager should still work
   view1.destroy()
-  t.assert(view1.isDestroyed, 'editor 1 is destroyed')
   t.assert(!view2.isDestroyed, 'editor 2 is still alive')
 
-  // Editor 2 should still be fully functional with the shared UndoManager
   insertParagraph(view2, 'from editor 2')
   t.assert(YPM.undo(view2.state), 'editor 2 can still undo after editor 1 destroyed')
 
@@ -567,27 +549,22 @@ export const testMultipleEditorsOnSameYType = () => {
 }
 
 /**
- * Destroy editor then recreate on same ytype —
- * the new editor should reuse the same UndoManager with history preserved.
+ * Destroy editor then recreate on same ytype with the same UndoManager.
  */
 export const testDestroyThenRecreateReusesUndoManager = () => {
   const ydoc = new Y.Doc()
   const ytype = ydoc.get('prosemirror')
-  const view1 = createProsemirrorView(ytype)
+  const undoManager = new Y.UndoManager(ytype)
+  const view1 = createProsemirrorViewWithUm(ytype, undoManager)
 
   insertParagraph(view1, 'original')
-  const um1 = getUndoManager(view1.state)
-  t.assert(um1.undoStack.length > 0, 'editor 1 has undo history')
+  t.assert(undoManager.undoStack.length > 0, 'editor 1 has undo history')
 
   view1.destroy()
 
-  // Create a new editor — should reuse the same UndoManager with history preserved
-  const view2 = createProsemirrorView(ytype)
-  const um2 = getUndoManager(view2.state)
-  t.assert(um2 === um1, 'new editor reuses the same UndoManager')
-  t.assert(um2.undoStack.length > 0, 'undo history preserved across editor recreation')
-
-  // New editor should work normally — can undo the original edit
+  const view2 = createProsemirrorViewWithUm(ytype, undoManager)
+  t.assert(getUndoManager(view2.state) === undoManager, 'new editor reuses same UndoManager')
+  t.assert(undoManager.undoStack.length > 0, 'undo history preserved')
   t.assert(YPM.undo(view2.state), 'new editor can undo previous edit')
 
   view2.destroy()
@@ -601,27 +578,21 @@ export const testDestroyThenRecreateReusesUndoManager = () => {
 export const testDestroyAndImmediateRecreateNoTransaction = () => {
   const ydoc = new Y.Doc()
   const ytype = ydoc.get('prosemirror')
-  const view1 = createProsemirrorView(ytype)
+  const undoManager = new Y.UndoManager(ytype)
+  const view1 = createProsemirrorViewWithUm(ytype, undoManager)
 
   insertParagraph(view1, 'hello')
-  const um = getUndoManager(view1.state)
-  um.stopCapturing()
+  undoManager.stopCapturing()
   insertParagraph(view1, 'world')
-  t.assert(um.undoStack.length === 2, 'two undo groups')
+  t.assert(undoManager.undoStack.length === 2, 'two undo groups')
 
-  const savedState = view1.state
   view1.destroy()
 
-  // NO Y.Doc transaction happens here — immediate recreate
-  const view2 = new EditorView({ mount: document.createElement('div') }, { state: savedState })
-  YPM.pauseSync(view2.state, view2.dispatch.bind(view2))
-  YPM.configureYProsemirror({ ytype })(view2.state, view2.dispatch.bind(view2))
+  // NO Y.Doc transaction happens here — immediate recreate with same UndoManager
+  const view2 = createProsemirrorViewWithUm(ytype, undoManager)
+  t.assert(getUndoManager(view2.state) === undoManager, 'same UndoManager')
+  t.assert(undoManager.undoStack.length === 2, 'both undo groups preserved')
 
-  const um2 = getUndoManager(view2.state)
-  t.assert(um2 === um, 'UndoManager reused without transaction in between')
-  t.assert(um2.undoStack.length === 2, 'both undo groups preserved')
-
-  // Undo both groups — each should work, proving full history is preserved
   t.assert(YPM.undo(view2.state), 'first undo succeeded')
   t.assert(view2.state.doc.textContent.includes('hello'), 'first undo removed world but kept hello')
   t.assert(!view2.state.doc.textContent.includes('world'), 'world was removed')
@@ -636,41 +607,23 @@ export const testDestroyAndImmediateRecreateNoTransaction = () => {
  * This tests dmonad's suggestion that externally-provided UndoManagers
  * should have their lifecycle controlled by the user.
  */
-export const testUserProvidedUndoManagerNotDestroyed = () => {
+/**
+ * The plugin never destroys the UndoManager — the caller owns it.
+ */
+export const testUndoManagerNotDestroyedOnViewDestroy = () => {
   const ydoc = new Y.Doc()
   const ytype = ydoc.get('prosemirror')
+  const userUm = new Y.UndoManager(ytype)
 
-  // User creates their own UndoManager (the undo plugin will automatically
-  // add the sync plugin instance to trackedOrigins)
-  const userUm = new Y.UndoManager(ytype, {
-    trackedOrigins: new Set()
-  })
+  const view = createProsemirrorViewWithUm(ytype, userUm)
 
-  const view = new EditorView({ mount: document.createElement('div') }, {
-    state: EditorState.create({
-      schema,
-      plugins: [YPM.syncPlugin(), YPM.yUndoPlugin({ undoManager: userUm })]
-    })
-  })
-  YPM.configureYProsemirror({ ytype })(view.state, view.dispatch)
-
-  const pluginUm = getUndoManager(view.state)
-  t.assert(pluginUm === userUm, 'plugin uses the user-provided UndoManager')
+  t.assert(getUndoManager(view.state) === userUm, 'plugin uses the provided UndoManager')
 
   insertParagraph(view, 'test')
-  t.assert(userUm.undoStack.length > 0, 'user UndoManager captured edits')
+  t.assert(userUm.undoStack.length > 0, 'UndoManager captured edits')
 
   view.destroy()
-
-  // Trigger a Y.Doc transaction — lazy cleanup fires
-  ydoc.transact(() => {
-    ytype.setAttr('trigger', 'cleanup')
-  })
-
-  // User's UndoManager should still be capturing (destroy was called but
-  // the user can re-register if needed — we verify it was at least alive
-  // until the cleanup point)
-  t.assert(userUm.undoStack.length > 0, 'user UndoManager still has history after view destroy')
+  t.assert(userUm.undoStack.length > 0, 'UndoManager still has history after view destroy')
 }
 
 /**
@@ -678,33 +631,26 @@ export const testUserProvidedUndoManagerNotDestroyed = () => {
  * they should all share one UndoManager (no handler accumulation).
  * The UndoManager preserves history across all cycles.
  */
+/**
+ * Rapidly create and destroy editors with the same UndoManager —
+ * no handler leaks since unbind runs on destroy.
+ */
 export const testNoHandlerLeakOnRepeatedCreateDestroy = () => {
   const ydoc = new Y.Doc()
   const ytype = ydoc.get('prosemirror')
+  const undoManager = new Y.UndoManager(ytype)
 
-  /** @type {import('@y/y').UndoManager | null} */
-  let firstUm = null
-
-  // Create and destroy 10 editors
+  // Create and destroy 10 editors with the same UndoManager
   for (let i = 0; i < 10; i++) {
-    const view = createProsemirrorView(ytype)
-    const um = getUndoManager(view.state)
-    if (i === 0) {
-      firstUm = um
-    } else {
-      t.assert(um === firstUm, `cycle ${i}: same UndoManager reused`)
-    }
+    const view = createProsemirrorViewWithUm(ytype, undoManager)
+    t.assert(getUndoManager(view.state) === undoManager, `cycle ${i}: same UndoManager`)
     insertParagraph(view, `edit ${i}`)
     view.destroy()
   }
 
-  // Create a final editor — should reuse the same UndoManager with all history
-  const finalView = createProsemirrorView(ytype)
-  const finalUm = getUndoManager(finalView.state)
-  t.assert(finalUm === firstUm, 'final editor reuses the same UndoManager')
-  t.assert(finalUm.undoStack.length > 0, 'UndoManager has accumulated history')
-
-  // Should still be functional
+  // Create a final editor — undo should still work
+  const finalView = createProsemirrorViewWithUm(ytype, undoManager)
+  t.assert(undoManager.undoStack.length > 0, 'UndoManager has accumulated history')
   t.assert(YPM.undo(finalView.state), 'final editor can undo')
 
   finalView.destroy()
@@ -717,24 +663,18 @@ export const testNoHandlerLeakOnRepeatedCreateDestroy = () => {
 export const testDestroyDuringActiveUndoGroup = () => {
   const ydoc = new Y.Doc()
   const ytype = ydoc.get('prosemirror')
-  const view1 = createProsemirrorView(ytype)
+  const undoManager = new Y.UndoManager(ytype)
+  const view1 = createProsemirrorViewWithUm(ytype, undoManager)
 
-  // Start typing without calling stopCapturing — active undo group
   insertParagraph(view1, 'partial')
-  const um = getUndoManager(view1.state)
-  t.assert(um.undoStack.length > 0, 'has active undo group')
+  t.assert(undoManager.undoStack.length > 0, 'has active undo group')
 
-  const savedState = view1.state
   view1.destroy()
 
-  // Recreate — the active group should still be there
-  const view2 = new EditorView({ mount: document.createElement('div') }, { state: savedState })
-  YPM.pauseSync(view2.state, view2.dispatch.bind(view2))
-  YPM.configureYProsemirror({ ytype })(view2.state, view2.dispatch.bind(view2))
-
-  const um2 = getUndoManager(view2.state)
-  t.assert(um2 === um, 'same UndoManager')
-  t.assert(um2.undoStack.length > 0, 'active undo group preserved')
+  // Recreate with same UndoManager — active group should still be there
+  const view2 = createProsemirrorViewWithUm(ytype, undoManager)
+  t.assert(getUndoManager(view2.state) === undoManager, 'same UndoManager')
+  t.assert(undoManager.undoStack.length > 0, 'active undo group preserved')
   t.assert(YPM.undo(view2.state), 'can undo the partial group')
   t.assert(view2.state.doc.textContent === '', 'partial group was undone')
 
@@ -769,6 +709,7 @@ export const testUndoCommand = () => {
  * @param {Y.Type} ytype
  */
 const createViewWithAppendTransactionPlugin = (ytype) => {
+  const undoManager = new Y.UndoManager(ytype)
   const noopAppendPlugin = new Plugin({
     appendTransaction: (_trs, _oldState, newState) => {
       return newState.tr
@@ -777,7 +718,7 @@ const createViewWithAppendTransactionPlugin = (ytype) => {
   const view = new EditorView({ mount: document.createElement('div') }, {
     state: EditorState.create({
       schema,
-      plugins: [YPM.syncPlugin(), YPM.yUndoPlugin(), noopAppendPlugin]
+      plugins: [YPM.syncPlugin(), YPM.yUndoPlugin(undoManager), noopAppendPlugin]
     })
   })
   YPM.configureYProsemirror({ ytype })(view.state, view.dispatch)
@@ -824,6 +765,267 @@ export const testAddToHistoryTrueWithAppendTransactionPlugin = () => {
  * Mixed scenario: a tracked insertion followed by an untracked one, with the
  * appendTransaction plugin active. Only the tracked insertion should be undoable.
  */
+/**
+ * A plugin that appends real content (e.g. a timestamp paragraph) on every user
+ * edit should have its appended content tracked and undone together with the
+ * user's edit as a single undo group.
+ */
+export const testAppendTransactionWithContentIsUndoneTogetherWithUserEdit = () => {
+  const ydoc = new Y.Doc()
+  const ytype = ydoc.get('prosemirror')
+  const undoManager = new Y.UndoManager(ytype)
+
+  // Plugin that appends a "-- marker --" paragraph after every non-sync user edit
+  const appendContentPlugin = new Plugin({
+    appendTransaction: (trs, _oldState, newState) => {
+      // Only append for user-initiated transactions (not sync or undo plugin)
+      const isUserTr = trs.some(tr =>
+        !tr.getMeta('y-sync-transaction') &&
+        !tr.getMeta(YPM.ySyncPluginKey) &&
+        !tr.getMeta(YPM.yUndoPluginKey) &&
+        !tr.getMeta('y-sync-append') &&
+        tr.docChanged
+      )
+      if (!isUserTr) return null
+      // Don't append if marker already exists
+      if (newState.doc.textContent.includes('marker')) return null
+      const tr = newState.tr
+      tr.insert(tr.doc.content.size, schema.node('paragraph', undefined, schema.text('marker')))
+      return tr
+    }
+  })
+
+  const view = new EditorView({ mount: document.createElement('div') }, {
+    state: EditorState.create({
+      schema,
+      plugins: [YPM.syncPlugin(), YPM.yUndoPlugin(undoManager), appendContentPlugin]
+    })
+  })
+  YPM.configureYProsemirror({ ytype })(view.state, view.dispatch)
+
+  // User inserts a paragraph — the plugin should also append "marker"
+  insertParagraph(view, 'user content')
+  t.assert(view.state.doc.textContent.includes('user content'), 'has user content')
+  t.assert(view.state.doc.textContent.includes('marker'), 'plugin appended marker paragraph')
+
+  // Undo should revert BOTH the user's insert AND the appended marker
+  YPM.undo(view.state)
+  t.assert(!view.state.doc.textContent.includes('user content'), 'user content was undone')
+  t.assert(!view.state.doc.textContent.includes('marker'), 'appended marker was also undone')
+
+  // Redo should restore both
+  YPM.redo(view.state)
+  t.assert(view.state.doc.textContent.includes('user content'), 'user content was redone')
+  t.assert(view.state.doc.textContent.includes('marker'), 'appended marker was also redone')
+
+  view.destroy()
+}
+
+// --- Remote change interaction tests ---
+
+/**
+ * Changes that existed before the UndoManager was created should NOT be undoable.
+ * This simulates the case where remote content was already present when the
+ * local editor joined.
+ */
+export const testRemoteChangesNotUndoable = () => {
+  const ydoc = new Y.Doc()
+  const ytype = ydoc.get('prosemirror')
+
+  // Simulate pre-existing content (e.g., loaded from a remote peer before the editor started).
+  // Use a separate doc to create content via Y.js update, avoiding the sync plugin origin.
+  const seedDoc = new Y.Doc()
+  const seedView = createProsemirrorView(seedDoc.get('prosemirror'))
+  insertParagraph(seedView, 'remote content')
+  seedView.destroy()
+  Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(seedDoc))
+
+  // Now create the local editor — the content is already there
+  const view = createProsemirrorView(ytype)
+  t.assert(view.state.doc.textContent.includes('remote content'), 'editor has pre-existing content')
+
+  // Undo should have nothing to undo — the pre-existing content predates our UndoManager
+  const result = YPM.undo(view.state)
+  t.assert(!result, 'undo returned false — nothing to undo locally')
+  t.assert(view.state.doc.textContent.includes('remote content'), 'pre-existing content was NOT undone')
+
+  view.destroy()
+}
+
+/**
+ * Undo a local change while remote content was inserted concurrently.
+ * The local undo should only revert the local change, preserving remote content.
+ */
+export const testUndoLocalWithConcurrentRemoteInsert = () => {
+  const ydoc1 = new Y.Doc()
+  const ydoc2 = new Y.Doc()
+  const ytype1 = ydoc1.get('prosemirror')
+  const ytype2 = ydoc2.get('prosemirror')
+
+  const sync = () => {
+    const sv1 = Y.encodeStateVector(ydoc1)
+    const sv2 = Y.encodeStateVector(ydoc2)
+    Y.applyUpdate(ydoc1, Y.encodeStateAsUpdate(ydoc2, sv1))
+    Y.applyUpdate(ydoc2, Y.encodeStateAsUpdate(ydoc1, sv2))
+  }
+
+  // Editor 2 inserts "remote" first (before editor 1 exists, so it's not tracked)
+  const view2 = createProsemirrorView(ytype2)
+  insertParagraph(view2, 'remote')
+  sync()
+
+  // Editor 1 starts with "remote" already present, then makes a local change
+  const view1 = createProsemirrorView(ytype1)
+  t.assert(view1.state.doc.textContent.includes('remote'), 'editor 1 has remote content')
+
+  insertParagraph(view1, 'local')
+  t.assert(view1.state.doc.textContent.includes('local'), 'has local content')
+
+  // Undo only the local change
+  YPM.undo(view1.state)
+  t.assert(!view1.state.doc.textContent.includes('local'), 'local content was undone')
+  t.assert(view1.state.doc.textContent.includes('remote'), 'remote content preserved after local undo')
+
+  view1.destroy()
+  view2.destroy()
+}
+
+/**
+ * Redo still works when no remote edits interfere between undo and redo.
+ */
+export const testRedoAfterUndo = () => {
+  const ydoc = new Y.Doc()
+  const ytype = ydoc.get('prosemirror')
+  const view = createProsemirrorView(ytype)
+
+  insertParagraph(view, 'first')
+  const um = getUndoManager(view.state)
+  um.stopCapturing()
+  insertParagraph(view, 'second')
+
+  // Undo second insert
+  YPM.undo(view.state)
+  t.assert(!view.state.doc.textContent.includes('second'), 'second was undone')
+  t.assert(view.state.doc.textContent.includes('first'), 'first still present')
+
+  // Redo should restore it
+  YPM.redo(view.state)
+  t.assert(view.state.doc.textContent.includes('second'), 'second was redone')
+  t.assert(view.state.doc.textContent.includes('first'), 'first still present after redo')
+}
+
+/**
+ * By default, Y.js UndoManager tracks `null` as an origin, which means remote
+ * changes arriving via Y.applyUpdate (origin: null) clear the redo stack.
+ * This test documents that behavior — it's Y.js's design, not a plugin bug.
+ */
+export const testRedoClearedByRemoteChanges = () => {
+  const ydoc1 = new Y.Doc()
+  const ydoc2 = new Y.Doc()
+  const ytype1 = ydoc1.get('prosemirror')
+  const view = createProsemirrorView(ytype1)
+
+  insertParagraph(view, 'local')
+  const um = getUndoManager(view.state)
+
+  YPM.undo(view.state)
+  t.assert(um.redoStack.length > 0, 'redo stack has entries after undo')
+
+  // Remote change arrives — UndoManager default tracks null origin,
+  // so this clears the redo stack
+  const seedView = createProsemirrorView(ydoc2.get('prosemirror'))
+  insertParagraph(seedView, 'remote')
+  seedView.destroy()
+  Y.applyUpdate(ydoc1, Y.encodeStateAsUpdate(ydoc2))
+
+  t.assert(um.redoStack.length === 0, 'redo stack cleared by remote change (default UndoManager behavior)')
+
+  view.destroy()
+}
+
+/**
+ * Undo/redo of mark (formatting) changes — bold, italic, etc.
+ */
+export const testUndoRedoMarkChanges = () => {
+  const ydoc = new Y.Doc()
+  const ytype = ydoc.get('prosemirror')
+  const view = createProsemirrorView(ytype)
+
+  // Insert a paragraph
+  insertParagraph(view, 'hello world')
+  const um = getUndoManager(view.state)
+  um.stopCapturing()
+
+  // Apply bold to "hello" (positions 1-6 inside the paragraph)
+  const boldMark = schema.marks.strong.create()
+  view.dispatch(view.state.tr.addMark(1, 6, boldMark))
+  um.stopCapturing()
+
+  // Verify bold was applied
+  const boldNode = view.state.doc.nodeAt(1)
+  t.assert(boldNode && boldNode.marks.some(m => m.type.name === 'strong'), 'hello is bold')
+
+  // Undo the bold
+  YPM.undo(view.state)
+  const afterUndo = view.state.doc.nodeAt(1)
+  t.assert(afterUndo && !afterUndo.marks.some(m => m.type.name === 'strong'), 'bold was undone')
+  t.assert(view.state.doc.textContent === 'hello world', 'text content preserved')
+
+  // Redo the bold
+  YPM.redo(view.state)
+  const afterRedo = view.state.doc.nodeAt(1)
+  t.assert(afterRedo && afterRedo.marks.some(m => m.type.name === 'strong'), 'bold was redone')
+}
+
+/**
+ * Undo/redo of replaceWith operations — replacing content with different content.
+ */
+export const testUndoRedoReplaceWith = () => {
+  const ydoc = new Y.Doc()
+  const ytype = ydoc.get('prosemirror')
+  const view = createProsemirrorView(ytype)
+
+  insertParagraph(view, 'original')
+  const um = getUndoManager(view.state)
+  um.stopCapturing()
+
+  // Replace the entire paragraph content with new content
+  view.dispatch(view.state.tr.replaceWith(1, 9, schema.text('replaced')))
+  t.assert(view.state.doc.textContent === 'replaced', 'content was replaced')
+
+  YPM.undo(view.state)
+  t.assert(view.state.doc.textContent === 'original', 'replacement was undone')
+
+  YPM.redo(view.state)
+  t.assert(view.state.doc.textContent === 'replaced', 'replacement was redone')
+}
+
+/**
+ * User pre-configures UndoManager with custom captureTimeout.
+ * Edits within the timeout window should merge into one undo group.
+ */
+export const testUndoManagerWithCustomCaptureTimeout = () => {
+  const ydoc = new Y.Doc()
+  const ytype = ydoc.get('prosemirror')
+  // captureTimeout: 0 means every edit is its own group (no merging)
+  const undoManager = new Y.UndoManager(ytype, { captureTimeout: 0 })
+  const view = createProsemirrorViewWithUm(ytype, undoManager)
+
+  // Insert three separate paragraphs — with captureTimeout: 0, each should be separate
+  insertParagraph(view, 'first')
+  insertParagraph(view, 'second')
+  insertParagraph(view, 'third')
+
+  t.assert(undoManager.undoStack.length === 3, 'three separate undo groups with captureTimeout: 0')
+
+  YPM.undo(view.state)
+  t.assert(!view.state.doc.textContent.includes('third'), 'only last insert undone')
+  t.assert(view.state.doc.textContent.includes('first'), 'first still present')
+  t.assert(view.state.doc.textContent.includes('second'), 'second still present')
+
+  view.destroy()
+}
+
 export const testMixedHistoryWithAppendTransactionPlugin = () => {
   const ydoc = new Y.Doc()
   const ytype = ydoc.get('prosemirror')

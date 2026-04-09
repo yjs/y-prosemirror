@@ -1,7 +1,7 @@
 /* eslint-env browser */
 
 import * as Y from '@y/y'
-import { syncPlugin, ySyncPluginKey, configureYProsemirror, defaultMapAttributionToMark, yUndoPlugin, undoCommand, redoCommand } from '../src/index.js'
+import { syncPlugin, ySyncPluginKey, configureYProsemirror, defaultMapAttributionToMark, undoCommand, redoCommand } from '../src/index.js'
 import { yCursorPlugin } from '../src/cursor-plugin.js'
 import { EditorState } from 'prosemirror-state'
 import { schema } from './schema.js'
@@ -82,10 +82,10 @@ const currentView = new EditorView(editor, {
   state: EditorState.create({
     schema,
     plugins: /** @type {any[]} */ ([]).concat(
-      exampleSetup({ schema, history: false }),
+      exampleSetup({ schema }),
       syncPlugin({ mapAttributionToMark: defaultMapAttributionToMark }),
       yCursorPlugin(providerYdoc.awareness),
-      yUndoPlugin(),
+      // yUndoPlugin(),
       keymap({
         'Mod-z': undoCommand,
         'Mod-y': redoCommand,
