@@ -288,3 +288,71 @@ export const marks = {
 export const schema = new Schema({ nodes, marks })
 
 // export const testBuilders = builders(schema)
+
+// --- Custom attribution mark names (exposes hardcoded bugs in sync-plugin.js) ---
+
+const customAttributionMarkNames = 'insertion deletion modification'
+
+const customAttrNodes = {
+  ...nodes,
+  doc: { content: 'block*', marks: customAttributionMarkNames },
+  blockquote: { ...nodes.blockquote, marks: customAttributionMarkNames }
+}
+
+const { 'y-attribution-insertion': _ins, 'y-attribution-deletion': _del, 'y-attribution-format': _fmt, ...baseMarks } = marks
+const customAttrMarks = {
+  ...baseMarks,
+  insertion: {
+    attrs: { userIds: { default: null }, timestamp: { default: null } },
+    excludes: '',
+    parseDOM: [{ tag: 'ins' }],
+    toDOM () { return /** @type {const} */ (['ins', 0]) }
+  },
+  deletion: {
+    attrs: { userIds: { default: null }, timestamp: { default: null } },
+    excludes: '',
+    parseDOM: [{ tag: 'del' }],
+    toDOM () { return /** @type {const} */ (['del', 0]) }
+  },
+  modification: {
+    attrs: { userIdsByAttr: { default: null }, timestamp: { default: null } },
+    excludes: '',
+    parseDOM: [{ tag: 'mod' }],
+    toDOM () { return /** @type {const} */ (['mod', 0]) }
+  }
+}
+
+export const customAttrSchema = new Schema({ nodes: customAttrNodes, marks: customAttrMarks })
+
+/**
+ * Maps Y.js attributions to custom mark names (insertion/deletion/modification).
+ * @param {Record<string, unknown> | null} format
+ * @param {import('lib0/delta').Attribution} attribution
+ * @returns {Record<string, unknown> | null}
+ */
+export const customMapAttributionToMark = (format, attribution) => {
+  let mergeWith = null
+  if (attribution.insert) {
+    mergeWith = {
+      insertion: {
+        userIds: attribution.insert || null,
+        timestamp: attribution.insertAt || null
+      }
+    }
+  } else if (attribution.delete) {
+    mergeWith = {
+      deletion: {
+        userIds: attribution.delete || null,
+        timestamp: attribution.deleteAt || null
+      }
+    }
+  } else if (attribution.format) {
+    mergeWith = {
+      modification: {
+        userIdsByAttr: attribution.format || null,
+        timestamp: attribution.formatAt || null
+      }
+    }
+  }
+  return Object.assign({}, format, mergeWith)
+}
