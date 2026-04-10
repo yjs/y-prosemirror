@@ -4,13 +4,18 @@ import '@blocknote/mantine/style.css'
 import * as Y from '@y/y'
 import { WebsocketProvider } from '@y/websocket'
 import { syncPlugin, configureYProsemirror } from '@y/prosemirror'
+import { yCursorPlugin } from '../../src/cursor-plugin.js'
 import { Extension } from '@tiptap/core'
 import { useEffect } from 'react'
 
 const doc = new Y.Doc()
-// eslint-disable-next-line no-unused-vars
 const provider = new WebsocketProvider('wss://demos.yjs.dev/ws', 'blocknote-y-prosemirror-demo3', doc)
 const fragment = doc.get('blocknote')
+
+provider.awareness.setLocalStateField('user', {
+  name: 'User ' + Math.floor(Math.random() * 100),
+  color: '#' + Math.floor(Math.random() * 0xFFFFFF).toString(16).padStart(6, '0')
+})
 
 const YSyncExtension = Extension.create({
   name: 'ySync',
@@ -19,10 +24,17 @@ const YSyncExtension = Extension.create({
   }
 })
 
+const YCursorExtension = Extension.create({
+  name: 'yCursor',
+  addProseMirrorPlugins () {
+    return [yCursorPlugin(provider.awareness)]
+  }
+})
+
 export default function App () {
   const editor = useCreateBlockNote({
     _tiptapOptions: {
-      extensions: [YSyncExtension]
+      extensions: [YSyncExtension, YCursorExtension]
     }
   })
 

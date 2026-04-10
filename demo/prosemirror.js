@@ -1,10 +1,12 @@
 /* eslint-env browser */
 
 import * as Y from '@y/y'
-import { syncPlugin, ySyncPluginKey, configureYProsemirror, defaultMapAttributionToMark } from '../src/index.js'
+import { syncPlugin, ySyncPluginKey, configureYProsemirror, defaultMapAttributionToMark, undoCommand, redoCommand } from '../src/index.js'
+import { yCursorPlugin } from '../src/cursor-plugin.js'
 import { EditorState } from 'prosemirror-state'
 import { schema } from './schema.js'
 import { exampleSetup } from 'prosemirror-example-setup'
+import { keymap } from 'prosemirror-keymap'
 import { WebsocketProvider } from '@y/websocket'
 import * as random from 'lib0/random'
 import * as error from 'lib0/error'
@@ -27,6 +29,23 @@ if (localStorage.getItem('should-connect') != null) {
   elemToggleConnect.checked = localStorage.getItem('should-connect') === 'true'
 }
 
+/*
+ * # Init two Yjs documents.
+ *
+ * The suggestion document is a fork of the original document. By keeping them separate, we can
+ * enforce different permissions on these documents.
+ */
+
+const ydoc = new Y.Doc({ gc: false })
+const providerYdoc = new WebsocketProvider('wss://demos.yjs.dev/ws', roomName, ydoc, { connect: false })
+elemToggleConnect.checked && providerYdoc.connectBc()
+const suggestionDoc = new Y.Doc({ gc: false, isSuggestionDoc: true })
+const providerYdocSuggestions = new WebsocketProvider('wss://demos.yjs.dev/ws', roomName + '--suggestions', suggestionDoc, { connect: false })
+elemToggleConnect.checked && providerYdocSuggestions.connectBc()
+const am = /** @type {any} */ (Y).createAttributionManagerFromDiff(ydoc, suggestionDoc, { attrs: [Y.createContentAttribute('insert', ['nickthesick'])] })
+
+const yxmlFragment = ydoc.get()
+
 // when in suggestion-mode, we should use a different clientId to reduce some overhead. This is not
 // strictly necessary.
 let otherClientID = random.uint53()
@@ -42,10 +61,6 @@ const btnAcceptAllChanges = document.querySelector('#btn-accept-all-changes')
 const btnRejectAllChanges = document.querySelector('#btn-reject-all-changes')
 
 const updateSuggestionButtons = () => {
-  if (!currentView) {
-    if (elemSuggestionActions) elemSuggestionActions.style.display = 'none'
-    return
-  }
   const mode = elemSelectSuggestionMode.value
   const showButtons = mode === 'view' || mode === 'edit'
   if (elemSuggestionActions) {
@@ -53,11 +68,52 @@ const updateSuggestionButtons = () => {
   }
 }
 
+// ── Editor Init ──
+
+const editorContainer = /** @type {HTMLElement} */ (document.querySelector('#ypm-container'))
+const editor = document.createElement('div')
+editor.setAttribute('class', 'yeditor')
+editorContainer.insertBefore(editor, null)
+
+/**
+ * @type {EditorView}
+ */
+const currentView = new EditorView(editor, {
+  state: EditorState.create({
+    schema,
+    plugins: /** @type {any[]} */ ([]).concat(
+      exampleSetup({ schema }),
+      syncPlugin({ mapAttributionToMark: defaultMapAttributionToMark }),
+      yCursorPlugin(providerYdoc.awareness),
+      // yUndoPlugin(),
+      keymap({
+        'Mod-z': undoCommand,
+        'Mod-y': redoCommand,
+        'Mod-Shift-z': redoCommand
+      })
+    )
+  })
+})
+
+const initLiveEditor = () => {
+  const mode = elemSelectSuggestionMode.value
+  if (mode === 'off') {
+    configureYProsemirror({
+      ytype: yxmlFragment,
+      attributionManager: null
+    })(currentView.state, currentView.dispatch)
+  } else {
+    am.suggestionMode = mode === 'edit'
+    configureYProsemirror({
+      ytype: suggestionDoc.get(),
+      attributionManager: am
+    })(currentView.state, currentView.dispatch)
+  }
+  updateSuggestionButtons()
+}
+
 elemSelectSuggestionMode.addEventListener('change', () => {
   const mode = elemSelectSuggestionMode.value
-  if (!currentView) return
-  const pluginState = ySyncPluginKey.getState(currentView.state)
-  if (!pluginState) return
 
   // When entering edit mode, switch clientId and set user awareness
   if (mode === 'edit' && previousMode !== 'edit') {
@@ -75,7 +131,7 @@ elemSelectSuggestionMode.addEventListener('change', () => {
 
   if (mode === 'off') { // normal mode
     configureYProsemirror({
-      ytype: ydoc.get(),
+      ytype: yxmlFragment,
       attributionManager: null
     })(currentView.state, currentView.dispatch)
   } else { // suggestion mode - render suggestion doc with attributions
@@ -100,200 +156,9 @@ elemToggleConnect.addEventListener('change', () => {
   localStorage.setItem('should-connect', elemToggleConnect.checked ? 'true' : 'false')
 })
 
-/**
- * @type {HTMLInputElement | null}
- */
-const elemTogglePauseSync = document.querySelector('#toggle-pause-sync')
-
-elemTogglePauseSync?.addEventListener('change', () => {
-  if (!currentView) return
-  const pluginState = /** @type {any} */ (ySyncPluginKey.getState(currentView.state))
-  if (!pluginState) return
-
-  if (elemTogglePauseSync.checked) {
-    pluginState.pauseSync()
-  } else {
-    // When resuming from the toggle, use the keepChanges checkbox value
-    const keepChanges = /** @type {HTMLInputElement | null} */ (elemToggleKeepChanges)?.checked || false
-    pluginState.resumeSync({ keepChanges })
-  }
-  // Update UI immediately to reflect the checkbox state
-  updateSnapshotUI()
-})
-
-/**
- * Snapshot management
- */
-/**
- * @type {Array<{ snapshot: import('@y/y').Snapshot, timestamp: number }>}
- */
-const snapshots = []
-const btnTakeSnapshot = document.querySelector('#btn-take-snapshot')
-/**
- * @type {HTMLButtonElement | null}
- */
-const btnResumeSync = document.querySelector('#btn-resume-sync')
-/**
- * @type {HTMLButtonElement | null}
- */
-const btnRenderSnapshot = document.querySelector('#btn-render-snapshot')
-/**
- * @type {HTMLSelectElement | null}
- */
-const selectPrevSnapshot = document.querySelector('#select-prev-snapshot')
-/**
- * @type {HTMLSelectElement | null}
- */
-const selectSnapshot = document.querySelector('#select-snapshot')
-/**
- * @type {HTMLElement | null}
- */
-const snapshotInfo = document.querySelector('#snapshot-info')
-const elemToggleKeepChanges = document.querySelector('#toggle-keep-changes')
-
-let lastSnapshotCount = 0
-
-const updateSnapshotDropdowns = () => {
-  // Only update dropdowns if snapshot count changed
-  if (snapshots.length === lastSnapshotCount) {
-    return
-  }
-  lastSnapshotCount = snapshots.length
-
-  if (!selectPrevSnapshot || !selectSnapshot) return
-
-  // Preserve current selections
-  const prevSelectedValue = selectPrevSnapshot.value
-  const selectedValue = selectSnapshot.value
-
-  // Update dropdowns
-  const updateSelect = (/** @type {HTMLSelectElement} */ select, includeNone = false) => {
-    select.innerHTML = includeNone ? '<option value="">-- None (single snapshot view) --</option>' : '<option value="">-- Select a snapshot --</option>'
-    snapshots.forEach((snapshot, index) => {
-      const option = document.createElement('option')
-      option.value = index.toString()
-      option.textContent = `Snapshot ${index + 1} (${new Date(snapshot.timestamp).toLocaleTimeString()})`
-      select.appendChild(option)
-    })
-  }
-
-  updateSelect(selectPrevSnapshot, true)
-  updateSelect(selectSnapshot, false)
-
-  // Restore selections if they're still valid
-  if (prevSelectedValue !== '' && parseInt(prevSelectedValue, 10) < snapshots.length) {
-    selectPrevSnapshot.value = prevSelectedValue
-  }
-  if (selectedValue !== '' && parseInt(selectedValue, 10) < snapshots.length) {
-    selectSnapshot.value = selectedValue
-  }
-}
-
-const updateSnapshotUI = () => {
-  // Update dropdowns only if snapshot count changed
-  updateSnapshotDropdowns()
-
-  // Update render button state
-  if (selectSnapshot) {
-    const hasSnapshot = selectSnapshot.value !== ''
-    if (btnRenderSnapshot) btnRenderSnapshot.disabled = !hasSnapshot
-  }
-
-  // Update resume button state
-  if (currentView) {
-    const pluginState = /** @type {any} */ (ySyncPluginKey.getState(currentView.state))
-    const isInSnapshotMode = pluginState && pluginState.mode === 'snapshot'
-    const isPaused = pluginState && pluginState.mode === 'paused'
-    const canResume = isInSnapshotMode || isPaused
-    if (btnResumeSync) btnResumeSync.disabled = !canResume
-
-    if (elemToggleKeepChanges) {
-      /** @type {HTMLButtonElement} */ (elemToggleKeepChanges).disabled = !isPaused
-    }
-
-    if (snapshotInfo) {
-      if (isInSnapshotMode) {
-        snapshotInfo.textContent = '⚠️ In snapshot preview mode - document is read-only. Click "Resume Sync" to return to live editing.'
-        snapshotInfo.className = 'info-text warning'
-      } else if (isPaused) {
-        snapshotInfo.textContent = '⏸️ Sync is paused. Make changes and use "Resume Sync" to continue. Check "Keep Changes" to preserve edits made while paused.'
-        snapshotInfo.className = 'info-text warning'
-      } else {
-        snapshotInfo.textContent = snapshots.length > 0
-          ? `✓ ${snapshots.length} snapshot(s) available. Select "From" and "To" snapshots to compare, or just "To" for single snapshot view.`
-          : 'Take a snapshot to preview the document at a specific point in time.'
-        snapshotInfo.className = snapshots.length > 0 ? 'info-text success' : 'info-text info'
-      }
-    }
-  }
-}
-
-btnTakeSnapshot?.addEventListener('click', () => {
-  if (!currentView) return
-  const pluginState = ySyncPluginKey.getState(currentView.state)
-  if (!pluginState) return
-
-  // Take a snapshot of the current document state
-  const snapshot = Y.snapshot(ydoc)
-  snapshots.push({
-    snapshot,
-    timestamp: Date.now()
-  })
-  console.log('Snapshot taken:', snapshot, 'Total snapshots:', snapshots.length)
-  updateSnapshotUI()
-})
-
-btnRenderSnapshot?.addEventListener('click', () => {
-  if (!currentView || !selectSnapshot) return
-  const pluginState = /** @type {any} */ (ySyncPluginKey.getState(currentView.state))
-  if (!pluginState) return
-
-  const snapshotIndex = parseInt(selectSnapshot.value, 10)
-  if (isNaN(snapshotIndex) || snapshotIndex < 0 || snapshotIndex >= snapshots.length) {
-    return
-  }
-
-  const snapshotItem = snapshots[snapshotIndex]
-  const prevSnapshotIndex = selectPrevSnapshot && selectPrevSnapshot.value !== '' ? parseInt(selectPrevSnapshot.value, 10) : null
-
-  // Use current ytype for rendering (it's the same fragment, just at different points in time)
-  const currentYtype = pluginState.ytype
-
-  if (prevSnapshotIndex !== null && !isNaN(prevSnapshotIndex) && prevSnapshotIndex >= 0 && prevSnapshotIndex < snapshots.length) {
-    // Compare two snapshots
-    const prevSnapshotItem = snapshots[prevSnapshotIndex]
-    pluginState.renderSnapshot(
-      { fragment: currentYtype, snapshot: snapshotItem.snapshot },
-      { fragment: currentYtype, snapshot: prevSnapshotItem.snapshot }
-    )
-  } else {
-    // Single snapshot view
-    pluginState.renderSnapshot(
-      { fragment: currentYtype, snapshot: snapshotItem.snapshot }
-    )
-  }
-
-  updateSnapshotUI()
-})
-
-btnResumeSync?.addEventListener('click', () => {
-  if (!currentView) return
-  const pluginState = /** @type {any} */ (ySyncPluginKey.getState(currentView.state))
-  if (!pluginState) return
-
-  const keepChanges = /** @type {HTMLInputElement | null} */ (elemToggleKeepChanges)?.checked || false
-  pluginState.resumeSync({ keepChanges })
-  updateSnapshotUI()
-})
-
-// Update button state when dropdowns change
-selectPrevSnapshot?.addEventListener('change', updateSnapshotUI)
-selectSnapshot?.addEventListener('change', updateSnapshotUI)
-
 // Accept/Reject changes buttons
 if (btnAcceptChanges) {
   btnAcceptChanges.addEventListener('click', () => {
-    if (!currentView) return
     const pluginState = ySyncPluginKey.getState(currentView.state)
     if (!pluginState) return
 
@@ -312,7 +177,6 @@ if (btnAcceptChanges) {
 
 if (btnRejectChanges) {
   btnRejectChanges.addEventListener('click', () => {
-    if (!currentView) return
     const pluginState = ySyncPluginKey.getState(currentView.state)
     if (!pluginState) return
 
@@ -332,7 +196,6 @@ if (btnRejectChanges) {
 // Accept/Reject all changes buttons
 if (btnAcceptAllChanges) {
   btnAcceptAllChanges.addEventListener('click', () => {
-    if (!currentView) return
     const pluginState = ySyncPluginKey.getState(currentView.state)
     if (!pluginState) return
 
@@ -347,7 +210,6 @@ if (btnAcceptAllChanges) {
 
 if (btnRejectAllChanges) {
   btnRejectAllChanges.addEventListener('click', () => {
-    if (!currentView) return
     const pluginState = ySyncPluginKey.getState(currentView.state)
     if (!pluginState) return
 
@@ -359,88 +221,8 @@ if (btnRejectAllChanges) {
     }
   })
 }
-/*
- * # Init two Yjs documents.
- *
- * The suggestion document is a fork of the original document. By keeping them separate, we can
- * enforce different permissions on these documents.
- */
 
-const ydoc = new Y.Doc({ gc: false })
-const providerYdoc = new WebsocketProvider('wss://demos.yjs.dev/ws', roomName, ydoc, { connect: false })
-elemToggleConnect.checked && providerYdoc.connectBc()
-const suggestionDoc = new Y.Doc({ gc: false, isSuggestionDoc: true })
-const providerYdocSuggestions = new WebsocketProvider('wss://demos.yjs.dev/ws', roomName + '--suggestions', suggestionDoc, { connect: false })
-elemToggleConnect.checked && providerYdocSuggestions.connectBc()
-const am = /** @type {any} */ (Y).createAttributionManagerFromDiff(ydoc, suggestionDoc, { attrs: [Y.createContentAttribute('insert', ['nickthesick'])] })
+initLiveEditor()
 
-suggestionDoc.on('update', () => {
-  console.log('suggestionDoc updated', suggestionDoc.get().toDeltaDeep(am).toJSON())
-})
-ydoc.on('update', () => {
-  // console.log('ydoc updated', ydoc.get().toString())
-})
-/**
- * @type {EditorView?}
- */
-let currentView = null
-
-const initEditor = () => {
-  const ypm = ydoc.get()
-  currentView?.destroy()
-  snapshots.length = 0 // Clear snapshots when reinitializing
-  const ypmContainer = document.querySelector('#ypm-container')
-  if (!ypmContainer) return
-  ypmContainer.innerHTML = ''
-  const editor = document.createElement('div')
-  editor.setAttribute('class', 'yeditor')
-  ypmContainer.insertBefore(editor, null)
-  const state = EditorState.create({
-    schema,
-    plugins: /** @type {any[]} */ ([]).concat(exampleSetup({ schema, history: false }), syncPlugin({
-      mapAttributionToMark: defaultMapAttributionToMark
-    }))
-  })
-  // Track last mode to detect changes
-  /** @type {string | null} */
-  let lastMode = null
-  const initialPluginState = /** @type {any} */ (ySyncPluginKey.getState(state))
-  if (initialPluginState) {
-    lastMode = initialPluginState.mode
-  }
-
-  currentView = new EditorView(editor, {
-    state,
-    dispatchTransaction: (tr) => {
-      if (!currentView) return
-      const newState = currentView.state.apply(tr)
-      currentView.updateState(newState)
-
-      // Check if mode changed and update UI
-      const pluginState = /** @type {any} */ (ySyncPluginKey.getState(newState))
-      if (pluginState) {
-        const currentMode = pluginState.mode
-        if (currentMode !== lastMode) {
-          lastMode = currentMode
-          updateSnapshotUI()
-          updateSuggestionButtons()
-        }
-      }
-    }
-  })
-  configureYProsemirror({
-    ytype: ypm,
-    attributionManager: null
-  })(state, currentView.dispatch)
-
-  // Update snapshot UI
-  updateSnapshotUI()
-
-  // Update suggestion buttons visibility
-  updateSuggestionButtons()
-
-  // @ts-ignore
-  window.example = { suggestionDoc, ydoc, type: ypm, currentView, snapshots }
-}
-
-initEditor()
+// @ts-ignore
+window.example = { suggestionDoc, ydoc, type: yxmlFragment, currentView }
