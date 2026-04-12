@@ -203,11 +203,29 @@ export const yCursorPlugin = (
       }
     },
     view: (view) => {
+      const ownerDocument = view.dom.ownerDocument
+      let cursorUpdateScheduled = false
+      const isEditorFocused = () => {
+        const activeElement = ownerDocument.activeElement
+        return (
+          activeElement === view.dom ||
+          (activeElement instanceof Element && view.dom.contains(activeElement))
+        )
+      }
+      const scheduleCursorUpdate = () => {
+        if (cursorUpdateScheduled) return
+        cursorUpdateScheduled = true
+        queueMicrotask(() => {
+          cursorUpdateScheduled = false
+          updateCursorInfo()
+        })
+      }
       const awarenessListener = () => {
-        // @ts-ignore
-        if (view.docView) { // TODO why is this using docView? Ask Kevin about this.
-          view.dispatch(view.state.tr.setMeta(yCursorPluginKey, { awarenessUpdated: true }))
-        }
+        queueMicrotask(() => {
+          const tr = view.state.tr.setMeta(yCursorPluginKey, { awarenessUpdated: true })
+          tr.setMeta('addToHistory', false)
+          view.dispatch(tr)
+        })
       }
       const updateCursorInfo = () => {
         const ystate = ySyncPluginKey.getState(view.state)
@@ -217,7 +235,7 @@ export const yCursorPlugin = (
          * @type {{anchor: any, head: any}}
          */
         const cursor = current[cursorStateField]
-        if (view.hasFocus() && ystate?.ytype) {
+        if (isEditorFocused() && ystate?.ytype) {
           const selection = getSelection(view.state)
           const anchor = absolutePositionToRelativePosition(
             selection.$anchor,
@@ -259,14 +277,27 @@ export const yCursorPlugin = (
           awareness.setLocalStateField(cursorStateField, null)
         }
       }
+      const handleSelectionChange = () => {
+        if (isEditorFocused()) {
+          scheduleCursorUpdate()
+        }
+      }
       awareness.on('change', awarenessListener)
-      view.dom.addEventListener('focusin', updateCursorInfo)
-      view.dom.addEventListener('focusout', updateCursorInfo)
+      view.dom.addEventListener('focusin', scheduleCursorUpdate)
+      view.dom.addEventListener('focusout', scheduleCursorUpdate)
+      view.dom.addEventListener('keyup', scheduleCursorUpdate)
+      view.dom.addEventListener('mouseup', scheduleCursorUpdate)
+      view.dom.addEventListener('touchend', scheduleCursorUpdate)
+      ownerDocument.addEventListener('selectionchange', handleSelectionChange)
       return {
-        update: updateCursorInfo,
+        update: scheduleCursorUpdate,
         destroy: () => {
-          view.dom.removeEventListener('focusin', updateCursorInfo)
-          view.dom.removeEventListener('focusout', updateCursorInfo)
+          view.dom.removeEventListener('focusin', scheduleCursorUpdate)
+          view.dom.removeEventListener('focusout', scheduleCursorUpdate)
+          view.dom.removeEventListener('keyup', scheduleCursorUpdate)
+          view.dom.removeEventListener('mouseup', scheduleCursorUpdate)
+          view.dom.removeEventListener('touchend', scheduleCursorUpdate)
+          ownerDocument.removeEventListener('selectionchange', handleSelectionChange)
           awareness.off('change', awarenessListener)
           awareness.setLocalStateField(cursorStateField, null)
         }
