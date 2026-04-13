@@ -21,12 +21,20 @@ const usercolors = [
 
 const userColor = usercolors[random.uint32() % usercolors.length]
 const org = 'yhub-pro-demo'
-const docid = 'prosemirror-demo3'
+
+// Derive room name from URL hash, or generate a random 6-char hex
+let roomName = location.hash.slice(1)
+if (!roomName) {
+  roomName = random.uint32().toString(16).padStart(6, '0').slice(0, 6)
+  location.hash = roomName
+}
+const docid = roomName
+
 const yhubApiUrl = 'https://yhub-standalone-x9kss.ondigitalocean.app' // 'http://localhost:3002'
 
 const ydoc = new Y.Doc()
 const wsUrl = yhubApiUrl + '/ws/' + org
-const provider = new WebsocketProvider(wsUrl, docid, ydoc)
+const provider = new WebsocketProvider(wsUrl, docid, ydoc, { params: { gc: false } })
 const yxmlFragment = ydoc.get('prosemirror')
 
 provider.awareness.setLocalStateField('user', {
@@ -202,6 +210,15 @@ provider.on('status', (/** @type {{ status: string }} */ event) => {
   statusEl.textContent = event.status
   statusEl.className = 'status ' + event.status
 })
+
+// ── Open in Another Tab ──
+
+const openTabBtn = document.createElement('button')
+openTabBtn.textContent = 'Open in another tab'
+openTabBtn.style.cssText = 'padding:4px 10px;font-size:12px;font-weight:500;border:1px solid #d1d5db;border-radius:4px;cursor:pointer;background:white;'
+openTabBtn.addEventListener('click', () => { window.open(location.href, '_blank') })
+const headerRight = /** @type {HTMLElement} */ (document.querySelector('.header-right'))
+headerRight.insertBefore(openTabBtn, headerRight.firstChild)
 
 // ── Activity Panel ──
 
