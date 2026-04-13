@@ -5,17 +5,13 @@ import {
   defaultMapAttributionToMark,
   deltaAttributionToFormat,
   deltaToPSteps,
-  nodeToDelta,
-  formattingAttributesToMarks
+  nodeToDelta
 } from './sync-utils.js'
-import { ReplaceStep, AddMarkStep, RemoveMarkStep } from 'prosemirror-transform'
 import * as d from 'lib0/delta'
 import { ySyncPluginKey } from './keys.js'
 import * as s from 'lib0/schema'
 import * as object from 'lib0/object'
 import * as list from 'lib0/list'
-import * as error from 'lib0/error'
-import * as eventloop from 'lib0/eventloop'
 
 /**
  * The y-prosemirror binding is a bi-directional synchronization with the provided Y.Type and the EditorView

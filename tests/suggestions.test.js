@@ -620,8 +620,8 @@ export const testEnterInSuggestionMode = async () => {
   const expectedSuggestionDoc = {
     type: 'doc',
     content: [
-      { 
-        type: 'paragraph', 
+      {
+        type: 'paragraph',
         content: [
           { type: 'text', text: 'hel' },
           { type: 'text', text: 'lo', marks: [deletionMark] }
@@ -655,7 +655,7 @@ export const testEnterInSuggestionMode = async () => {
  */
 // TODO: FAILING - merged paragraph after join mismatch (array length mismatch in doc content)
 export const testBackspaceJoinInSuggestionMode = async () => {
-  const { doc, suggestionDoc, suggestionModeDoc, viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup()
+  const { doc, suggestionDoc, viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup()
 
   // Set up two paragraphs in the base doc: "hel" and "lo"
   doc.get('prosemirror').applyDelta(
@@ -738,7 +738,6 @@ export const testBackspaceJoinInSuggestionMode = async () => {
     expectedSuggestionDoc,
     'View Suggestions: merged paragraph after join'
   )
-
 }
 
 export const testReconfigureAfterDeletion = async () => {
