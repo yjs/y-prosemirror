@@ -180,9 +180,11 @@ export const yCursorPlugin = (
       },
       apply (tr, prevState, _oldState, newState) {
         const ySyncMeta = $syncPluginStateUpdate.nullable.expect(tr.getMeta(ySyncPluginKey) || null)
+        const ySyncTransaction = tr.getMeta('y-sync-transaction')
         const yCursorState = tr.getMeta(yCursorPluginKey)
         if (
           (ySyncMeta) ||
+          (ySyncTransaction) ||
           (yCursorState && yCursorState.awarenessUpdated)
         ) {
           return createDecorations(
