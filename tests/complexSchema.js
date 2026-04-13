@@ -6,7 +6,7 @@ import { Schema } from 'prosemirror-model'
  */
 const brDOM = ['br']
 
-const attributionMarkNames = 'y-attribution-insertion y-attribution-deletion y-attribution-format'
+const attributionMarkNames = 'y-attributed-insert y-attributed-delete y-attributed-format'
 
 /**
  * @type {Object<string, import('prosemirror-model').NodeSpec>}
@@ -249,7 +249,7 @@ export const marks = {
     }
   },
 
-  'y-attribution-insertion': {
+  'y-attributed-insert': {
     attrs: { userIds: { default: null }, timestamp: { default: null } },
     excludes: '',
     parseDOM: [{ tag: 'y-ins' }],
@@ -258,7 +258,7 @@ export const marks = {
     }
   },
 
-  'y-attribution-deletion': {
+  'y-attributed-delete': {
     attrs: { userIds: { default: null }, timestamp: { default: null } },
     excludes: '',
     parseDOM: [{ tag: 'y-del' }],
@@ -267,7 +267,7 @@ export const marks = {
     }
   },
 
-  'y-attribution-format': {
+  'y-attributed-format': {
     attrs: { userIdsByAttr: { default: null }, timestamp: { default: null } },
     excludes: '',
     parseDOM: [{ tag: 'y-fmt' }],
@@ -286,5 +286,3 @@ export const marks = {
 // To reuse elements from this schema, extend or read from its
 // `spec.nodes` and `spec.marks` [properties](#model.Schema.spec).
 export const schema = new Schema({ nodes, marks })
-
-// export const testBuilders = builders(schema)

@@ -19,6 +19,10 @@ import {
 export const $prosemirrorDelta = delta.$delta({ name: s.$string, attrs: s.$record(s.$string, s.$any), text: true, recursiveChildren: true })
 
 /**
+ * Default attribution-to-mark mapper. Custom mappers must also use the permitted mark names:
+ * `y-attributed-insert`, `y-attributed-delete`, and `y-attributed-format`. No other mark names
+ * are permitted.
+ *
  * @template {import('lib0/delta').Attribution} T
  * @param {Record<string, unknown> | null} format
  * @param {T} attribution
@@ -31,21 +35,21 @@ export const defaultMapAttributionToMark = (format, attribution) => {
   let mergeWith = null
   if (attribution.insert) {
     mergeWith = {
-      'y-attribution-insertion': {
+      'y-attributed-insert': {
         userIds: attribution.insert ? attribution.insert : null,
         timestamp: attribution.insertAt ? attribution.insertAt : null
       }
     }
   } else if (attribution.delete) {
     mergeWith = {
-      'y-attribution-deletion': {
+      'y-attributed-delete': {
         userIds: attribution.delete ? attribution.delete : null,
         timestamp: attribution.deleteAt ? attribution.deleteAt : null
       }
     }
   } else if (attribution.format) {
     mergeWith = {
-      'y-attribution-format': {
+      'y-attributed-format': {
         userIdsByAttr: attribution.format ? attribution.format : null,
         timestamp: attribution.formatAt ? attribution.formatAt : null
       }
@@ -253,6 +257,13 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
         }
       }
     } else if (delta.$modifyOp.check(op)) {
+      object.forEach(op.format ?? {}, (v, k) => {
+        if (v == null) {
+          tr.removeNodeMark(currPos.i, schema.marks[k])
+        } else {
+          tr.addNodeMark(currPos.i, schema.mark(k, v))
+        }
+      })
       currPos.i++
       deltaToPSteps(tr, op.value, pchildren[currParentIndex++], currPos)
       currPos.i++

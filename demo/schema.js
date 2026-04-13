@@ -5,7 +5,7 @@ import { Schema } from 'prosemirror-model'
  */
 const brDOM = ['br']
 
-const attributionMarkNames = 'y-attribution-insertion y-attribution-deletion y-attribution-format'
+const attributionMarkNames = 'y-attributed-insert y-attributed-delete y-attributed-format'
 
 // :: Object
 // [Specs](#model.NodeSpec) for the nodes defined in this schema.
@@ -172,7 +172,7 @@ export const marks = {
     toDOM () { return codeDOM }
   },
 
-  'y-attribution-insertion': {
+  'y-attributed-insert': {
     attrs: { userIds: { default: null }, timestamp: { default: null } },
     excludes: '',
     parseDOM: [{ tag: 'y-ins' }],
@@ -181,7 +181,7 @@ export const marks = {
     }
   },
 
-  'y-attribution-deletion': {
+  'y-attributed-delete': {
     attrs: { userIds: { default: null }, timestamp: { default: null } },
     excludes: '',
     parseDOM: [{ tag: 'y-del' }],
@@ -190,7 +190,7 @@ export const marks = {
     }
   },
 
-  'y-attribution-format': {
+  'y-attributed-format': {
     attrs: { userIdsByAttr: { default: null }, timestamp: { default: null } },
     excludes: '',
     parseDOM: [{ tag: 'y-fmt' }],
