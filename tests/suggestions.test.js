@@ -228,13 +228,9 @@ export const testSequentialTypingMarks = async () => {
   const { viewSuggestion, viewSuggestionMode } = createSuggestionSetup({
     baseContent: 'hello'
   })
-
   // Type 'a' then 'b' as separate dispatches (like real typing)
   await safeDispatch(viewSuggestionMode, viewSuggestionMode.state.tr.insertText('a', 6))
-
-  // TODO: RangeError: Maximum call stack size exceeded
   await safeDispatch(viewSuggestionMode, viewSuggestionMode.state.tr.insertText('b', 7))
-
   const abDoc = {
     type: 'doc',
     content: [
@@ -247,14 +243,12 @@ export const testSequentialTypingMarks = async () => {
       }
     ]
   }
-
   // BOTH 'a' and 'b' should have insertion marks
   assertDocJSON(
     viewSuggestion.state.doc,
     abDoc,
     "View Suggestions: both 'a' and 'b' have insertion marks"
   )
-
   assertDocJSON(
     viewSuggestionMode.state.doc,
     abDoc,
@@ -299,7 +293,7 @@ export const testBlockInsertionMarks = async () => {
       { type: 'paragraph', content: [{ type: 'text', text: 'hello' }] },
       {
         type: 'paragraph',
-        marks: [insertionMark], // TODO: this fails because it's not in output. AddNodeMarkStep never called?
+        marks: [insertionMark],
         content: [{ type: 'text', text: 'new block', marks: [insertionMark] }]
       }
     ]
@@ -338,14 +332,12 @@ export const testImageInsertionMarks = async () => {
       { type: 'paragraph', content: [{ type: 'text', text: 'hello' }] }
     ]
   }
-
   // Base doc unchanged
   assertDocJSON(
     viewA.state.doc,
     helloDoc,
     'Client A unchanged after image insert'
   )
-
   const expectedDoc = {
     type: 'doc',
     content: [
@@ -362,14 +354,11 @@ export const testImageInsertionMarks = async () => {
       }
     ]
   }
-
   assertDocJSON(
     viewSuggestion.state.doc,
     expectedDoc,
     'View Suggestions: image has insertion mark'
   )
-
-  // TODO: "viewSuggestionMode" doc fails
   assertDocJSON(
     viewSuggestionMode.state.doc,
     expectedDoc,
@@ -597,26 +586,21 @@ export const testDeleteSuggustion = async () => {
  * unchanged, and the suggestion views should show the new paragraph with
  * insertion marks.
  */
-// TODO: FAILING - split paragraph insertion mark mismatch (array length mismatch in doc content)
 export const testEnterInSuggestionMode = async () => {
   const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({
     baseContent: 'hello'
   })
-
   const helloDoc = {
     type: 'doc',
     content: [
       { type: 'paragraph', content: [{ type: 'text', text: 'hello' }] }
     ]
   }
-
   // Press Enter after "hel" (position 4 = after 'l' in "hel|lo")
   const { tr } = viewSuggestionMode.state
   await safeDispatch(viewSuggestionMode, tr.split(4))
-
   // Base doc should stay unchanged
   assertDocJSON(viewA.state.doc, helloDoc, 'Client A unchanged after Enter')
-
   const expectedSuggestionDoc = {
     type: 'doc',
     content: [
@@ -634,13 +618,11 @@ export const testEnterInSuggestionMode = async () => {
       }
     ]
   }
-
   assertDocJSON(
     viewSuggestion.state.doc,
     expectedSuggestionDoc,
     'View Suggestions: split paragraph shows insertion mark on new block'
   )
-
   assertDocJSON(
     viewSuggestionMode.state.doc,
     expectedSuggestionDoc,
@@ -653,10 +635,8 @@ export const testEnterInSuggestionMode = async () => {
  * in suggestion mode should merge it with the previous paragraph. The base doc
  * stays unchanged, and the suggestion views should show the merged paragraph.
  */
-// TODO: FAILING - merged paragraph after join mismatch (array length mismatch in doc content)
 export const testBackspaceJoinInSuggestionMode = async () => {
   const { doc, suggestionDoc, viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup()
-
   // Set up two paragraphs in the base doc: "hel" and "lo"
   doc.get('prosemirror').applyDelta(
     delta.create()
@@ -666,7 +646,6 @@ export const testBackspaceJoinInSuggestionMode = async () => {
       ])
       .done()
   )
-
   const twoParaDoc = {
     type: 'doc',
     content: [
@@ -674,28 +653,24 @@ export const testBackspaceJoinInSuggestionMode = async () => {
       { type: 'paragraph', content: [{ type: 'text', text: 'lo' }] }
     ]
   }
-
   assertDocJSON(viewA.state.doc, twoParaDoc, 'Base doc has two paragraphs')
   assertDocJSON(
     viewSuggestionMode.state.doc,
     twoParaDoc,
     'Suggestion mode starts with two paragraphs'
   )
-
   // Backspace at start of second paragraph → join at the boundary (pos 5)
   // doc structure: <doc><p>hel</p><p>lo</p></doc>
   //                0    1  4  5   6 8  9
   // join depth 1 at pos 5 (between </p> and <p>)
   const { tr } = viewSuggestionMode.state
   await safeDispatch(viewSuggestionMode, tr.join(5))
-
   // Base doc should stay unchanged
   assertDocJSON(
     viewA.state.doc,
     twoParaDoc,
     'Client A unchanged after Backspace join'
   )
-
   const expectedSuggestionDoc = {
     type: 'doc',
     content: [
@@ -726,7 +701,6 @@ export const testBackspaceJoinInSuggestionMode = async () => {
       }
     ]
   }
-
   assertDocJSON(
     viewSuggestionMode.state.doc,
     expectedSuggestionDoc,
