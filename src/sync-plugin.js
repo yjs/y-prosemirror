@@ -280,8 +280,28 @@ export function syncPlugin (opts = {}) {
               }, 0)
             })
           })
+          const onAttrsChanged = attributionManager?.on('change', (changes) => {
+            console.log('attrs changed!!', changes)
+            if (!view || view.isDestroyed) {
+              return unsubscribeFn?.()
+            }
+            const d = deltaAttributionToFormat(
+              ytype.toDelta(attributionManager, { deep: true, itemsToRender: changes, retainInserts: true, retainDeletes: true }),
+              attributionMapper
+            ).done()
+            const ptr = deltaToPSteps(view.state.tr, d)
+            ptr.setMeta('addToHistory', false)
+            ptr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
+              change: null, // @todo - remove this property
+              attributionManager,
+              attributionMapper,
+              ytype
+            }))
+            view.dispatch(ptr)
+          })
           unsubscribeFn = () => {
             ytype.unobserveDeep(yTypeCb)
+            onAttrsChanged && attributionManager?.off('change', onAttrsChanged)
             timeouthandler != null && clearTimeout(timeouthandler)
             unsubscribeFn = null
           }
@@ -311,7 +331,10 @@ export function syncPlugin (opts = {}) {
             /**
              * @type {ProsemirrorDelta}
              */
-            const ycontent = ytype.toDeltaDeep(attributionManager || Y.noAttributionsManager)
+            const ycontent = deltaAttributionToFormat(
+              ytype.toDeltaDeep(attributionManager || Y.noAttributionsManager),
+              pluginState.attributionMapper
+            )
             const pcontent = nodeToDelta(view.state.doc)
             const diff = d.diff(ycontent.done(), pcontent.done())
             stripAttributionFormattingFromDelta(diff)

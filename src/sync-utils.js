@@ -18,6 +18,12 @@ import {
 
 export const $prosemirrorDelta = delta.$delta({ name: s.$string, attrs: s.$record(s.$string, s.$any), text: true, recursiveChildren: true })
 
+const _clearAttributionFormatting = {
+  'y-attributed-format': null,
+  'y-attributed-insert': null,
+  'y-attributed-retain': null
+}
+
 /**
  * Default attribution-to-mark mapper. Custom mappers must also use the permitted mark names:
  * `y-attributed-insert`, `y-attributed-delete`, and `y-attributed-format`. No other mark names
@@ -54,6 +60,8 @@ export const defaultMapAttributionToMark = (format, attribution) => {
         timestamp: attribution.formatAt ? attribution.formatAt : null
       }
     }
+  } else {
+    mergeWith = _clearAttributionFormatting
   }
   return object.assign({}, format, mergeWith)
 }
