@@ -2,6 +2,12 @@
 
 > [ProseMirror](http://prosemirror.net/) Binding for [Yjs](https://github.com/yjs/yjs) - [Demo](https://demos.yjs.dev/prosemirror/prosemirror.html)
 
+> [!NOTE]
+> The `main` branch of this repository is the development branch for the unstable
+> `@y/prosemirror` release, which adds support for Yjs v14 (`@y/y`). Most users
+> should continue to use the stable `y-prosemirror` package with Yjs v13 for now.
+> The documentation below applies to the stable `y-prosemirror` release.
+
 This binding maps a Y.XmlFragment to the ProseMirror state.
 
 ## Features
