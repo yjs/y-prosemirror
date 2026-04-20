@@ -152,6 +152,7 @@ export const createDecorations = (
  * @param {(user: User, clientId: number) => HTMLElement} [opts.cursorBuilder] A function that creates a cursor element
  * @param {(user: User, clientId: number) => import('prosemirror-view').DecorationAttrs} [opts.selectionBuilder] A function that creates a selection decoration
  * @param {(state: import('prosemirror-state').EditorState) => {$anchor: import('prosemirror-model').ResolvedPos, $head: import('prosemirror-model').ResolvedPos}} [opts.getSelection] A function that gets the selection from the editor state
+ * @param {number | null} [opts.cursorTimeout] How long (in ms) after the editor loses focus before the cursor is cleared from awareness. Set to `null` or `0` to disable (cursor persists until awareness drops). Defaults to `10000`.
  * @param {string} [cursorStateField] By default all editor bindings use the awareness 'cursor' field to propagate cursor information, this allows you to use a different field name
  * @return {any}
  */
@@ -161,7 +162,8 @@ export const yCursorPlugin = (
     awarenessStateFilter = (currentClientId, userClientId) => currentClientId !== userClientId,
     cursorBuilder = defaultCursorBuilder,
     selectionBuilder = defaultSelectionBuilder,
-    getSelection = (state) => state.selection
+    getSelection = (state) => state.selection,
+    cursorTimeout = 10000
   } = {},
   cursorStateField = 'cursor'
 ) =>
@@ -180,9 +182,11 @@ export const yCursorPlugin = (
       },
       apply (tr, prevState, _oldState, newState) {
         const ySyncMeta = $syncPluginStateUpdate.nullable.expect(tr.getMeta(ySyncPluginKey) || null)
+        const ySyncTransaction = tr.getMeta('y-sync-transaction')
         const yCursorState = tr.getMeta(yCursorPluginKey)
         if (
           (ySyncMeta) ||
+          (ySyncTransaction) ||
           (yCursorState && yCursorState.awarenessUpdated)
         ) {
           return createDecorations(
@@ -208,6 +212,29 @@ export const yCursorPlugin = (
         if (view.docView) { // TODO why is this using docView? Ask Kevin about this.
           view.dispatch(view.state.tr.setMeta(yCursorPluginKey, { awarenessUpdated: true }))
         }
+      }
+      /**
+       * @type {ReturnType<typeof setTimeout> | null}
+       */
+      let staleTimer = null
+      const resetStaleTimer = () => {
+        if (staleTimer != null) {
+          clearTimeout(staleTimer)
+          staleTimer = null
+        }
+        if (cursorTimeout == null || cursorTimeout <= 0) return
+        staleTimer = setTimeout(() => {
+          staleTimer = null
+          if (!view.hasFocus()) {
+            const current = awareness.getLocalState() || {}
+            if (current[cursorStateField] != null) {
+              awareness.setLocalStateField(cursorStateField, null)
+            }
+          } else {
+            // still focused, re-arm the timer
+            resetStaleTimer()
+          }
+        }, cursorTimeout)
       }
       const updateCursorInfo = () => {
         const ystate = ySyncPluginKey.getState(view.state)
@@ -245,30 +272,20 @@ export const yCursorPlugin = (
               head
             })
           }
-        } else if (
-          cursor != null &&
-          ystate?.ytype &&
-          relativePositionToAbsolutePosition(
-            Y.createRelativePositionFromJSON(cursor.anchor),
-            ystate.ytype,
-            view.state.doc,
-            ystate.attributionManager
-          ) !== null
-        ) {
-          // delete cursor information if current cursor information is owned by this editor binding
-          awareness.setLocalStateField(cursorStateField, null)
+          resetStaleTimer()
         }
       }
       awareness.on('change', awarenessListener)
       view.dom.addEventListener('focusin', updateCursorInfo)
-      view.dom.addEventListener('focusout', updateCursorInfo)
       return {
         update: updateCursorInfo,
         destroy: () => {
+          if (staleTimer != null) {
+            clearTimeout(staleTimer)
+            staleTimer = null
+          }
           view.dom.removeEventListener('focusin', updateCursorInfo)
-          view.dom.removeEventListener('focusout', updateCursorInfo)
           awareness.off('change', awarenessListener)
-          awareness.setLocalStateField(cursorStateField, null)
         }
       }
     }

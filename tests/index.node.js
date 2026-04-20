@@ -4,6 +4,7 @@ import path, { dirname } from 'path'
 import jsdom from 'jsdom'
 
 // import * as prosemirror from './y-prosemirror.test.js'
+import * as cursor from './cursor.test.js'
 import * as delta from './delta.test.js'
 import * as positions from './positions.test.js'
 import * as suggestions from './suggestions.test.js'
@@ -50,6 +51,7 @@ if (isBrowser) {
   log.createVConsole(document.body)
 }
 runTests({
+  cursor,
   delta,
   positions,
   suggestions,
