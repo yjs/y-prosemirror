@@ -325,7 +325,11 @@ export const deltaToPNode = (d, schema, dformat) => {
     attrs[attr.key] = attr.value
   }
   const dc = d.children.map(c => delta.$insertOp.check(c) ? c.insert.map(cn => deltaToPNode(cn, schema, c.format)) : (delta.$textOp.check(c) ? [schema.text(c.insert, formattingAttributesToMarks(c.format, schema))] : []))
-  return schema.node(d.name ?? 'doc', attrs, dc.flat(1), formattingAttributesToMarks(dformat, schema))
+  const pNode = schema.nodes[d.name ?? 'doc'].createAndFill(attrs, dc.flat(1), formattingAttributesToMarks(dformat, schema))
+  if (pNode === null) {
+    throw new Error('Failed to create node')
+  }
+  return pNode
 }
 
 /**
