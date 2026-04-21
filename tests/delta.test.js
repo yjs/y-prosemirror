@@ -246,6 +246,7 @@ export const testDeltaToPNodeBlockquoteWithChild = () => {
  */
 export const testDeltaToPNodeAutoFillsDoc = () => {
   const d = delta.create(null, {})
+  // @ts-ignore - deltaToPNode handles name=null at runtime (falls back to 'doc')
   const node = deltaToPNode(d, schema, null)
   t.assert(node.type.name === 'doc')
   // createAndFill should auto-insert a paragraph to satisfy block+ content
