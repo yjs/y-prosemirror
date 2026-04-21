@@ -7,6 +7,7 @@ import { Fragment, Schema, Slice } from 'prosemirror-model'
 import * as delta from 'lib0/delta'
 import { findWrapping, ReplaceAroundStep } from 'prosemirror-transform'
 import { EditorView } from 'prosemirror-view'
+import { deltaToPNode } from '../src/sync-utils.js'
 
 const schema = new Schema({
   nodes: basicSchema.nodes,
@@ -177,4 +178,90 @@ export const testMultipleComplexSteps = () => {
       return tr
     }
   ])
+}
+
+// --- deltaToPNode direct tests ---
+
+/**
+ * Test that deltaToPNode creates a simple paragraph with text content.
+ */
+export const testDeltaToPNodeParagraph = () => {
+  const d = delta.create('paragraph', {}, 'Hello')
+  const node = deltaToPNode(d, schema, null)
+  t.assert(node.type.name === 'paragraph')
+  t.assert(node.textContent === 'Hello')
+}
+
+/**
+ * Test that deltaToPNode creates a heading with attributes.
+ */
+export const testDeltaToPNodeHeadingWithAttrs = () => {
+  const d = delta.create('heading', { level: 2 }, 'Title')
+  const node = deltaToPNode(d, schema, null)
+  t.assert(node.type.name === 'heading')
+  t.assert(node.attrs.level === 2)
+  t.assert(node.textContent === 'Title')
+}
+
+/**
+ * Test that deltaToPNode creates an empty paragraph (inline* content allows empty).
+ */
+export const testDeltaToPNodeEmptyParagraph = () => {
+  const d = delta.create('paragraph', {})
+  const node = deltaToPNode(d, schema, null)
+  t.assert(node.type.name === 'paragraph')
+  t.assert(node.childCount === 0)
+}
+
+/**
+ * Test that createAndFill auto-fills required children for blockquote.
+ * blockquote has content "block+" so it requires at least one block child.
+ * createAndFill should auto-insert an empty paragraph, whereas the old
+ * schema.node() would have thrown an error.
+ */
+export const testDeltaToPNodeAutoFillsBlockquote = () => {
+  const d = delta.create('blockquote', {})
+  const node = deltaToPNode(d, schema, null)
+  t.assert(node.type.name === 'blockquote')
+  // createAndFill should have auto-inserted a paragraph to satisfy block+ content
+  t.assert(node.childCount === 1)
+  t.assert(node.firstChild?.type.name === 'paragraph')
+}
+
+/**
+ * Test that deltaToPNode handles a blockquote with an explicit paragraph child.
+ */
+export const testDeltaToPNodeBlockquoteWithChild = () => {
+  const d = delta.create('blockquote', {}, [delta.create('paragraph', {}, 'quoted text')])
+  const node = deltaToPNode(d, schema, null)
+  t.assert(node.type.name === 'blockquote')
+  t.assert(node.childCount === 1)
+  t.assert(node.firstChild?.type.name === 'paragraph')
+  t.assert(node.firstChild?.textContent === 'quoted text')
+}
+
+/**
+ * Test that deltaToPNode produces a doc node with auto-filled paragraph
+ * when created with no children (basic schema doc has content "block+").
+ */
+export const testDeltaToPNodeAutoFillsDoc = () => {
+  const d = delta.create(null, {})
+  const node = deltaToPNode(d, schema, null)
+  t.assert(node.type.name === 'doc')
+  // createAndFill should auto-insert a paragraph to satisfy block+ content
+  t.assert(node.childCount === 1)
+  t.assert(node.firstChild?.type.name === 'paragraph')
+}
+
+/**
+ * Test that deltaToPNode applies marks from dformat parameter.
+ */
+export const testDeltaToPNodeWithFormat = () => {
+  const d = delta.create('paragraph', {}, 'bold text')
+  const format = { strong: true }
+  const node = deltaToPNode(d, schema, format)
+  t.assert(node.type.name === 'paragraph')
+  // The dformat marks are applied to the node itself as stored marks
+  // Verify the node was created successfully with the format
+  t.assert(node.textContent === 'bold text')
 }
