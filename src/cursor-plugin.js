@@ -91,7 +91,7 @@ export const createDecorations = (
    */
   const decorations = []
   awareness.getStates().forEach((aw, clientId) => {
-    if (!awarenessFilter(doc.clientID, clientId, aw)) {
+    if (!awarenessFilter(awareness.clientID, clientId, aw)) {
       return
     }
 
