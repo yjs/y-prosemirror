@@ -787,8 +787,7 @@ export const testReconfigureAfterDeletion = async () => {
  * delete. `diff2` / `applyChangesetToDelta` in `lib0/src/delta/delta.js`
  * cannot reconcile the asymmetry and throws.
  *
- * Test fails today (throws); flip the assertion to `!t.fails` once the
- * upstream fix in lib0 lands.
+ * Test should pass (no throw) once the upstream fix in lib0 lands.
  */
 export const testLib0DeltaDiffUnexpectedCaseRepro = () => {
   const paraAttrs = {
@@ -817,9 +816,7 @@ export const testLib0DeltaDiffUnexpectedCaseRepro = () => {
     ]).done()
   ]).done()
 
-  t.fails(() => {
-    delta.diff(ycontent, pcontent)
-  })
+  delta.diff(ycontent, pcontent)
 }
 
 /**
