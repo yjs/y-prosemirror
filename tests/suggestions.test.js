@@ -774,6 +774,123 @@ export const testReconfigureAfterDeletion = async () => {
   })
 }
 
+/**
+ * Tight repro of a `Unexpected case` throw from `lib0/delta`'s `diff()` when
+ * given two structurally asymmetric deltas.
+ *
+ * The pair was captured at `src/sync-plugin.js:339` in a running BlockNote
+ * demo: on the subsequent `update()` cycle after `configureYProsemirror`
+ * round-tripped the PM view between (suggestionDoc + attributionManager) and
+ * (mainDoc, no attribution manager), the Y-side delta carried a suggestion-
+ * attributed text leaf AND a top-level `delete 1` sibling while the PM-side
+ * delta had no text child in the corresponding paragraph and no root-level
+ * delete. `diff2` / `applyChangesetToDelta` in `lib0/src/delta/delta.js`
+ * cannot reconcile the asymmetry and throws.
+ *
+ * Test fails today (throws); flip the assertion to `!t.fails` once the
+ * upstream fix in lib0 lands.
+ */
+export const testLib0DeltaDiffUnexpectedCaseRepro = () => {
+  const paraAttrs = {
+    backgroundColor: 'default',
+    textColor: 'default',
+    textAlignment: 'left'
+  }
+
+  // Y-side: blockGroup insert with attributed text leaf, followed by delete 1.
+  const ycontent = delta.create().insert([
+    delta.create('blockGroup').insert([
+      delta.create('blockContainer', { id: 'initialBlockId' }).insert([
+        delta.create('paragraph', paraAttrs)
+          .insert('suggest-edit ', { insertion: { id: 1 } })
+          .done()
+      ]).done()
+    ]).done()
+  ]).delete(1).done()
+
+  // PM-side: same structural shell, no text content, no root delete.
+  const pcontent = delta.create('doc').insert([
+    delta.create('blockGroup').insert([
+      delta.create('blockContainer', { id: 'initialBlockId' }).insert([
+        delta.create('paragraph', paraAttrs).done()
+      ]).done()
+    ]).done()
+  ]).done()
+
+  t.fails(() => {
+    delta.diff(ycontent, pcontent)
+  })
+}
+
+/**
+ * Reproduces a crash observed in a Notion-like demo when a single editor view
+ * was reconfigured between (suggestion doc + attribution manager) and
+ * (main doc + no attribution manager), then back. The second swap-back throws
+ * `Unexpected case` from `lib0/delta`'s `diff()` at `src/sync-plugin.js:339`.
+ *
+ * Minimum sequence:
+ *   1. Bind view to suggestionDoc + AM
+ *   2. Insert suggestion-mode content (renders with insertion marks)
+ *   3. Reconfigure to main doc (no AM) — strips marks
+ *   4. Reconfigure back to suggestionDoc + AM — crash
+ *   5. Type anything on the rebound view — crash (via the sync-plugin update)
+ *
+ * This test should pass (no throws) once the underlying issue is fixed.
+ */
+export const testReconfigureRoundTripWithSuggestions = async () => {
+  const { viewSuggestionMode, doc, suggestionDoc, suggestionModeAM } =
+    createSuggestionSetup({ baseContent: 'hello' })
+
+  // Step 2: add a suggestion insertion so the AM has attribution data.
+  await safeDispatch(
+    viewSuggestionMode,
+    viewSuggestionMode.state.tr.insertText(' world', 6)
+  )
+
+  // Step 3: swap to the accepted-content binding (no AM, main doc).
+  YPM.configureYProsemirror({
+    ytype: doc.get('prosemirror'),
+    attributionManager: Y.noAttributionsManager
+  })(viewSuggestionMode.state, viewSuggestionMode.dispatch)
+
+  // Step 4: swap back to the suggestion binding (with AM).
+  // This is where the crash occurs: sync-plugin's `update()` handler calls
+  // `d.diff(ycontent, pcontent)` and lib0's delta differ cannot reconcile
+  // the attribution-rendered ycontent against the just-replaced PM content
+  // and throws "Unexpected case".
+  YPM.configureYProsemirror({
+    ytype: suggestionDoc.get('prosemirror'),
+    attributionManager: suggestionModeAM
+  })(viewSuggestionMode.state, viewSuggestionMode.dispatch)
+
+  // Step 5: forcing one more update surfaces the latent crash on any
+  // subsequent transaction, even if step 4 appears to succeed.
+  await safeDispatch(
+    viewSuggestionMode,
+    viewSuggestionMode.state.tr.insertText('!', viewSuggestionMode.state.doc.content.size - 1)
+  )
+
+  // If we reach this point without throwing, the round-trip is stable.
+  const helloWorldBangDoc = {
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'hello' },
+          { type: 'text', text: ' world', marks: [insertionMark] },
+          { type: 'text', text: '!', marks: [insertionMark] }
+        ]
+      }
+    ]
+  }
+  assertDocJSON(
+    viewSuggestionMode.state.doc,
+    helloWorldBangDoc,
+    'after round-trip reconfigure, typing still produces insertion marks'
+  )
+}
+
 export const testReconfigureAfterDeletion2 = async () => {
   const { viewA, viewSuggestionMode, suggestionModeDoc, doc, suggestionModeAM, suggestionDoc, suggestionAM } = createSuggestionSetup({ baseContent: 'hello' })
   await t.groupAsync('populate content', async () => {
