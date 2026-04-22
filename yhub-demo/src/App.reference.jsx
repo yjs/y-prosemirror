@@ -2,7 +2,7 @@ import '@blocknote/core/fonts/inter.css'
 import { BlockNoteView } from '@blocknote/mantine'
 import '@blocknote/mantine/style.css'
 import { useCreateBlockNote } from '@blocknote/react'
-import { Extension } from '@tiptap/core'
+import { createExtension } from '@blocknote/core'
 import { configureYProsemirror, syncPlugin } from '@y/prosemirror'
 import { yCursorPlugin } from '../../src/cursor-plugin.js'
 import { Awareness } from '@y/protocols/awareness'
@@ -10,7 +10,7 @@ import * as Y from '@y/y'
 import { useEffect } from 'react'
 
 // Map Y.js attributions to BlockNote's built-in suggestion marks
-const mapAttributionToMark = (format, attribution) => {
+const mapAttributionToMark = function (format, attribution) {
   let mergeWith = null
   if (attribution.insert) {
     mergeWith = { insertion: { id: 1 } }
@@ -30,31 +30,33 @@ const mapAttributionToMark = (format, attribution) => {
   return Object.assign({}, format, mergeWith)
 }
 
-const YSyncExtension = Extension.create({
-  name: 'ySync',
-  addProseMirrorPlugins () {
-    return [syncPlugin({ mapAttributionToMark })]
-  }
-})
+const YSyncExtension = createExtension(() => ({
+  key: 'ySync',
+  prosemirrorPlugins: [syncPlugin({ mapAttributionToMark })]
+}))
 
-const createYCursorExtension = (awareness) => Extension.create({
-  name: 'yCursor',
-  addProseMirrorPlugins () {
-    return [yCursorPlugin(awareness)]
-  }
-})
+const YCursorExtension = createExtension(({ options: { provider } }) => ({
+  key: 'yCursor',
+  prosemirrorPlugins: [yCursorPlugin(provider.awareness)]
+}))
 
 const doc = new Y.Doc()
 const provider = {
   awareness: new Awareness(doc)
 }
-provider.awareness.setLocalStateField('user', { name: 'Client A', color: '#30bced' })
+provider.awareness.setLocalStateField('user', {
+  name: 'Client A',
+  color: '#30bced'
+})
 
 const doc2 = new Y.Doc()
 const provider2 = {
   awareness: new Awareness(doc2)
 }
-provider2.awareness.setLocalStateField('user', { name: 'Client B', color: '#6eeb83' })
+provider2.awareness.setLocalStateField('user', {
+  name: 'Client B',
+  color: '#6eeb83'
+})
 
 const attrs = new Y.Attributions()
 
@@ -62,7 +64,10 @@ const suggestingDoc = new Y.Doc({ isSuggestionDoc: true })
 const suggestingProvider = {
   awareness: new Awareness(suggestingDoc)
 }
-suggestingProvider.awareness.setLocalStateField('user', { name: 'View Suggestions', color: '#ffbc42' })
+suggestingProvider.awareness.setLocalStateField('user', {
+  name: 'View Suggestions',
+  color: '#ffbc42'
+})
 const suggestingAttributionManager = Y.createAttributionManagerFromDiff(
   doc,
   suggestingDoc,
@@ -74,7 +79,10 @@ const suggestionModeDoc = new Y.Doc({ isSuggestionDoc: true })
 const suggestionModeProvider = {
   awareness: new Awareness(suggestionModeDoc)
 }
-suggestionModeProvider.awareness.setLocalStateField('user', { name: 'Suggestion Mode', color: '#ee6352' })
+suggestionModeProvider.awareness.setLocalStateField('user', {
+  name: 'Suggestion Mode',
+  color: '#ee6352'
+})
 const suggestionModeAttributionManager = Y.createAttributionManagerFromDiff(
   doc,
   suggestionModeDoc,
@@ -107,28 +115,54 @@ setupTwoWaySync(suggestingDoc, suggestionModeDoc)
 
 // === DEBUG LOGGING ===
 doc.on('update', (update, origin, _doc, tr) => {
-  console.log('[DEBUG] doc updated', { origin: origin?.constructor?.name, local: tr.local, text: doc.get('doc').toString().slice(0, 100) })
+  console.log('[DEBUG] doc updated', {
+    origin: origin?.constructor?.name,
+    local: tr.local,
+    text: doc.get('doc').toString().slice(0, 100)
+  })
 })
 suggestingDoc.on('update', (update, origin, _doc, tr) => {
-  console.log('[DEBUG] suggestingDoc updated', { origin: origin?.constructor?.name, local: tr.local, text: suggestingDoc.get('doc').toString().slice(0, 100) })
+  console.log('[DEBUG] suggestingDoc updated', {
+    origin: origin?.constructor?.name,
+    local: tr.local,
+    text: suggestingDoc.get('doc').toString().slice(0, 100)
+  })
 })
 suggestionModeDoc.on('update', (update, origin, _doc, tr) => {
-  console.log('[DEBUG] suggestionModeDoc updated', { origin: origin?.constructor?.name, local: tr.local, text: suggestionModeDoc.get('doc').toString().slice(0, 100) })
+  console.log('[DEBUG] suggestionModeDoc updated', {
+    origin: origin?.constructor?.name,
+    local: tr.local,
+    text: suggestionModeDoc.get('doc').toString().slice(0, 100)
+  })
 })
 
 // Observe the suggestingDoc fragment directly to see if Y.js events fire
 suggestingDoc.get('doc').observeDeep((events) => {
-  console.log("[DEBUG] suggestingDoc.get('doc') observeDeep fired!", events.length, 'events')
+  console.log(
+    "[DEBUG] suggestingDoc.get('doc') observeDeep fired!",
+    events.length,
+    'events'
+  )
   try {
     const d = events.getDelta(suggestingAttributionManager, { deep: true })
-    console.log('[DEBUG] suggestingDoc delta:', JSON.stringify(d?.toJSON?.() ?? d))
+    console.log(
+      '[DEBUG] suggestingDoc delta:',
+      JSON.stringify(d?.toJSON?.() ?? d)
+    )
   } catch (e) {
-    console.error('[DEBUG] Error getting delta from suggestingDoc observer:', e)
+    console.error(
+      '[DEBUG] Error getting delta from suggestingDoc observer:',
+      e
+    )
   }
 })
 
 suggestionModeDoc.get('doc').observeDeep((events) => {
-  console.log("[DEBUG] suggestionModeDoc.get('doc') observeDeep fired!", events.length, 'events')
+  console.log(
+    "[DEBUG] suggestionModeDoc.get('doc') observeDeep fired!",
+    events.length,
+    'events'
+  )
 })
 
 // Catch any errors that might be swallowed
@@ -141,13 +175,11 @@ window.addEventListener('unhandledrejection', (e) => {
 
 function Editor ({ fragment, provider, attributionManager }) {
   const editor = useCreateBlockNote({
-    _tiptapOptions: {
-      extensions: [YSyncExtension, createYCursorExtension(provider.awareness)]
-    }
+    extensions: [YSyncExtension(), YCursorExtension({ provider })]
   })
 
   useEffect(() => {
-    const view = editor._tiptapEditor?.view
+    const view = editor.prosemirrorView
     if (view) {
       // const doc2 = new Y.Doc();
       // const provider2 = {

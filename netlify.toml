@@ -1,0 +1,4 @@
+[build]
+  base = "yhub-demo"
+  command = "npm run build"
+  publish = "dist"
