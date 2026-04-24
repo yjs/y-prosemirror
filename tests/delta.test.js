@@ -55,8 +55,12 @@ const validate = pm => {
 
 /**
  * @param {Array<(opts:YPMTestConf)=>(delta.DeltaAny|import('prosemirror-state').Transaction|null)>} changes
+ * @param {delta.Delta} [initialDelta]
  */
-const testHelper = changes => {
+const testHelper = (changes,
+  // never change this structure!
+  // <heading>[1]Hello World![13]</heading>[14]<paragraph>[15]Lorem [21]ipsum..[28]</paragraph>[29]
+  initialDelta = (delta.create().insert([delta.create('heading', { level: 1 }, 'Hello World!'), delta.create('paragraph', {}, 'Lorem ipsum..')]).done())) => {
   // sync two ydocs
   const ydoc = new Y.Doc()
   const ydoc2 = new Y.Doc()
@@ -67,9 +71,8 @@ const testHelper = changes => {
     Y.applyUpdate(ydoc, update)
   })
   const ytype = ydoc.get('prosemirror')
-  // never change this structure!
-  // <heading>[1]Hello World![13]</heading>[14]<paragraph>[15]Lorem [21]ipsum..[28]</paragraph>[29]
-  ytype.applyDelta(delta.create().insert([delta.create('heading', { level: 1 }, 'Hello World!'), delta.create('paragraph', {}, 'Lorem ipsum..')]).done())
+
+  ytype.applyDelta(initialDelta)
   const view = createProsemirrorView(ytype)
   const view2 = createProsemirrorView(ydoc2.get('prosemirror'))
 
@@ -177,4 +180,21 @@ export const testMultipleComplexSteps = () => {
       return tr
     }
   ])
+}
+
+export const testFilledBlockquote = () => {
+  testHelper([
+    ({ tr }) => {
+      console.log(tr.doc.toString())
+      return tr
+    }
+  ],
+  // blockquote needs a paragraph with block+, but we intentionally don't create it here
+  delta.create().insert([delta.create('blockquote', {})]).done())
+}
+
+export const testFilledBlockquoteInsert = () => {
+  testHelper([
+    ({ tr }) => tr.insertText('Hello', 2)
+  ], delta.create().insert([delta.create('blockquote', {})]).done())
 }

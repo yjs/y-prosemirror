@@ -325,7 +325,21 @@ export const deltaToPNode = (d, schema, dformat) => {
     attrs[attr.key] = attr.value
   }
   const dc = d.children.map(c => delta.$insertOp.check(c) ? c.insert.map(cn => deltaToPNode(cn, schema, c.format)) : (delta.$textOp.check(c) ? [schema.text(c.insert, formattingAttributesToMarks(c.format, schema))] : []))
-  return schema.node(d.name ?? 'doc', attrs, dc.flat(1), formattingAttributesToMarks(dformat, schema))
+  const nodeType = schema.nodes[d.name ?? 'doc']
+  if (!nodeType) {
+    throw new Error(
+      '[y/prosemirror]: node type does not exist in the schema: ' + d.name
+    )
+  }
+  const pNode = nodeType.createAndFill(
+    attrs,
+    dc.flat(1),
+    formattingAttributesToMarks(dformat, schema)
+  )
+  if (pNode === null) {
+    throw new Error('[y/prosemirror]: failed to create node: ' + d.name)
+  }
+  return pNode
 }
 
 /**
