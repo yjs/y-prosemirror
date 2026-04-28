@@ -13,6 +13,11 @@ import { yhub, mapAttributionToMark } from './yhub.js'
  * we render them as <y-ins>, <y-del>, <y-fmt> and style them in index.html
  * to mimic BlockNote's built-in suggestion marks.
  */
+// `blocknoteIgnore: true` tells BlockNote's nodeToBlock / getTextCursorPosition
+// machinery to skip these marks when serializing text to its block JSON. Without
+// it, the moment the cursor lands inside a y-attributed-* range BlockNote throws
+// "style y-attributed-insert not found in styleSchema". Same flag BlockNote uses
+// for its own SuggestionAddMark / comment marks.
 const YAttributedInsert = Mark.create({
   name: 'y-attributed-insert',
   // Putting this mark in the `insertion` group lets BlockNote nodes that
@@ -25,7 +30,8 @@ const YAttributedInsert = Mark.create({
     }
   },
   parseHTML () { return [{ tag: 'y-ins' }] },
-  renderHTML ({ HTMLAttributes }) { return ['y-ins', HTMLAttributes, 0] }
+  renderHTML ({ HTMLAttributes }) { return ['y-ins', HTMLAttributes, 0] },
+  extendMarkSchema () { return { blocknoteIgnore: true } }
 })
 
 const YAttributedDelete = Mark.create({
@@ -38,7 +44,8 @@ const YAttributedDelete = Mark.create({
     }
   },
   parseHTML () { return [{ tag: 'y-del' }] },
-  renderHTML ({ HTMLAttributes }) { return ['y-del', HTMLAttributes, 0] }
+  renderHTML ({ HTMLAttributes }) { return ['y-del', HTMLAttributes, 0] },
+  extendMarkSchema () { return { blocknoteIgnore: true } }
 })
 
 const YAttributedFormat = Mark.create({
@@ -51,7 +58,8 @@ const YAttributedFormat = Mark.create({
     }
   },
   parseHTML () { return [{ tag: 'y-fmt' }] },
-  renderHTML ({ HTMLAttributes }) { return ['y-fmt', HTMLAttributes, 0] }
+  renderHTML ({ HTMLAttributes }) { return ['y-fmt', HTMLAttributes, 0] },
+  extendMarkSchema () { return { blocknoteIgnore: true } }
 })
 
 const YSyncExtension = Extension.create({
@@ -95,6 +103,28 @@ export default function Editor () {
       const docType = view.state.schema.nodes.doc
       if (Object.prototype.hasOwnProperty.call(docType, 'createAndFill')) {
         delete docType.createAndFill
+      }
+      // BlockNote's blockContainer/blockGroup declare `marks: "insertion
+      // modification deletion"` intending the tokens as group names, but
+      // ProseMirror's gatherMarks resolves names first and only falls back
+      // to groups when no mark with that name exists. BlockNote ships marks
+      // *named* exactly "insertion"/"deletion"/"modification" (its built-in
+      // suggestion marks) which shadow the group lookup, so our group:
+      // "insertion" never matches and y-prosemirror fails to addNodeMark
+      // when entering suggest mode. Patch markSet to include them.
+      const schema = view.state.schema
+      const yMarks = [
+        schema.marks['y-attributed-insert'],
+        schema.marks['y-attributed-delete'],
+        schema.marks['y-attributed-format']
+      ].filter(Boolean)
+      for (const nodeName of ['blockContainer', 'blockGroup']) {
+        const nodeType = schema.nodes[nodeName]
+        if (nodeType && nodeType.markSet) {
+          nodeType.markSet = nodeType.markSet.concat(
+            yMarks.filter(m => !nodeType.markSet.includes(m))
+          )
+        }
       }
     }
     return () => yhub.detachView()

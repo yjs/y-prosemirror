@@ -25,9 +25,22 @@ const _clearAttributionFormatting = {
 }
 
 /**
- * Default attribution-to-mark mapper. Custom mappers must also use the permitted mark names:
- * `y-attributed-insert`, `y-attributed-delete`, and `y-attributed-format`. No other mark names
- * are permitted.
+ * Default attribution-to-mark mapper.
+ *
+ * **The mark names are part of `y-prosemirror`'s public contract and cannot be
+ * changed.** A custom `mapAttributionToMark` may return a different *value*
+ * (different attrs, omit some attribution kinds, etc.), but it must use the
+ * exact mark names below - other internals reference them by name and will not
+ * find marks named anything else:
+ *
+ * - `y-attributed-insert`
+ * - `y-attributed-delete`
+ * - `y-attributed-format`
+ *
+ * The integrator's ProseMirror schema must (a) define mark types with exactly
+ * these names and (b) ensure they are allowed on every node where attribution
+ * marks may land. See `CAVEATS.md` ("Attribution mark names are fixed") for the
+ * full rationale and the schema gotcha around mark-group resolution.
  *
  * @template {import('lib0/delta').Attribution} T
  * @param {Record<string, unknown> | null} format

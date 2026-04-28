@@ -69,6 +69,7 @@ export const defaultSelectionBuilder = (user) => {
  * @param {(user: User, clientId: number) => Element} createCursor
  * @param {(user: User, clientId: number) => import('prosemirror-view').DecorationAttrs} createSelection
  * @param {string} cursorStateField
+ * @param {any} [syncStateOverride] Pre-resolved sync plugin state. When provided, used in place of looking it up from `state`. Used by `apply` so we can read the sync state from `oldState` (which is fully populated) instead of from `newState` (which may not have the sync field yet if this plugin runs before the sync plugin in the field order).
  * @return {DecorationSet}
  */
 export const createDecorations = (
@@ -77,9 +78,10 @@ export const createDecorations = (
   awarenessFilter,
   createCursor,
   createSelection,
-  cursorStateField
+  cursorStateField,
+  syncStateOverride
 ) => {
-  const ystate = ySyncPluginKey.getState(state)
+  const ystate = syncStateOverride != null ? syncStateOverride : ySyncPluginKey.getState(state)
   const type = ystate?.ytype
   const doc = type?.doc
   if (!type || !doc) {
@@ -178,20 +180,31 @@ export const yCursorPlugin = (
           cursorStateField
         )
       },
-      apply (tr, prevState, _oldState, newState) {
+      apply (tr, prevState, oldState, newState) {
         const ySyncMeta = $syncPluginStateUpdate.nullable.expect(tr.getMeta(ySyncPluginKey) || null)
         const yCursorState = tr.getMeta(yCursorPluginKey)
         if (
           (ySyncMeta) ||
           (yCursorState && yCursorState.awarenessUpdated)
         ) {
+          // PM fills `newState` plugin fields in field order during apply, so
+          // `ySyncPluginKey.getState(newState)` may return null if this plugin
+          // runs before the sync plugin (which can happen when the host
+          // editor — e.g., Tiptap/BlockNote — orders plugins by name or
+          // priority). Read the sync state from `oldState` (fully populated)
+          // and overlay the in-flight update from this transaction's meta, if
+          // any, so we still see the new ytype the moment configureYProsemirror
+          // is dispatched.
+          const baseSync = ySyncPluginKey.getState(oldState) || ySyncPluginKey.getState(newState)
+          const syncState = ySyncMeta ? Object.assign({}, baseSync, ySyncMeta) : baseSync
           return createDecorations(
             newState,
             awareness,
             awarenessStateFilter,
             cursorBuilder,
             selectionBuilder,
-            cursorStateField
+            cursorStateField,
+            syncState
           )
         }
         return prevState.map(tr.mapping, tr.doc)

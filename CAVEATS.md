@@ -98,6 +98,34 @@ Without this, the binding has no choice but to drop invalid content, silently di
 
 **Status:** addressable; integrators need to be aware.
 
+## Attribution mark names are fixed
+
+Attributed content (insertions, deletions, format changes) is surfaced in ProseMirror as marks. The names of those marks are part of `y-prosemirror`'s contract and are **not user-configurable**:
+
+- `y-attributed-insert`
+- `y-attributed-delete`
+- `y-attributed-format`
+
+The default `defaultMapAttributionToMark` produces these names; custom `mapAttributionToMark` mappers must produce them too. Other internals (e.g. `_clearAttributionFormatting` in `sync-utils.js`) reference the names directly. Returning a different name from your mapper will cause `y-prosemirror` to fail to clear the attribution formatting on subsequent renders, and any code that relies on these names (decorations, accept/reject UI) will silently miss the marks.
+
+**Integrator requirements:**
+
+1. Define ProseMirror mark types with these exact names. Tiptap example:
+
+   ```js
+   Mark.create({
+     name: 'y-attributed-insert',
+     addAttributes () { return { userIds: { default: null }, timestamp: { default: null } } },
+     parseHTML () { return [{ tag: 'y-ins' }] },
+     renderHTML ({ HTMLAttributes }) { return ['y-ins', HTMLAttributes, 0] }
+   })
+   // ...similarly for y-attributed-delete and y-attributed-format
+   ```
+
+2. **Make sure the schema actually accepts these marks on every node where they may land.** This sounds trivial but is the most common integration pitfall, because ProseMirror's `gatherMarks` resolves a node's `marks` spec by mark name first and only falls back to mark-group matching when no mark by that name exists. If your schema has nodes that declare e.g. `marks: "insertion modification deletion"` and your editor *also* defines marks literally named `insertion`/`deletion`/`modification` (BlockNote's `SuggestionMarks` is a real-world example), the group-based fallback never fires and the `y-attributed-*` marks get silently shadowed - even if you put them in `group: "insertion"`. The runtime symptom is a `RangeError: Invalid content for node …` from `tr.addNodeMark` the moment a user makes the first edit in suggestion mode.
+
+   The safest fix is to extend the affected node types' `markSet` after editor construction so the `y-attributed-*` marks are explicitly listed.
+
 ## Visualizing attributed content
 
 Attributed rendering - showing insertions, deletions, and modifications inline - is currently a coarse red / yellow / green background treatment. That works as a floor, but several cases need more:
