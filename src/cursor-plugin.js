@@ -92,8 +92,17 @@ export const createDecorations = (
    * @type {Decoration[]}
    */
   const decorations = []
+  // Use `awareness.doc.clientID` (or its `clientID` field, which mirrors it)
+  // rather than `type.doc.clientID` for the local-client identity. They're the
+  // same in normal collaboration, but diverge when the bound `ytype` lives in a
+  // *different* Y.Doc than the awareness — e.g., a suggestion-tracking Y.Doc
+  // whose clientID is deliberately swapped to attribute edits to a "suggester"
+  // identity. Awareness peer keys are always the awareness doc's clientIDs, so
+  // filtering against the bound type's doc would fail to recognize the local
+  // user and we'd render our own cursor as if it were a remote one.
+  const localClientId = awareness.doc ? awareness.doc.clientID : awareness.clientID
   awareness.getStates().forEach((aw, clientId) => {
-    if (!awarenessFilter(doc.clientID, clientId, aw)) {
+    if (!awarenessFilter(localClientId, clientId, aw)) {
       return
     }
 
