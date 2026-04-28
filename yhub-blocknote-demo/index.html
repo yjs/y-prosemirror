@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>YHub - BlockNote Demo</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        padding: 24px;
+        background: #f9fafb;
+        color: #111827;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
+        flex-shrink: 0;
+      }
+
+      .header h1 { font-size: 20px; font-weight: 600; }
+
+      .header-right {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .status {
+        font-size: 13px;
+        padding: 4px 10px;
+        border-radius: 12px;
+        background: #e5e7eb;
+        color: #6b7280;
+      }
+
+      .status.connected { background: #d1fae5; color: #065f46; }
+      .status.disconnected { background: #fee2e2; color: #991b1b; }
+      .status.connecting { background: #fef3c7; color: #92400e; }
+
+      .suggestion-controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+      }
+
+      .suggestion-controls select {
+        padding: 4px 8px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 13px;
+        background: white;
+      }
+
+      .suggestion-controls button {
+        padding: 4px 10px;
+        font-size: 12px;
+        font-weight: 500;
+        border: 1px solid #d1d5db;
+        border-radius: 4px;
+        cursor: pointer;
+        background: white;
+      }
+
+      .suggestion-controls button:hover { background: #f3f4f6; }
+      .suggestion-controls button.accept { color: #16a34a; border-color: #16a34a; }
+      .suggestion-controls button.accept:hover { background: #f0fdf4; }
+      .suggestion-controls button.reject { color: #dc2626; border-color: #dc2626; }
+      .suggestion-controls button.reject:hover { background: #fef2f2; }
+
+      .main-container {
+        display: flex;
+        gap: 16px;
+        flex: 1;
+        min-height: 0;
+      }
+
+      .editor-container {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+
+      #editor {
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        overflow: auto;
+        flex: 1;
+      }
+
+      /* Remote cursor (yCursorPlugin) */
+      .ProseMirror-yjs-cursor {
+        position: relative;
+        margin-left: -1px;
+        margin-right: -1px;
+        border-left: 1px solid black;
+        border-right: 1px solid black;
+        border-color: var(--user-color, orange);
+        word-break: normal;
+        pointer-events: none;
+      }
+
+      .ProseMirror-yjs-cursor > div {
+        position: absolute;
+        top: -1.05em;
+        left: -1px;
+        font-size: 13px;
+        background-color: var(--user-color, rgb(250, 129, 0));
+        font-family: serif;
+        font-style: normal;
+        font-weight: normal;
+        line-height: normal;
+        user-select: none;
+        color: white;
+        padding-left: 2px;
+        padding-right: 2px;
+        white-space: nowrap;
+      }
+
+      .ProseMirror-yjs-selection {
+        background-color: var(--user-color, orange);
+        opacity: 0.3;
+      }
+
+      /* Attribution marks - styled to match BlockNote's built-in
+         insertion / deletion / modification look */
+      y-ins {
+        background: rgba(24, 122, 220, 0.1);
+        border-bottom: 2px solid rgba(24, 122, 220, 0.4);
+        color: rgb(20, 95, 170);
+        text-decoration: none;
+      }
+
+      y-del {
+        color: rgba(100, 90, 75, 0.55);
+        text-decoration: line-through;
+        text-decoration-thickness: 1px;
+      }
+
+      y-fmt {
+        background: rgba(24, 122, 220, 0.08);
+        border-bottom: 2px dashed rgba(24, 122, 220, 0.4);
+      }
+
+      /* Right column */
+      .right-column {
+        width: 340px;
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        min-height: 0;
+      }
+
+      #activity-panel {
+        flex: 1;
+        min-height: 0;
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      .panel-header {
+        padding: 12px 16px;
+        font-size: 14px;
+        font-weight: 600;
+        border-bottom: 1px solid #e5e7eb;
+        background: #f9fafb;
+        flex-shrink: 0;
+      }
+
+      #activity-list {
+        overflow-y: auto;
+        flex: 1;
+        user-select: none;
+      }
+
+      .activity-item {
+        padding: 8px 16px;
+        font-size: 12px;
+        border-bottom: 1px solid #f3f4f6;
+        cursor: pointer;
+      }
+
+      .activity-item:last-child { border-bottom: none; }
+      .activity-item:nth-child(odd) { background: #f9fafb; }
+
+      .activity-meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 2px;
+      }
+
+      .activity-user { font-weight: 500; color: #111827; }
+      .activity-time { color: #9ca3af; font-size: 11px; }
+
+      .activity-delta {
+        font-size: 11px;
+        color: #6b7280;
+        font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+        white-space: pre-wrap;
+        word-break: break-all;
+        max-height: 60px;
+        overflow: hidden;
+      }
+
+      .delta-insert { color: #16a34a; font-weight: 600; }
+      .delta-delete { color: #dc2626; font-weight: 600; }
+
+      .activity-prompt {
+        font-size: 11px;
+        color: #4f46e5;
+        font-style: italic;
+        margin-top: 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .activity-rollback {
+        font-size: 11px;
+        color: #dc2626;
+        font-weight: 500;
+        margin-top: 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .activity-item.selected {
+        background: #eff6ff !important;
+        border-left: 3px solid #4f46e5;
+        padding-left: 13px;
+      }
+
+      .activity-empty {
+        padding: 24px 16px;
+        text-align: center;
+        color: #9ca3af;
+        font-size: 13px;
+      }
+
+      #rollback-btn {
+        display: none;
+        padding: 4px 12px;
+        font-size: 12px;
+        font-weight: 500;
+        background: #dc2626;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        margin-left: auto;
+      }
+
+      #rollback-btn:hover { background: #b91c1c; }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>YHub - BlockNote Demo</h1>
+      <div class="header-right">
+        <div class="suggestion-controls">
+          <label>Suggestions:</label>
+          <select id="select-suggestion-mode">
+            <option value="off">Off</option>
+            <option value="view">View</option>
+            <option value="edit">Edit</option>
+          </select>
+          <button id="btn-accept-changes" class="accept" style="display:none">Accept</button>
+          <button id="btn-reject-changes" class="reject" style="display:none">Reject</button>
+          <button id="btn-accept-all" class="accept" style="display:none">Accept All</button>
+          <button id="btn-reject-all" class="reject" style="display:none">Reject All</button>
+        </div>
+        <span id="status" class="status">connecting</span>
+      </div>
+    </div>
+    <div class="main-container">
+      <div class="editor-container">
+        <div id="editor"></div>
+      </div>
+      <div class="right-column">
+        <div id="activity-panel">
+          <div class="panel-header" style="display:flex;align-items:center;">
+            <span>Activity</span>
+            <button id="rollback-btn">Rollback</button>
+          </div>
+          <div id="activity-list">
+            <div class="activity-empty">No activity yet</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

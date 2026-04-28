@@ -331,11 +331,19 @@ export const deltaToPNode = (d, schema, dformat) => {
       '[y/prosemirror]: node type does not exist in the schema: ' + d.name
     )
   }
+  const inputChildren = dc.flat(1)
+  const inputMarks = formattingAttributesToMarks(dformat, schema)
   const pNode = nodeType.createAndFill(
     attrs,
-    dc.flat(1),
-    formattingAttributesToMarks(dformat, schema)
+    inputChildren,
+    inputMarks
   )
+  // eslint-disable-next-line
+  console.log('[d2p]', (d.name ?? '<doc>'),
+    'IN children=', inputChildren.length,
+    JSON.stringify(inputChildren.map(n => n && n.toJSON ? n.toJSON() : n)),
+    'marks=', JSON.stringify(inputMarks),
+    'OUT=', pNode === null ? 'NULL' : JSON.stringify(pNode.toJSON()))
   if (pNode === null) {
     throw new Error('[y/prosemirror]: failed to create node: ' + d.name)
   }
