@@ -3,6 +3,9 @@ import * as Y from '@y/y'
 import { configureYProsemirror, ySyncPluginKey, defaultMapAttributionToMark } from '@y/prosemirror'
 import { deltaAttributionToFormat, deltaToPNode } from '../../src/sync-utils.js'
 import * as delta from 'lib0/delta'
+import { WebsocketProvider } from '@y/websocket'
+import * as random from 'lib0/random'
+import * as buffer from 'lib0/buffer'
 
 /**
  * Walk a delta and log its shape. Helps detect cases where iteration
@@ -33,9 +36,6 @@ function debugWalk (d, indent = '') {
     i++
   })
 }
-import { WebsocketProvider } from '@y/websocket'
-import * as random from 'lib0/random'
-import * as buffer from 'lib0/buffer'
 
 export const mapAttributionToMark = defaultMapAttributionToMark
 
