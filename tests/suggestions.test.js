@@ -940,9 +940,6 @@ export const testSuggestInsertIntoDeletion = async () => {
     // Wait for setupTwoWaySync to propagate the update to user2.
     await promise.wait(1)
 
-    console.log('after delete - user1:', JSON.stringify(setup1.viewSuggestionMode.state.doc.toJSON()))
-    console.log('after delete - user2:', JSON.stringify(viewSuggestionMode2.state.doc.toJSON()))
-
     assertDocJSON(
       setup1.viewA.state.doc,
       initDoc,
@@ -992,10 +989,6 @@ export const testSuggestInsertIntoDeletion = async () => {
     )
     // Wait for sync to propagate to user2.
     await promise.wait(1)
-
-    console.log('user1 suggestionMode:', JSON.stringify(setup1.viewSuggestionMode.state.doc.toJSON(), null, 2))
-    console.log('user2 suggestionMode:', JSON.stringify(viewSuggestionMode2.state.doc.toJSON(), null, 2))
-    console.log('user1 suggestion view:', JSON.stringify(setup1.viewSuggestion.state.doc.toJSON(), null, 2))
 
     assertDocJSON(
       setup1.viewA.state.doc,
