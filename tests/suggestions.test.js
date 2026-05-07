@@ -852,3 +852,170 @@ export const testReconfigureAfterDeletion2 = async () => {
     // )
   })
 }
+
+/**
+ * Two users collaborating in suggestion mode:
+ *   1. Both start with shared base content "12345".
+ *   2. user1 deletes "234" in the suggestion doc; both users see "1" + strike("234") + "5".
+ *   3. user1 inserts "xyz" between "2" and "3" (i.e. between the deletion-marked "2" and "3");
+ *      both users see "1" + strike("2") + insert("xyz") + strike("34") + "5".
+ *   4. The base doc is never modified (we are in suggestion mode the whole time).
+ */
+export const testSuggestInsertIntoDeletion = async () => {
+  // user1 brings the full setup (base doc + suggestion view + suggestion-mode editor).
+  const setup1 = createSuggestionSetup({ baseContent: '12345' })
+  // user2 has their own suggestion-mode doc that syncs with user1's via two-way sync.
+  // The base doc is shared via the AttributionManager's internal prevDoc->nextDoc flow.
+  const suggestionModeDoc2 = new Y.Doc({
+    isSuggestionDoc: true,
+    gc: false,
+    guid: 'suggestions-edit'
+  })
+  setupTwoWaySync(setup1.suggestionModeDoc, suggestionModeDoc2)
+
+  // user2's own AttributionManager - prevDoc is the same shared base doc.
+  // Fresh Attributions: each AM tracks its own attribution metadata from the diff.
+  const suggestionModeAM2 = Y.createAttributionManagerFromDiff(
+    setup1.doc,
+    suggestionModeDoc2,
+    { attrs: new Y.Attributions() }
+  )
+  suggestionModeAM2.suggestionMode = true
+
+  const viewSuggestionMode2 = createPMView(
+    suggestionModeDoc2.get('prosemirror'),
+    suggestionModeAM2
+  )
+
+  const initDoc = {
+    type: 'doc',
+    content: [
+      { type: 'paragraph', content: [{ type: 'text', text: '12345' }] }
+    ]
+  }
+  // Allow init sync to settle for both users.
+  await promise.wait(1)
+
+  await t.groupAsync('initial sync', async () => {
+    assertDocJSON(setup1.viewA.state.doc, initDoc, 'Base doc has 12345')
+    assertDocJSON(
+      setup1.viewSuggestionMode.state.doc,
+      initDoc,
+      'user1 suggestion-mode view has 12345 (no marks)'
+    )
+    assertDocJSON(
+      viewSuggestionMode2.state.doc,
+      initDoc,
+      'user2 suggestion-mode view has 12345 (no marks)'
+    )
+    assertDocJSON(
+      setup1.viewSuggestion.state.doc,
+      initDoc,
+      'View Suggestions has 12345 (no marks)'
+    )
+  })
+
+  // Expected after deleting "234": rendered view re-injects the deleted run with deletion marks.
+  const afterDeleteDoc = {
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: '1' },
+          { type: 'text', text: '234', marks: [deletionMark] },
+          { type: 'text', text: '5' }
+        ]
+      }
+    ]
+  }
+
+  await t.groupAsync('user1 suggests deleting "234"', async () => {
+    // <p>12345</p>: pos 1=before "1", 2=between "1"&"2", 3=between "2"&"3",
+    // 4=between "3"&"4", 5=between "4"&"5", 6=after "5". delete("234") = (2, 5).
+    await safeDispatch(
+      setup1.viewSuggestionMode,
+      setup1.viewSuggestionMode.state.tr.delete(2, 5)
+    )
+    // Wait for setupTwoWaySync to propagate the update to user2.
+    await promise.wait(1)
+
+    console.log('after delete - user1:', JSON.stringify(setup1.viewSuggestionMode.state.doc.toJSON()))
+    console.log('after delete - user2:', JSON.stringify(viewSuggestionMode2.state.doc.toJSON()))
+
+    assertDocJSON(
+      setup1.viewA.state.doc,
+      initDoc,
+      'Base doc untouched - we are in suggestion mode'
+    )
+    assertDocJSON(
+      setup1.viewSuggestionMode.state.doc,
+      afterDeleteDoc,
+      'user1 sees "234" struck through'
+    )
+    assertDocJSON(
+      viewSuggestionMode2.state.doc,
+      afterDeleteDoc,
+      'user2 sees "234" struck through after sync'
+    )
+    assertDocJSON(
+      setup1.viewSuggestion.state.doc,
+      afterDeleteDoc,
+      'View Suggestions sees "234" struck through'
+    )
+  })
+
+  // Expected after inserting "xyz" between the deletion-marked "2" and "3":
+  //   "1" + strike("2") + insert("xyz") + strike("34") + "5"
+  const afterInsertDoc = {
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: '1' },
+          { type: 'text', text: '2', marks: [deletionMark] },
+          { type: 'text', text: 'xyz', marks: [insertionMark] },
+          { type: 'text', text: '34', marks: [deletionMark] },
+          { type: 'text', text: '5' }
+        ]
+      }
+    ]
+  }
+
+  await t.groupAsync('user1 suggests inserting "xyz" between "2" and "3"', async () => {
+    // In the rendered suggestion view ('1'+strike('234')+'5'), pos 3 sits
+    // between the deletion-marked "2" and "3".
+    await safeDispatch(
+      setup1.viewSuggestionMode,
+      setup1.viewSuggestionMode.state.tr.insertText('xyz', 3)
+    )
+    // Wait for sync to propagate to user2.
+    await promise.wait(1)
+
+    console.log('user1 suggestionMode:', JSON.stringify(setup1.viewSuggestionMode.state.doc.toJSON(), null, 2))
+    console.log('user2 suggestionMode:', JSON.stringify(viewSuggestionMode2.state.doc.toJSON(), null, 2))
+    console.log('user1 suggestion view:', JSON.stringify(setup1.viewSuggestion.state.doc.toJSON(), null, 2))
+
+    assertDocJSON(
+      setup1.viewA.state.doc,
+      initDoc,
+      'Base doc still untouched after insert'
+    )
+    assertDocJSON(
+      setup1.viewSuggestionMode.state.doc,
+      afterInsertDoc,
+      'user1 sees inserted "xyz" between deletion-marked "2" and "3"'
+    )
+    assertDocJSON(
+      viewSuggestionMode2.state.doc,
+      afterInsertDoc,
+      'user2 sees the same after sync'
+    )
+    assertDocJSON(
+      setup1.viewSuggestion.state.doc,
+      afterInsertDoc,
+      'View Suggestions sees the same'
+    )
+  })
+}
