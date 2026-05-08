@@ -92,10 +92,18 @@ const buildNextState = (val, prevSel, addToHistory) => {
  * Creates UndoManager event handlers for storing and restoring selections
  * on undo stack items.
  *
+ * `getLatestPrevSel` returns the most recently apply()-computed prevSel.
+ * sync-plugin's `appendTransaction` writes to ytype synchronously inside
+ * dispatch, which fires `stack-item-added` before `view.state` has been
+ * updated. Reading `view.state.prevSel` at that moment yields the
+ * previous tr's value; the closure ref maintained by apply() gives us
+ * the in-flight one.
+ *
  * @param {import('prosemirror-view').EditorView} view
+ * @param {() => UndoPluginState['prevSel']} getLatestPrevSel
  * @returns {{ onStackItemAdded: (...args: any[]) => void, onStackItemPopped: (...args: any[]) => void, resetStackLength: (length: number) => void }}
  */
-const createStackHandlers = (view) => {
+const createStackHandlers = (view, getLatestPrevSel) => {
   let lastUndoStackLength = 0
   /** @type {UndoPluginState['prevSel']} */
   let currentGroupSel = null
@@ -107,7 +115,7 @@ const createStackHandlers = (view) => {
 
     onStackItemAdded: (/** @type {{ stackItem: any, type: string }} */ { stackItem, type }) => {
       if (type !== 'undo') return
-      const prevSel = yUndoPluginKey.getState(view.state)?.prevSel
+      const prevSel = getLatestPrevSel() ?? yUndoPluginKey.getState(view.state)?.prevSel
       const um = yUndoPluginKey.getState(view.state)?.undoManager
       if (!um) return
       const currentLength = um.undoStack.length
@@ -150,6 +158,11 @@ const createStackHandlers = (view) => {
  * @param {import('@y/y').UndoManager} undoManager
  */
 export const yUndoPlugin = (undoManager) => {
+  // Latest prevSel computed by apply(), shared with createStackHandlers
+  // so its onStackItemAdded reads the current dispatch's value rather
+  // than the (still-stale) view.state. See createStackHandlers comment.
+  /** @type {UndoPluginState['prevSel']} */
+  let latestPrevSel = null
   return new Plugin({
     key: yUndoPluginKey,
     state: {
@@ -176,6 +189,7 @@ export const yUndoPlugin = (undoManager) => {
         const isPluginTr = tr.getMeta('addToHistory') === false ||
           tr.getMeta('y-sync-transaction') || tr.getMeta(ySyncPluginKey) || tr.getMeta('y-sync-append')
         const prevSel = isPluginTr ? val.prevSel : getRelativeSelectionBookmark(oldState)
+        latestPrevSel = prevSel
         return buildNextState(val, prevSel, addToHistory)
       }
     },
@@ -189,7 +203,7 @@ export const yUndoPlugin = (undoManager) => {
       let handlers = null
 
       const bindUndoManager = () => {
-        handlers = createStackHandlers(view)
+        handlers = createStackHandlers(view, () => latestPrevSel)
         handlers.resetStackLength(undoManager.undoStack.length)
         undoManager.on('stack-item-added', handlers.onStackItemAdded)
         undoManager.on('stack-item-popped', handlers.onStackItemPopped)
