@@ -1012,3 +1012,69 @@ export const testSuggestInsertIntoDeletion = async () => {
     )
   })
 }
+
+/**
+ * Regression: deleting a multi-character text run in "view suggestions" mode
+ * (suggestionMode = false) throws `[y/prosemirror]: delete operation is out
+ * of bounds` from `deltaToPSteps` in sync-utils.js, leaving the originating
+ * editor in a state inconsistent with peers.
+ *
+ * Discovered by the suggestion-simulation fuzz harness with seed=2772033825
+ * on op #0:
+ *   `{ user: viewSuggestion, name: 'opDeleteRange', from: 3, to: 23 }`
+ *
+ * Repro flow (single op, no concurrent edits):
+ *   1. Base doc seeded with `<p>lorem ipsum dolor sit amet</p>` (size 28).
+ *   2. The view-suggestions user dispatches `tr.delete(3, 23)`, deleting the
+ *      run `rem ipsum dolor sit ` (20 inline chars).
+ *   3. PM applies the delete locally, but the sync-plugin's PM->Y diff/apply
+ *      step (sync-utils.js:302) walks past the end of the textblock children
+ *      and throws "delete operation is out of bounds".
+ *   4. Because the throw happens *after* PM updated its own state, the
+ *      view-suggestions editor's PM view shows the bare deleted text
+ *      ("loamet", no marks) while the suggestion-mode peer still sees the
+ *      run as a suggested deletion. All three views (base, view-suggestions,
+ *      suggestion-mode) end up in mutually inconsistent states.
+ *
+ * Expected behavior: a view-suggestions delete should propagate to the base
+ * doc (since `suggestionMode = false`); all three views should converge to
+ * `<p>loamet</p>` with no attribution marks. The base doc, suggestionDoc,
+ * and suggestionModeDoc should all agree.
+ */
+export const testViewSuggestionsDeleteOutOfBounds = async () => {
+  const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({
+    baseContent: 'lorem ipsum dolor sit amet'
+  })
+
+  // <p>lorem ipsum dolor sit amet</p> ; doc.content.size = 28
+  // tr.delete(3, 23) removes 20 inline chars: "rem ipsum dolor sit "
+  await safeDispatch(
+    viewSuggestion,
+    viewSuggestion.state.tr.delete(3, 23)
+  )
+
+  const expected = {
+    type: 'doc',
+    content: [
+      { type: 'paragraph', content: [{ type: 'text', text: 'loamet' }] }
+    ]
+  }
+
+  // view-suggestions edits commit to the base doc, so the base view should
+  // also see the deletion (no marks).
+  assertDocJSON(
+    viewA.state.doc,
+    expected,
+    'Base doc reflects the view-suggestions delete'
+  )
+  assertDocJSON(
+    viewSuggestion.state.doc,
+    expected,
+    'View Suggestions: post-delete content with no attribution marks'
+  )
+  assertDocJSON(
+    viewSuggestionMode.state.doc,
+    expected,
+    'Suggestion Mode peer agrees after sync'
+  )
+}
