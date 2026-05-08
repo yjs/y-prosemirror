@@ -446,6 +446,40 @@ export const testPositionsAfterPMInsert = (_tc) => {
   assertRoundTripAllPositions(view, ytype)
 }
 
+/**
+ * @param {t.TestCase} _tc
+ */
+export const testRelativeToAbsoluteStalePmDocReturnsNull = (_tc) => {
+  const { view, ytype } = createSetup(
+    delta.create().insert([
+      delta.create('paragraph', {}, 'a'),
+      delta.create('paragraph', {}, 'b'),
+      delta.create('paragraph', {}, 'c'),
+      delta.create('paragraph', {}, 'd')
+    ]).done()
+  )
+  // Capture a relative position into the 4th paragraph (PM index 3) using the up-to-date doc.
+  const upToDateDoc = view.state.doc
+  const posInFourthPara = upToDateDoc.resolve(upToDateDoc.content.size - 1)
+  const relPos = absolutePositionToRelativePosition(posInFourthPara, ytype)
+
+  const stalePmDoc = schema.node('doc', null, [
+    schema.node('paragraph', null, schema.text('a')),
+    schema.node('paragraph', null, schema.text('b')),
+    schema.node('paragraph', null, schema.text('c'))
+  ])
+
+  t.assert(
+    relativePositionToAbsolutePosition(relPos, ytype, stalePmDoc) === null,
+    'returns null when YJS path overruns PM doc'
+  )
+
+  t.assert(
+    relativePositionToAbsolutePosition(relPos, ytype, upToDateDoc) !== null,
+    'still resolves correctly against the up-to-date PM doc'
+  )
+}
+
 // --- relativePositionStoreMapping tests ---
 
 /**

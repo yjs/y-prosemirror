@@ -69,6 +69,9 @@ export const relativePositionToAbsolutePosition = (relPos, documentType, pmDoc, 
   for (let i = 0; i < path.length; i++) {
     const childIndex = path[i]
     // Add sizes of all previous siblings
+    if (childIndex >= currentNode.childCount) {
+      return null
+    }
     for (let j = 0; j < childIndex; j++) {
       pos += currentNode.child(j).nodeSize
     }
@@ -82,6 +85,9 @@ export const relativePositionToAbsolutePosition = (relPos, documentType, pmDoc, 
   // child count, so we convert it to a PM offset by summing preceding children's node sizes.
   if (currentNode.inlineContent) {
     return pos + decodedPos.index
+  }
+  if (decodedPos.index > currentNode.childCount) {
+    return null
   }
   let blockOffset = 0
   for (let j = 0; j < decodedPos.index; j++) {
