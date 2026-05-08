@@ -1041,6 +1041,74 @@ export const testSuggestInsertIntoDeletion = async () => {
  * `<p>loamet</p>` with no attribution marks. The base doc, suggestionDoc,
  * and suggestionModeDoc should all agree.
  */
+/**
+ * Minimal reduction of seed=2562536263 from
+ * `testRepeatGeneratingSuggestionEdits` in suggestion-simulation.test.js.
+ *
+ * Two view-suggestions users share synced suggestion docs over the same
+ * base doc, mirroring the simulation cohort's two-of-each-mode layout
+ * (each user gets their own suggestionDoc; the docs sync peer-to-peer).
+ * One user dispatches a single `tr.split` at position 21 of
+ * "lorem ipsum dolor sit amet" - one PM transaction, no other ops.
+ *
+ * Expected: both view-suggestions users converge on the same document.
+ * Observed: the user who initiated the split has their own view reverted
+ * to the pre-split content, while their peer correctly shows the split.
+ *
+ * Found by greedy delta-debug reduction (originally 26 ops -> 1 op).
+ */
+export const testTwoViewSuggestionsUsersDivergeOnSplit = async () => {
+  const baseDoc = new Y.Doc({ gc: false, guid: 'base' })
+  const suggDocA = new Y.Doc({ isSuggestionDoc: true, gc: false, guid: 'sugg-a' })
+  const suggDocB = new Y.Doc({ isSuggestionDoc: true, gc: false, guid: 'sugg-b' })
+  setupTwoWaySync(suggDocA, suggDocB)
+
+  const attrs = new Y.Attributions()
+  const amA = Y.createAttributionManagerFromDiff(baseDoc, suggDocA, { attrs })
+  amA.suggestionMode = false
+  const amB = Y.createAttributionManagerFromDiff(baseDoc, suggDocB, { attrs })
+  amB.suggestionMode = false
+
+  const viewA = createPMView(suggDocA.get('prosemirror'), amA)
+  const viewB = createPMView(suggDocB.get('prosemirror'), amB)
+
+  // Seed base doc with the simulation's starter content.
+  baseDoc.get('prosemirror').applyDelta(
+    delta.create()
+      .insert([delta.create('paragraph', {}, 'lorem ipsum dolor sit amet')])
+      .done()
+  )
+  for (let i = 0; i < 10; i++) await promise.wait(1)
+
+  // Sanity: both views see the seed.
+  const seedDoc = {
+    type: 'doc',
+    content: [
+      { type: 'paragraph', content: [{ type: 'text', text: 'lorem ipsum dolor sit amet' }] }
+    ]
+  }
+  assertDocJSON(viewA.state.doc, seedDoc, 'viewA sees seeded content')
+  assertDocJSON(viewB.state.doc, seedDoc, 'viewB sees seeded content')
+
+  // The AttributionManager 'change' listener can throw inside
+  // `view.dispatch` (separate bug downstream of `deltaToPSteps`).
+  // Swallow it - the divergence we care about manifests regardless.
+  try {
+    // viewB splits the paragraph at position 21 (between 'i' and 't' of "sit").
+    await safeDispatch(viewB, viewB.state.tr.split(21))
+  } catch (_) { /* swallow downstream throw */ }
+  for (let i = 0; i < 20; i++) {
+    try { await promise.wait(1) } catch (_) { /* swallow */ }
+  }
+
+  // Both view-suggestions users must converge.
+  assertDocJSON(
+    viewA.state.doc,
+    JSON.parse(JSON.stringify(viewB.state.doc.toJSON())),
+    'view-suggestions peers agree on doc state after one of them splits a block'
+  )
+}
+
 export const testViewSuggestionsDeleteOutOfBounds = async () => {
   const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({
     baseContent: 'lorem ipsum dolor sit amet'
