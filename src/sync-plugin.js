@@ -1,6 +1,7 @@
 import * as Y from '@y/y'
 import { Plugin } from 'prosemirror-state'
 import {
+  $prosemirrorDelta,
   defaultMapAttributionToMark,
   deltaAttributionToFormat,
   deltaToPSteps,
@@ -40,30 +41,50 @@ const attributionMarkNames = [
 ]
 
 /**
- * only safe to use on diffed deltas
+ * Strip attribution-mark formats (`y-attributed-*`). Returns a fresh
+ * delta - **never mutates** the input. `lib0/delta.diff` reuses op
+ * references (and nested delta references) from its inputs, so an
+ * in-place mutation here would also mutate `pcontent`/`desiredPM` and
+ * corrupt subsequent diff calls. `lib0/delta.clone` only deep-clones
+ * the top level - nested deltas inside an `InsertOp.insert` array stay
+ * shared by reference - so cloning then mutating is also unsafe.
  *
- * 1. strip formats
- * 2. transform delete-attribution to delete op
- * @param {d.DeltaAny} delta
+ * @param {d.DeltaAny} input
+ * @returns {d.DeltaAny}
  */
-const stripAttributionFormattingFromDelta = delta => {
-  for (const child of delta.children) {
-    if (d.$modifyOp.check(child)) {
-      stripAttributionFormattingFromDelta(child.value)
+const stripAttributionFormattingFromDelta = (input) => {
+  /** @param {Record<string, unknown> | null | undefined} format */
+  const stripFormat = (format) => {
+    if (format == null) return format
+    /** @type {Record<string, unknown>} */
+    const out = {}
+    for (const k in format) {
+      if (!attributionMarkNames.includes(k)) out[k] = format[k]
     }
-    if (d.$insertOp.check(child)) {
-      child.insert.forEach(ins => {
-        if (d.$deltaAny.check(ins)) {
-          stripAttributionFormattingFromDelta(ins)
-        }
-      })
-    }
-    if (!d.$deleteOp.check(child) && child.format != null) {
-      attributionMarkNames.forEach(n => {
-        delete child.format?.[n]
-      })
+    return out
+  }
+  const out = /** @type {any} */ (d.create(input.name, $prosemirrorDelta))
+  for (const attr of input.attrs) {
+    // @ts-ignore
+    out.attrs[attr.key] = attr.clone()
+  }
+  for (const child of input.children) {
+    if (d.$retainOp.check(child)) {
+      out.retain(child.retain, stripFormat(child.format))
+    } else if (d.$textOp.check(child)) {
+      out.insert(child.insert, stripFormat(child.format))
+    } else if (d.$insertOp.check(child)) {
+      const newInsert = child.insert.map(ins =>
+        d.$deltaAny.check(ins) ? stripAttributionFormattingFromDelta(ins) : ins
+      )
+      out.insert(newInsert, stripFormat(child.format))
+    } else if (d.$deleteOp.check(child)) {
+      out.delete(child.delete)
+    } else if (d.$modifyOp.check(child)) {
+      out.modify(stripAttributionFormattingFromDelta(child.value), stripFormat(child.format))
     }
   }
+  return out.done(false)
 }
 
 /**
@@ -121,8 +142,7 @@ export function syncPlugin (opts = {}) {
         mapper
       ).done()
       const pcontent = nodeToDelta(newState.doc).done()
-      const pmToYDiff = d.diff(ycontent, pcontent)
-      stripAttributionFormattingFromDelta(pmToYDiff)
+      const pmToYDiff = stripAttributionFormattingFromDelta(d.diff(ycontent, pcontent))
       if (!pmToYDiff.isEmpty()) {
         /** @type {Y.Doc} */ (ytype.doc).transact(() => {
           ytype.applyDelta(pmToYDiff, am)
