@@ -1109,6 +1109,80 @@ export const testTwoViewSuggestionsUsersDivergeOnSplit = async () => {
   )
 }
 
+/**
+ * Two view-suggestions peers and one suggestion-mode peer share a base doc
+ * and a chain of synced suggestion docs. After a four-op interleave - a
+ * suggestion-mode insert/format around a view-suggestions insert/delete -
+ * the two view-suggestions peers must render the same document.
+ *
+ * Observed: viewS1 (the user who issued the inserts) sees "qw" with only
+ * `[strong, y-attributed-insert]`, while its peer viewS2 sees "qw" with
+ * `[strong, y-attributed-insert, y-attributed-format(strong)]` - the format
+ * attribution leaks onto the base-doc text on viewS2 only.
+ *
+ * Found by greedy delta-debug reduction of seed=2941783507 from
+ * `testSimLongRunningFuzz` (originally 100 ops -> 4 ops, cohort 6 -> 3).
+ */
+export const testTwoViewSuggestionsUsersDivergeOnFormatAcrossInsert = async () => {
+  const baseDoc = new Y.Doc({ gc: false, guid: 'base' })
+  const suggDocS1 = new Y.Doc({ isSuggestionDoc: true, gc: false, guid: 'sugg-s1' })
+  const suggDocS2 = new Y.Doc({ isSuggestionDoc: true, gc: false, guid: 'sugg-s2' })
+  const suggDocM = new Y.Doc({ isSuggestionDoc: true, gc: false, guid: 'sugg-m' })
+  // Linear chain - applyUpdate is idempotent under state-vector, so this
+  // propagates transitively.
+  setupTwoWaySync(suggDocS1, suggDocS2)
+  setupTwoWaySync(suggDocS2, suggDocM)
+
+  const attrs = new Y.Attributions()
+  const amS1 = Y.createAttributionManagerFromDiff(baseDoc, suggDocS1, { attrs })
+  amS1.suggestionMode = false
+  const amS2 = Y.createAttributionManagerFromDiff(baseDoc, suggDocS2, { attrs })
+  amS2.suggestionMode = false
+  const amM = Y.createAttributionManagerFromDiff(baseDoc, suggDocM, { attrs })
+  amM.suggestionMode = true
+
+  const viewS1 = createPMView(suggDocS1.get('prosemirror'), amS1)
+  const viewS2 = createPMView(suggDocS2.get('prosemirror'), amS2)
+  const viewM = createPMView(suggDocM.get('prosemirror'), amM)
+
+  baseDoc.get('prosemirror').applyDelta(
+    delta.create()
+      .insert([delta.create('paragraph', {}, 'lorem ipsum dolor sit amet')])
+      .done()
+  )
+  for (let i = 0; i < 10; i++) await promise.wait(1)
+
+  // Helpers that swallow any downstream throw from in-flight reconciliation.
+  const dispatch = async (/** @type {EditorView} */ view, /** @type {import('prosemirror-state').Transaction} */ tr) => {
+    try { await safeDispatch(view, tr) } catch (_) { /* swallow */ }
+  }
+
+  // 1. suggestion-mode user inserts a new top paragraph (suggested insertion).
+  await dispatch(viewM, viewM.state.tr.insert(0, schema.nodes.paragraph.create(null, schema.text('kjqj'))))
+  // 2. view-suggestions user S1 inserts plain text inside the second paragraph
+  //    (this commits to the base doc since viewS1.suggestionMode = false).
+  await dispatch(viewS1, viewS1.state.tr.insertText('qwlff', 6))
+  // 3. suggestion-mode user adds `strong` across the boundary - covering its
+  //    own suggested "kjqj" plus the start of viewS1's freshly inserted "qw"
+  //    in the base paragraph (positions 1..9 in viewM's doc).
+  await dispatch(viewM, viewM.state.tr.addMark(1, 9, schema.marks.strong.create()))
+  // 4. viewS1 deletes a range that straddles its own insertion and the
+  //    seeded base text.
+  await dispatch(viewS1, viewS1.state.tr.delete(9, 14))
+
+  // Drain in-flight reconciliation passes.
+  for (let i = 0; i < 20; i++) {
+    try { await promise.wait(1) } catch (_) { /* swallow */ }
+  }
+
+  // The two view-suggestions peers must agree.
+  assertDocJSON(
+    viewS1.state.doc,
+    JSON.parse(JSON.stringify(viewS2.state.doc.toJSON())),
+    'view-suggestions peers agree after suggestion-mode format spans the insert'
+  )
+}
+
 export const testViewSuggestionsDeleteOutOfBounds = async () => {
   const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({
     baseContent: 'lorem ipsum dolor sit amet'
