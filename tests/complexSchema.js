@@ -268,7 +268,11 @@ export const marks = {
   },
 
   'y-attributed-format': {
-    attrs: { userIdsByAttr: { default: null }, timestamp: { default: null } },
+    attrs: {
+      userIds: { default: null },
+      userIdsByAttr: { default: null },
+      timestamp: { default: null }
+    },
     excludes: '',
     parseDOM: [{ tag: 'y-fmt' }],
     toDOM () {
