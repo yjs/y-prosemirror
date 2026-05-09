@@ -159,7 +159,7 @@ export function syncPlugin (opts = {}) {
       function subscribeToYType ({ view, ytype, attributionManager, attributionMapper }) {
         unsubscribeFn?.()
         if (ytype != null) {
-          const yTypeCb = ytype.observeDeep((change, tr) => {
+          const yTypeCb = ytype.observeDeep((_change, tr) => {
             if (!view || view.isDestroyed) {
               return unsubscribeFn?.()
             }
@@ -167,14 +167,27 @@ export function syncPlugin (opts = {}) {
             // - PM is already at the post-apply state, the reconcile
             // tr was already appended in the same dispatch.
             if (/** @type {any} */ (tr).origin === ySyncPluginKey.get(view.state)) return
-            const d = deltaAttributionToFormat(
-              change.getDelta(attributionManager || Y.noAttributionsManager, { deep: true }),
+            // Same pipeline as `appendTransaction` and `onAttrsChanged`:
+            // render ytype through the AM, diff against the current PM doc,
+            // apply only the difference. Using `change.getDelta` here
+            // produced wrong/asymmetric output for some interleavings
+            // (notably commits-to-base from one peer that touched suggestion
+            // overlays from another), causing PM views to diverge from each
+            // other and from the canonical AM render. The full re-render is
+            // more expensive per update but is the only diff target all
+            // peers agree on.
+            const am = attributionManager || Y.noAttributionsManager
+            const desiredPM = deltaAttributionToFormat(
+              ytype.toDeltaDeep(am),
               attributionMapper
             ).done()
-            const ptr = deltaToPSteps(view.state.tr, d)
+            const pcontent = nodeToDelta(view.state.doc).done()
+            const diff = d.diff(pcontent, desiredPM)
+            if (diff.isEmpty()) return
+            const ptr = deltaToPSteps(view.state.tr, diff)
             ptr.setMeta('addToHistory', false)
             ptr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
-              change,
+              change: null,
               attributionManager,
               attributionMapper,
               ytype
@@ -200,6 +213,7 @@ export function syncPlugin (opts = {}) {
             if (diff.isEmpty()) return
             const ptr = deltaToPSteps(view.state.tr, diff)
             ptr.setMeta('addToHistory', false)
+            // @todo stop updating meta on every transaction
             ptr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
               change: null, // @todo - remove this property
               attributionManager,
