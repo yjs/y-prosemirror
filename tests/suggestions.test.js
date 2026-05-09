@@ -1184,6 +1184,93 @@ export const testTwoViewSuggestionsUsersDivergeOnFormatAcrossInsert = async () =
 }
 
 /**
+ * Four-op replay (seed=4147511592 from `testSimLongRunningFuzz`, reduced
+ * 100 ops -> 4) of a sync-pipeline bug exposed by interleaved splitBlock
+ * + insertParagraph + deleteRange across two suggestion-mode peers and a
+ * view-suggestions peer.
+ *
+ * Cohort:
+ *   - u0, u1: view-suggestions   (u0 dispatches splitBlocks; u1 is passive)
+ *   - u2, u3: suggestion-mode    (u2 inserts a paragraph; u3 deletes a range)
+ *
+ * After all four ops, the two view-suggestions peers (u0, u1) end up with
+ * different PM docs even though their underlying Y state and the AM
+ * render are bit-identical.
+ *
+ * Greedy delta-debug bottomed out at this 4-op shape; further trims either
+ * lose the divergence or change which mode-pair diverges.
+ */
+export const testCohortReplayConvergesAfterSplitDeleteInterleave = () => {
+  /** @typedef {{ user: number, op: string, args: any }} TracedOp */
+  const TRACE = /** @type {Array<TracedOp>} */ ([
+    { user: 2, op: 'insertParagraph', args: { pos: 0, text: 'gnfd' } },
+    { user: 0, op: 'splitBlock', args: { pos: 13 } },
+    { user: 3, op: 'deleteRange', args: { from: 8, to: 18 } },
+    { user: 0, op: 'splitBlock', args: { pos: 26 } }
+  ])
+  /** @typedef {'no-suggestions' | 'view-suggestions' | 'suggestion-mode'} Mode */
+  const COHORT = /** @type {Array<Mode>} */ ([
+    'view-suggestions', 'view-suggestions',
+    'suggestion-mode', 'suggestion-mode'
+  ])
+
+  const baseDoc = new Y.Doc({ gc: false, guid: 'base' })
+  const attrs = new Y.Attributions()
+  const docs = COHORT.map((_, i) =>
+    new Y.Doc({ isSuggestionDoc: true, gc: false, guid: `sugg-${i}` }))
+  // Chain-sync suggestion docs.
+  for (let i = 0; i + 1 < docs.length; i++) {
+    setupTwoWaySync(/** @type {Y.Doc} */ (docs[i]), /** @type {Y.Doc} */ (docs[i + 1]))
+  }
+  /** @type {Array<{mode: Mode, view: EditorView, am: any}>} */
+  const users = COHORT.map((mode, i) => {
+    const am = Y.createAttributionManagerFromDiff(
+      baseDoc, /** @type {Y.Doc} */ (docs[i]), { attrs })
+    am.suggestionMode = mode === 'suggestion-mode'
+    return {
+      mode,
+      view: createPMView(/** @type {Y.Doc} */ (docs[i]).get('prosemirror'), am),
+      am
+    }
+  })
+
+  baseDoc.get('prosemirror').applyDelta(
+    delta.create()
+      .insert([delta.create('paragraph', {}, 'lorem ipsum dolor sit amet')])
+      .done()
+  )
+
+  const apply = (/** @type {{view: EditorView}} */ user, /** @type {TracedOp} */ t) => {
+    const { state } = user.view
+    const dispatch = (/** @type {import('prosemirror-state').Transaction} */ tr) => {
+      try { user.view.dispatch(tr) } catch (_) { /* swallow */ }
+    }
+    try {
+      if (t.op === 'splitBlock') {
+        const $pos = state.doc.resolve(t.args.pos)
+        if (!$pos.parent.isTextblock) return
+        dispatch(state.tr.split(t.args.pos))
+      } else if (t.op === 'deleteRange') {
+        dispatch(state.tr.delete(t.args.from, t.args.to))
+      } else if (t.op === 'insertParagraph') {
+        dispatch(state.tr.insert(t.args.pos, schema.nodes.paragraph.create(null, schema.text(t.args.text))))
+      }
+    } catch (_) { /* schema-invalid edits skip */ }
+  }
+
+  // Dispatch synchronously - no awaits, no settle.
+  for (const op of TRACE) {
+    apply(users[op.user], op)
+  }
+
+  // Compare view-suggestions peers.
+  const a = JSON.parse(JSON.stringify(users[0].view.state.doc.toJSON()))
+  const b = JSON.parse(JSON.stringify(users[1].view.state.doc.toJSON()))
+  users.forEach(u => u.view.destroy())
+  t.compare(a, b, 'view-suggestions u0 vs u1 must agree after split/delete interleave')
+}
+
+/**
  * Cohort-replay regression test for a residual sync-pipeline bug.
  *
  * Replays a captured 30-op trace from `testRepeatGeneratingSuggestionEdits`
