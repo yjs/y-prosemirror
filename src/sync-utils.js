@@ -294,9 +294,20 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
           tr.addNodeMark(currPos.i, schema.mark(k, v))
         }
       })
-      currPos.i++
-      deltaToPSteps(tr, op.value, pchildren[currParentIndex++], currPos)
-      currPos.i++
+      const child = pchildren[currParentIndex++]
+      const childStart = currPos.i
+      // Snapshot `tr.doc.content.size` so we can detect inserts/deletes
+      // appended inside the recursion below.
+      const sizeBefore = tr.doc.content.size
+      currPos.i = childStart + 1
+      deltaToPSteps(tr, op.value, child, currPos)
+      // `lib0/delta.diff` produces short deltas that omit trailing
+      // retains, so the recursive call may exit before `currPos.i`
+      // reaches the child's close tag. Snap forward to the position right
+      // after the child's close in the *current* `tr.doc`, accounting for
+      // any size delta from inserts/deletes inside the recursion.
+      const netChange = tr.doc.content.size - sizeBefore
+      currPos.i = childStart + child.nodeSize + netChange
     } else if (delta.$insertOp.check(op)) {
       const newPChildren = op.insert.map(ins => deltaToPNode(ins, schema, op.format))
       tr.insert(currPos.i, newPChildren)

@@ -1183,6 +1183,175 @@ export const testTwoViewSuggestionsUsersDivergeOnFormatAcrossInsert = async () =
   )
 }
 
+/**
+ * Cohort-replay regression test for a residual sync-pipeline bug.
+ *
+ * Replays a captured 30-op trace from `testRepeatGeneratingSuggestionEdits`
+ * (seed=1493604710) against the standard 6-user cohort (2 each of
+ * no-suggestions / view-suggestions / suggestion-mode), then asserts that
+ * peers in each mode converge to the same PM doc.
+ *
+ * Symptom: the underlying Y state and `ytype.toDeltaDeep(am)` outputs are
+ * bit-identical across all peers, but the PM views have stale paragraph
+ * splits and stray `y-attributed-*` marks left over from intermediate
+ * states. The bug is in the y-prosemirror reconcile pipeline (lib0/delta
+ * `diff` + `deltaToPSteps` round-trip) failing to drive each peer's PM
+ * doc to the canonical AM render.
+ *
+ * Important: ops are dispatched **fully synchronously**, with no
+ * `await promise.wait(1)` between them. Everything in y-prosemirror,
+ * `@y/y`, and lib0 is sync; the only async sources are
+ * prosemirror-view's DOM-observer / selection-sync setTimeout(20)s
+ * driven by jsdom's MutationObserver. Yielding to the event loop
+ * between ops lets those timers fire interleaved with the trace and
+ * was the entire source of the test's earlier flakiness (~70% / ~30%).
+ * With no awaits the divergence reproduces deterministically.
+ */
+export const testCohortReplayConvergesAcrossModes = () => {
+  /** @typedef {{ user: number, op: string, args: any }} TracedOp */
+  const TRACE = /** @type {Array<TracedOp>} */ ([
+    { user: 0, op: 'insertPlainText', args: { pos: 25, text: 'ows' } },
+    { user: 1, op: 'insertPlainText', args: { pos: 5, text: 'thmb' } },
+    { user: 2, op: 'addMark', args: { from: 17, to: 26, markName: 'em' } },
+    { user: 2, op: 'splitBlock', args: { pos: 24 } },
+    { user: 5, op: 'splitBlock', args: { pos: 20 } },
+    { user: 2, op: 'removeMark', args: { from: 14, to: 20, markName: 'em' } },
+    { user: 3, op: 'splitBlock', args: { pos: 42 } },
+    { user: 1, op: 'addMark', args: { from: 2, to: 30, markName: 'em' } },
+    { user: 3, op: 'insertText', args: { pos: 40, text: 'ygi' } },
+    { user: 1, op: 'removeMark', args: { from: 19, to: 33, markName: 'strong' } },
+    { user: 0, op: 'insertParagraph', args: { pos: 40, text: 'xm' } },
+    { user: 1, op: 'insertPlainText', args: { pos: 31, text: 'worjt' } },
+    { user: 1, op: 'addMark', args: { from: 4, to: 43, markName: 'code' } },
+    { user: 5, op: 'insertParagraph', args: { pos: 51, text: 'j' } },
+    { user: 3, op: 'insertPlainText', args: { pos: 43, text: 'yx' } },
+    { user: 0, op: 'insertPlainText', args: { pos: 47, text: 'kb' } },
+    { user: 3, op: 'insertPlainText', args: { pos: 9, text: 'm' } },
+    { user: 5, op: 'insertParagraph', args: { pos: 71, text: 'xlon' } },
+    { user: 0, op: 'addMark', args: { from: 11, to: 43, markName: 'strong' } },
+    { user: 2, op: 'insertPlainText', args: { pos: 52, text: 'wmdx' } },
+    { user: 2, op: 'removeMark', args: { from: 15, to: 56, markName: 'em' } },
+    { user: 4, op: 'insertPlainText', args: { pos: 70, text: 'r' } },
+    { user: 5, op: 'addMark', args: { from: 23, to: 27, markName: 'em' } },
+    { user: 1, op: 'addMark', args: { from: 16, to: 19, markName: 'code' } },
+    { user: 5, op: 'removeMark', args: { from: 37, to: 46, markName: 'strong' } },
+    { user: 4, op: 'insertText', args: { pos: 83, text: 'cog' } },
+    { user: 0, op: 'insertText', args: { pos: 6, text: 'dwox' } },
+    { user: 3, op: 'insertText', args: { pos: 23, text: 'beos' } },
+    { user: 2, op: 'insertPlainText', args: { pos: 43, text: 'xn' } },
+    { user: 4, op: 'removeMark', args: { from: 11, to: 106, markName: 'strong' } }
+  ])
+
+  /** @typedef {'no-suggestions' | 'view-suggestions' | 'suggestion-mode'} Mode */
+  const COHORT = /** @type {Array<Mode>} */ ([
+    'no-suggestions', 'no-suggestions',
+    'view-suggestions', 'view-suggestions',
+    'suggestion-mode', 'suggestion-mode'
+  ])
+
+  const baseDoc = new Y.Doc({ gc: false, guid: 'base' })
+  const attrs = new Y.Attributions()
+  const docs = COHORT.map((mode, i) => mode === 'no-suggestions'
+    ? null
+    : new Y.Doc({ isSuggestionDoc: true, gc: false, guid: `sugg-${i}` }))
+  // Chain-sync suggestion docs.
+  const suggDocs = docs.filter(d => d !== null)
+  for (let i = 0; i + 1 < suggDocs.length; i++) {
+    setupTwoWaySync(/** @type {Y.Doc} */ (suggDocs[i]), /** @type {Y.Doc} */ (suggDocs[i + 1]))
+  }
+  /** @type {Array<{mode: Mode, view: EditorView, am: any}>} */
+  const users = COHORT.map((mode, i) => {
+    if (mode === 'no-suggestions') {
+      return {
+        mode,
+        view: createPMView(baseDoc.get('prosemirror'), Y.noAttributionsManager),
+        am: Y.noAttributionsManager
+      }
+    }
+    const am = Y.createAttributionManagerFromDiff(
+      baseDoc, /** @type {Y.Doc} */ (docs[i]), { attrs })
+    am.suggestionMode = mode === 'suggestion-mode'
+    return {
+      mode,
+      view: createPMView(/** @type {Y.Doc} */ (docs[i]).get('prosemirror'), am),
+      am
+    }
+  })
+
+  baseDoc.get('prosemirror').applyDelta(
+    delta.create()
+      .insert([delta.create('paragraph', {}, 'lorem ipsum dolor sit amet')])
+      .done()
+  )
+
+  const apply = (/** @type {{view: EditorView}} */ user, /** @type {TracedOp} */ t) => {
+    const { state } = user.view
+    const dispatch = (/** @type {import('prosemirror-state').Transaction} */ tr) => {
+      try { user.view.dispatch(tr) } catch (_) { /* swallow */ }
+    }
+    try {
+      if (t.op === 'insertText') {
+        dispatch(state.tr.insertText(t.args.text, t.args.pos))
+      } else if (t.op === 'insertPlainText') {
+        const $pos = state.doc.resolve(t.args.pos)
+        if (!$pos.parent.isTextblock) return
+        dispatch(state.tr.insert(t.args.pos, schema.text(t.args.text)))
+      } else if (t.op === 'deleteRange') {
+        dispatch(state.tr.delete(t.args.from, t.args.to))
+      } else if (t.op === 'addMark') {
+        dispatch(state.tr.addMark(t.args.from, t.args.to, schema.marks[t.args.markName].create()))
+      } else if (t.op === 'removeMark') {
+        dispatch(state.tr.removeMark(t.args.from, t.args.to, schema.marks[t.args.markName]))
+      } else if (t.op === 'splitBlock') {
+        const $pos = state.doc.resolve(t.args.pos)
+        if (!$pos.parent.isTextblock) return
+        dispatch(state.tr.split(t.args.pos))
+      } else if (t.op === 'insertParagraph') {
+        dispatch(state.tr.insert(t.args.pos, schema.nodes.paragraph.create(null, schema.text(t.args.text))))
+      }
+    } catch (_) { /* schema-invalid edits skip */ }
+  }
+
+  // Dispatch every op synchronously - no awaits, no settle. The whole
+  // y-prosemirror / @y/y / lib0 stack is fully sync; the moment the
+  // last dispatch returns, every cascading observeDeep / AM-change /
+  // appendTransaction has finished too.
+  for (const op of TRACE) {
+    apply(users[op.user], op)
+  }
+
+  /** @type {Array<{mode: Mode, idxA: number, idxB: number, jsonA: any, jsonB: any}>} */
+  const divergences = []
+  /** @type {Map<Mode, Array<{idx: number, view: EditorView}>>} */
+  const groups = new Map()
+  users.forEach((u, idx) => {
+    const arr = groups.get(u.mode) || []
+    arr.push({ idx, view: u.view })
+    groups.set(u.mode, arr)
+  })
+  for (const [mode, group] of groups) {
+    if (group.length < 2) continue
+    const jsonA = JSON.parse(JSON.stringify(group[0].view.state.doc.toJSON()))
+    const baseStr = JSON.stringify(jsonA)
+    for (let i = 1; i < group.length; i++) {
+      const jsonB = JSON.parse(JSON.stringify(group[i].view.state.doc.toJSON()))
+      if (JSON.stringify(jsonB) !== baseStr) {
+        divergences.push({ mode, idxA: group[0].idx, idxB: group[i].idx, jsonA, jsonB })
+      }
+    }
+  }
+  users.forEach(u => u.view.destroy())
+
+  if (divergences.length > 0) {
+    const d = divergences[0]
+    t.compare(
+      d.jsonB,
+      d.jsonA,
+      `mode=${d.mode} u${d.idxA} vs u${d.idxB} (${divergences.length} divergence(s) total)`
+    )
+  }
+}
+
 export const testViewSuggestionsDeleteOutOfBounds = async () => {
   const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({
     baseContent: 'lorem ipsum dolor sit amet'
