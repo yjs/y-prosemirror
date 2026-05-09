@@ -249,9 +249,14 @@ export const marks = {
     }
   },
 
+  // Default `excludes` (= self-exclusion) is intentional: when a span's
+  // attribution attrs change between renders (e.g. userIdsByAttr gains a
+  // format key), `tr.addMark` should *replace* the prior instance, not stack
+  // a second copy on top of it. Setting `excludes: ''` here would let
+  // multiple instances of the same attribution mark coexist on a single span
+  // and accumulate over the diff/reconcile loop.
   'y-attributed-insert': {
     attrs: { userIds: { default: null }, timestamp: { default: null } },
-    excludes: '',
     parseDOM: [{ tag: 'y-ins' }],
     toDOM () {
       return /** @type {const} */ (['y-ins', 0])
@@ -260,7 +265,6 @@ export const marks = {
 
   'y-attributed-delete': {
     attrs: { userIds: { default: null }, timestamp: { default: null } },
-    excludes: '',
     parseDOM: [{ tag: 'y-del' }],
     toDOM () {
       return /** @type {const} */ (['y-del', 0])
@@ -273,7 +277,6 @@ export const marks = {
       userIdsByAttr: { default: null },
       timestamp: { default: null }
     },
-    excludes: '',
     parseDOM: [{ tag: 'y-fmt' }],
     toDOM () {
       return /** @type {const} */ (['y-fmt', 0])
