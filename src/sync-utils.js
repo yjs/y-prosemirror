@@ -351,12 +351,6 @@ export const deltaToPNode = (d, schema, dformat) => {
     inputChildren,
     inputMarks
   )
-  // eslint-disable-next-line
-  console.log('[d2p]', (d.name ?? '<doc>'),
-    'IN children=', inputChildren.length,
-    JSON.stringify(inputChildren.map(n => n && n.toJSON ? n.toJSON() : n)),
-    'marks=', JSON.stringify(inputMarks),
-    'OUT=', pNode === null ? 'NULL' : JSON.stringify(pNode.toJSON()))
   if (pNode === null) {
     throw new Error('[y/prosemirror]: failed to create node: ' + d.name)
   }

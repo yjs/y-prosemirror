@@ -181,15 +181,24 @@ export function syncPlugin (opts = {}) {
             }))
             view.dispatch(ptr)
           })
-          const onAttrsChanged = attributionManager?.on('change', (changes) => {
+          const onAttrsChanged = attributionManager?.on('change', (_changes) => {
             if (!view || view.isDestroyed) {
               return unsubscribeFn?.()
             }
-            const d = deltaAttributionToFormat(
-              ytype.toDelta(attributionManager, { deep: true, itemsToRender: changes, retainInserts: true, retainDeletes: true }),
+            // Same pipeline as `appendTransaction`: render ytype through
+            // the AM, diff against the current PM doc, apply only the
+            // difference. We give up the `itemsToRender` targeted-rerender
+            // optimization in exchange for going through the same path
+            // that the rest of the plugin uses, which keeps the deltas
+            // shallow (only what actually changed).
+            const desiredPM = deltaAttributionToFormat(
+              ytype.toDeltaDeep(attributionManager || Y.noAttributionsManager),
               attributionMapper
             ).done()
-            const ptr = deltaToPSteps(view.state.tr, d)
+            const pcontent = nodeToDelta(view.state.doc).done()
+            const diff = d.diff(pcontent, desiredPM)
+            if (diff.isEmpty()) return
+            const ptr = deltaToPSteps(view.state.tr, diff)
             ptr.setMeta('addToHistory', false)
             ptr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
               change: null, // @todo - remove this property
