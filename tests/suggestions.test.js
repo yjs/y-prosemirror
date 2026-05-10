@@ -1439,6 +1439,142 @@ export const testCohortReplayConvergesAcrossModes = () => {
   }
 }
 
+/**
+ * Cohort-replay regression test reduced from `testRepeatGeneratingSuggestionEdits`
+ * seed=2882758352. The original 30-op fuzz trace was greedily reduced down to
+ * these 3 ops; further trims either lose the divergence or move it.
+ *
+ * Symptom: u2 (view-suggestions) ends up with an extra "amet" text node carrying
+ * a `y-attributed-delete` mark that u3 lacks. This is a real structural
+ * divergence (not just JSON key-ordering noise). It shows up consistently
+ * with awaits between ops; the underlying y-prosemirror reconcile pipeline
+ * fails to drive every PM peer to the canonical AM render.
+ *
+ * Awaits are required: both prosemirror-view's setTimeout(20) DOM-observer
+ * pass and any cascading observeDeep / AM-change listeners need to fire
+ * before the next op runs against an up-to-date PM state. With purely
+ * synchronous dispatch the trace converges (this is the same shape the
+ * simulation framework's `runSim` uses).
+ */
+export const testCohortReplayConvergesAfterDeleteSpansCrossPeerInsert = async () => {
+  /** @typedef {{ user: number, op: string, args: any }} TracedOp */
+  const TRACE = /** @type {Array<TracedOp>} */ ([
+    { user: 0, op: 'insertPlainText', args: { pos: 23, text: 'v' } },
+    { user: 3, op: 'insertParagraph', args: { pos: 29, text: 'idc' } },
+    { user: 0, op: 'deleteRange', args: { from: 9, to: 31 } }
+  ])
+
+  /** @typedef {'no-suggestions' | 'view-suggestions' | 'suggestion-mode'} Mode */
+  const COHORT = /** @type {Array<Mode>} */ ([
+    'no-suggestions', 'no-suggestions',
+    'view-suggestions', 'view-suggestions',
+    'suggestion-mode', 'suggestion-mode'
+  ])
+
+  const baseDoc = new Y.Doc({ gc: false, guid: 'base' })
+  const attrs = new Y.Attributions()
+  const docs = COHORT.map((mode, i) => mode === 'no-suggestions'
+    ? null
+    : new Y.Doc({ isSuggestionDoc: true, gc: false, guid: `sugg-${i}` }))
+  const suggDocs = docs.filter(d => d !== null)
+  for (let i = 0; i + 1 < suggDocs.length; i++) {
+    setupTwoWaySync(/** @type {Y.Doc} */ (suggDocs[i]), /** @type {Y.Doc} */ (suggDocs[i + 1]))
+  }
+  /** @type {Array<{mode: Mode, view: EditorView, am: any}>} */
+  const users = COHORT.map((mode, i) => {
+    if (mode === 'no-suggestions') {
+      return {
+        mode,
+        view: createPMView(baseDoc.get('prosemirror'), Y.noAttributionsManager),
+        am: Y.noAttributionsManager
+      }
+    }
+    const am = Y.createAttributionManagerFromDiff(
+      baseDoc, /** @type {Y.Doc} */ (docs[i]), { attrs })
+    am.suggestionMode = mode === 'suggestion-mode'
+    return {
+      mode,
+      view: createPMView(/** @type {Y.Doc} */ (docs[i]).get('prosemirror'), am),
+      am
+    }
+  })
+
+  baseDoc.get('prosemirror').applyDelta(
+    delta.create()
+      .insert([delta.create('paragraph', {}, 'lorem ipsum dolor sit amet')])
+      .done()
+  )
+  const settle = async (ticks = 4) => {
+    for (let i = 0; i < ticks; i++) await promise.wait(1)
+  }
+  await settle(10)
+
+  const apply = (/** @type {{view: EditorView}} */ user, /** @type {TracedOp} */ tt) => {
+    const { state } = user.view
+    const dispatch = (/** @type {import('prosemirror-state').Transaction} */ tr) => {
+      try { user.view.dispatch(tr) } catch (_) { /* swallow */ }
+    }
+    try {
+      if (tt.op === 'insertPlainText') {
+        const $pos = state.doc.resolve(tt.args.pos)
+        if (!$pos.parent.isTextblock) return
+        dispatch(state.tr.insert(tt.args.pos, schema.text(tt.args.text)))
+      } else if (tt.op === 'deleteRange') {
+        dispatch(state.tr.delete(tt.args.from, tt.args.to))
+      } else if (tt.op === 'insertParagraph') {
+        dispatch(state.tr.insert(tt.args.pos, schema.nodes.paragraph.create(null, schema.text(tt.args.text))))
+      }
+    } catch (_) { /* schema-invalid edits skip */ }
+  }
+
+  for (const op of TRACE) {
+    apply(users[op.user], op)
+    await settle()
+  }
+  await settle(20)
+
+  // Stable JSON.stringify so that mark-`attrs` key ordering noise (e.g.
+  // `userIdsByAttr: {em, code}` vs `{code, em}`) doesn't masquerade as a
+  // real divergence. Only structural differences should fail this test.
+  /** @param {any} v */
+  const stable = (v) => {
+    if (v === null || typeof v !== 'object') return JSON.stringify(v)
+    if (Array.isArray(v)) return '[' + v.map(stable).join(',') + ']'
+    return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stable(v[k])).join(',') + '}'
+  }
+
+  /** @type {Array<{mode: Mode, idxA: number, idxB: number, jsonA: any, jsonB: any}>} */
+  const divergences = []
+  /** @type {Map<Mode, Array<{idx: number, view: EditorView}>>} */
+  const groups = new Map()
+  users.forEach((u, idx) => {
+    const arr = groups.get(u.mode) || []
+    arr.push({ idx, view: u.view })
+    groups.set(u.mode, arr)
+  })
+  for (const [mode, group] of groups) {
+    if (group.length < 2) continue
+    const jsonA = JSON.parse(JSON.stringify(group[0].view.state.doc.toJSON()))
+    const baseStr = stable(jsonA)
+    for (let i = 1; i < group.length; i++) {
+      const jsonB = JSON.parse(JSON.stringify(group[i].view.state.doc.toJSON()))
+      if (stable(jsonB) !== baseStr) {
+        divergences.push({ mode, idxA: group[0].idx, idxB: group[i].idx, jsonA, jsonB })
+      }
+    }
+  }
+  users.forEach(u => u.view.destroy())
+
+  if (divergences.length > 0) {
+    const d = divergences[0]
+    t.compare(
+      d.jsonB,
+      d.jsonA,
+      `mode=${d.mode} u${d.idxA} vs u${d.idxB} (${divergences.length} divergence(s) total)`
+    )
+  }
+}
+
 export const testViewSuggestionsDeleteOutOfBounds = async () => {
   const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({
     baseContent: 'lorem ipsum dolor sit amet'

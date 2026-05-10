@@ -389,6 +389,23 @@ const runSim = async (sim, gen, iterations, onError) => {
  * @param {Simulation} sim
  * @param {string} [label]
  */
+/**
+ * Stable JSON.stringify that recursively sorts object keys before serialising.
+ * Necessary because mark `attrs` (e.g. `userIdsByAttr`) carry plain objects
+ * whose key order depends on the order of operations across peers - identical
+ * docs can render with different key orderings, which a naive string compare
+ * would flag as a (spurious) divergence. Use this for any cross-peer compare
+ * of `doc.toJSON()` output.
+ *
+ * @param {any} v
+ */
+const stableStringify = (v) => {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v)
+  if (Array.isArray(v)) return '[' + v.map(stableStringify).join(',') + ']'
+  const keys = Object.keys(v).sort()
+  return '{' + keys.map(k => JSON.stringify(k) + ':' + stableStringify(v[k])).join(',') + '}'
+}
+
 const assertConsistency = (sim, label = '') => {
   const groups = sim.byMode()
   /** @type {Array<{ mode: string, a: number, b: number, jsonA: any, jsonB: any }>} */
@@ -396,10 +413,10 @@ const assertConsistency = (sim, label = '') => {
   for (const [mode, users] of groups) {
     if (users.length < 2) continue
     const baseJSON = JSON.parse(JSON.stringify(users[0].view.state.doc.toJSON()))
-    const baseStr = JSON.stringify(baseJSON)
+    const baseStr = stableStringify(baseJSON)
     for (let i = 1; i < users.length; i++) {
       const otherJSON = JSON.parse(JSON.stringify(users[i].view.state.doc.toJSON()))
-      if (JSON.stringify(otherJSON) !== baseStr) {
+      if (stableStringify(otherJSON) !== baseStr) {
         divergences.push({ mode, a: users[0].idx, b: users[i].idx, jsonA: baseJSON, jsonB: otherJSON })
       }
     }
