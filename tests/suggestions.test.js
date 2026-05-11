@@ -3,60 +3,17 @@ import * as Y from '@y/y'
 import * as delta from 'lib0/delta'
 import * as t from 'lib0/testing'
 import { EditorState } from 'prosemirror-state'
-import { EditorView } from 'prosemirror-view'
 import { schema } from './complexSchema.js'
+import { Cohort, applyTracedOp, assertCohortConsistency, createPMView, setupTwoWaySync } from './cohort.js'
 
 // === Helpers ===
 
 /**
- * Create a ProseMirror EditorView backed by a Y.js type.
- * @param {Y.Type} ytype
- * @param {Y.AbstractAttributionManager} [attributionManager]
- * @param {object} [opts]
- * @param {import('prosemirror-model').Schema} [opts.schema]
- * @param {AttributionMapper} [opts.mapAttributionToMark]
- */
-const createPMView = (ytype, attributionManager = Y.noAttributionsManager, opts = {}) => {
-  const s = opts.schema || schema
-  const view = new EditorView(
-    { mount: document.createElement('div') },
-    {
-      state: EditorState.create({
-        schema: s,
-        plugins: [YPM.syncPlugin(opts.mapAttributionToMark ? { mapAttributionToMark: opts.mapAttributionToMark } : {})]
-      })
-    }
-  )
-  YPM.configureYProsemirror({ ytype, attributionManager })(
-    view.state,
-    view.dispatch
-  )
-  return view
-}
-
-/**
- * Set up two-way sync between two Y.Docs.
- * @param {Y.Doc} doc1
- * @param {Y.Doc} doc2
- */
-const setupTwoWaySync = (doc1, doc2) => {
-  // Initial state sync
-  Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1))
-  Y.applyUpdate(doc1, Y.encodeStateAsUpdate(doc2))
-  // Live sync
-  doc1.on('update', (update) => {
-    Y.applyUpdate(doc2, update)
-  })
-  doc2.on('update', (update) => {
-    Y.applyUpdate(doc1, update)
-  })
-}
-
-/**
- * Dispatch a transaction to a ProseMirror view. Kept as a thin sync wrapper
- * around `view.dispatch` so callers read uniformly; the y-prosemirror stack
- * is fully synchronous so no event-loop yielding is needed.
- * @param {EditorView} view
+ * Dispatch a transaction to a ProseMirror view. Thin alias for
+ * `view.dispatch` kept so existing call sites read uniformly. The
+ * y-prosemirror stack is fully synchronous - no event-loop yielding needed.
+ *
+ * @param {import('prosemirror-view').EditorView} view
  * @param {import('prosemirror-state').Transaction} tr
  */
 const safeDispatch = (view, tr) => {
@@ -1142,7 +1099,7 @@ export const testTwoViewSuggestionsUsersDivergeOnFormatAcrossInsert = () => {
   )
   // Helper that swallows any throw from dispatch (the test framework reports
   // throws, but for replay we want to push through and assert the final state).
-  const dispatch = (/** @type {EditorView} */ view, /** @type {import('prosemirror-state').Transaction} */ tr) => {
+  const dispatch = (/** @type {import('prosemirror-view').EditorView} */ view, /** @type {import('prosemirror-state').Transaction} */ tr) => {
     try { safeDispatch(view, tr) } catch (_) { /* swallow */ }
   }
 
@@ -1185,73 +1142,21 @@ export const testTwoViewSuggestionsUsersDivergeOnFormatAcrossInsert = () => {
  * lose the divergence or change which mode-pair diverges.
  */
 export const testCohortReplayConvergesAfterSplitDeleteInterleave = () => {
-  /** @typedef {{ user: number, op: string, args: any }} TracedOp */
-  const TRACE = /** @type {Array<TracedOp>} */ ([
+  /** @type {Array<import('./cohort.js').TracedOp>} */
+  const TRACE = [
     { user: 2, op: 'insertParagraph', args: { pos: 0, text: 'gnfd' } },
     { user: 0, op: 'splitBlock', args: { pos: 13 } },
     { user: 3, op: 'deleteRange', args: { from: 8, to: 18 } },
     { user: 0, op: 'splitBlock', args: { pos: 26 } }
-  ])
-  /** @typedef {'no-suggestions' | 'view-suggestions' | 'suggestion-mode'} Mode */
-  const COHORT = /** @type {Array<Mode>} */ ([
+  ]
+  const cohort = new Cohort([
     'view-suggestions', 'view-suggestions',
     'suggestion-mode', 'suggestion-mode'
   ])
-
-  const baseDoc = new Y.Doc({ gc: false, guid: 'base' })
-  const attrs = new Y.Attributions()
-  const docs = COHORT.map((_, i) =>
-    new Y.Doc({ isSuggestionDoc: true, gc: false, guid: `sugg-${i}` }))
-  // Chain-sync suggestion docs.
-  for (let i = 0; i + 1 < docs.length; i++) {
-    setupTwoWaySync(/** @type {Y.Doc} */ (docs[i]), /** @type {Y.Doc} */ (docs[i + 1]))
-  }
-  /** @type {Array<{mode: Mode, view: EditorView, am: any}>} */
-  const users = COHORT.map((mode, i) => {
-    const am = Y.createAttributionManagerFromDiff(
-      baseDoc, /** @type {Y.Doc} */ (docs[i]), { attrs })
-    am.suggestionMode = mode === 'suggestion-mode'
-    return {
-      mode,
-      view: createPMView(/** @type {Y.Doc} */ (docs[i]).get('prosemirror'), am),
-      am
-    }
-  })
-
-  baseDoc.get('prosemirror').applyDelta(
-    delta.create()
-      .insert([delta.create('paragraph', {}, 'lorem ipsum dolor sit amet')])
-      .done()
-  )
-
-  const apply = (/** @type {{view: EditorView}} */ user, /** @type {TracedOp} */ t) => {
-    const { state } = user.view
-    const dispatch = (/** @type {import('prosemirror-state').Transaction} */ tr) => {
-      try { user.view.dispatch(tr) } catch (_) { /* swallow */ }
-    }
-    try {
-      if (t.op === 'splitBlock') {
-        const $pos = state.doc.resolve(t.args.pos)
-        if (!$pos.parent.isTextblock) return
-        dispatch(state.tr.split(t.args.pos))
-      } else if (t.op === 'deleteRange') {
-        dispatch(state.tr.delete(t.args.from, t.args.to))
-      } else if (t.op === 'insertParagraph') {
-        dispatch(state.tr.insert(t.args.pos, schema.nodes.paragraph.create(null, schema.text(t.args.text))))
-      }
-    } catch (_) { /* schema-invalid edits skip */ }
-  }
-
-  // Dispatch synchronously - no awaits, no settle.
-  for (const op of TRACE) {
-    apply(users[op.user], op)
-  }
-
-  // Compare view-suggestions peers.
-  const a = JSON.parse(JSON.stringify(users[0].view.state.doc.toJSON()))
-  const b = JSON.parse(JSON.stringify(users[1].view.state.doc.toJSON()))
-  users.forEach(u => u.view.destroy())
-  t.compare(a, b, 'view-suggestions u0 vs u1 must agree after split/delete interleave')
+  cohort.seed('lorem ipsum dolor sit amet')
+  for (const op of TRACE) applyTracedOp(cohort, op)
+  assertCohortConsistency(cohort, 'split/delete interleave')
+  cohort.destroy()
 }
 
 /**
@@ -1273,8 +1178,8 @@ export const testCohortReplayConvergesAfterSplitDeleteInterleave = () => {
  * ops are dispatched directly with no event-loop yield between them.
  */
 export const testCohortReplayConvergesAcrossModes = () => {
-  /** @typedef {{ user: number, op: string, args: any }} TracedOp */
-  const TRACE = /** @type {Array<TracedOp>} */ ([
+  /** @type {Array<import('./cohort.js').TracedOp>} */
+  const TRACE = [
     { user: 0, op: 'insertPlainText', args: { pos: 25, text: 'ows' } },
     { user: 1, op: 'insertPlainText', args: { pos: 5, text: 'thmb' } },
     { user: 2, op: 'addMark', args: { from: 17, to: 26, markName: 'em' } },
@@ -1305,116 +1210,16 @@ export const testCohortReplayConvergesAcrossModes = () => {
     { user: 3, op: 'insertText', args: { pos: 23, text: 'beos' } },
     { user: 2, op: 'insertPlainText', args: { pos: 43, text: 'xn' } },
     { user: 4, op: 'removeMark', args: { from: 11, to: 106, markName: 'strong' } }
-  ])
-
-  /** @typedef {'no-suggestions' | 'view-suggestions' | 'suggestion-mode'} Mode */
-  const COHORT = /** @type {Array<Mode>} */ ([
+  ]
+  const cohort = new Cohort([
     'no-suggestions', 'no-suggestions',
     'view-suggestions', 'view-suggestions',
     'suggestion-mode', 'suggestion-mode'
   ])
-
-  const baseDoc = new Y.Doc({ gc: false, guid: 'base' })
-  const attrs = new Y.Attributions()
-  const docs = COHORT.map((mode, i) => mode === 'no-suggestions'
-    ? null
-    : new Y.Doc({ isSuggestionDoc: true, gc: false, guid: `sugg-${i}` }))
-  // Chain-sync suggestion docs.
-  const suggDocs = docs.filter(d => d !== null)
-  for (let i = 0; i + 1 < suggDocs.length; i++) {
-    setupTwoWaySync(/** @type {Y.Doc} */ (suggDocs[i]), /** @type {Y.Doc} */ (suggDocs[i + 1]))
-  }
-  /** @type {Array<{mode: Mode, view: EditorView, am: any}>} */
-  const users = COHORT.map((mode, i) => {
-    if (mode === 'no-suggestions') {
-      return {
-        mode,
-        view: createPMView(baseDoc.get('prosemirror'), Y.noAttributionsManager),
-        am: Y.noAttributionsManager
-      }
-    }
-    const am = Y.createAttributionManagerFromDiff(
-      baseDoc, /** @type {Y.Doc} */ (docs[i]), { attrs })
-    am.suggestionMode = mode === 'suggestion-mode'
-    return {
-      mode,
-      view: createPMView(/** @type {Y.Doc} */ (docs[i]).get('prosemirror'), am),
-      am
-    }
-  })
-
-  baseDoc.get('prosemirror').applyDelta(
-    delta.create()
-      .insert([delta.create('paragraph', {}, 'lorem ipsum dolor sit amet')])
-      .done()
-  )
-
-  const apply = (/** @type {{view: EditorView}} */ user, /** @type {TracedOp} */ t) => {
-    const { state } = user.view
-    const dispatch = (/** @type {import('prosemirror-state').Transaction} */ tr) => {
-      try { user.view.dispatch(tr) } catch (_) { /* swallow */ }
-    }
-    try {
-      if (t.op === 'insertText') {
-        dispatch(state.tr.insertText(t.args.text, t.args.pos))
-      } else if (t.op === 'insertPlainText') {
-        const $pos = state.doc.resolve(t.args.pos)
-        if (!$pos.parent.isTextblock) return
-        dispatch(state.tr.insert(t.args.pos, schema.text(t.args.text)))
-      } else if (t.op === 'deleteRange') {
-        dispatch(state.tr.delete(t.args.from, t.args.to))
-      } else if (t.op === 'addMark') {
-        dispatch(state.tr.addMark(t.args.from, t.args.to, schema.marks[t.args.markName].create()))
-      } else if (t.op === 'removeMark') {
-        dispatch(state.tr.removeMark(t.args.from, t.args.to, schema.marks[t.args.markName]))
-      } else if (t.op === 'splitBlock') {
-        const $pos = state.doc.resolve(t.args.pos)
-        if (!$pos.parent.isTextblock) return
-        dispatch(state.tr.split(t.args.pos))
-      } else if (t.op === 'insertParagraph') {
-        dispatch(state.tr.insert(t.args.pos, schema.nodes.paragraph.create(null, schema.text(t.args.text))))
-      }
-    } catch (_) { /* schema-invalid edits skip */ }
-  }
-
-  // Dispatch every op synchronously - no awaits, no settle. The whole
-  // y-prosemirror / @y/y / lib0 stack is fully sync; the moment the
-  // last dispatch returns, every cascading observeDeep / AM-change /
-  // appendTransaction has finished too.
-  for (const op of TRACE) {
-    apply(users[op.user], op)
-  }
-
-  /** @type {Array<{mode: Mode, idxA: number, idxB: number, jsonA: any, jsonB: any}>} */
-  const divergences = []
-  /** @type {Map<Mode, Array<{idx: number, view: EditorView}>>} */
-  const groups = new Map()
-  users.forEach((u, idx) => {
-    const arr = groups.get(u.mode) || []
-    arr.push({ idx, view: u.view })
-    groups.set(u.mode, arr)
-  })
-  for (const [mode, group] of groups) {
-    if (group.length < 2) continue
-    const jsonA = JSON.parse(JSON.stringify(group[0].view.state.doc.toJSON()))
-    const baseStr = JSON.stringify(jsonA)
-    for (let i = 1; i < group.length; i++) {
-      const jsonB = JSON.parse(JSON.stringify(group[i].view.state.doc.toJSON()))
-      if (JSON.stringify(jsonB) !== baseStr) {
-        divergences.push({ mode, idxA: group[0].idx, idxB: group[i].idx, jsonA, jsonB })
-      }
-    }
-  }
-  users.forEach(u => u.view.destroy())
-
-  if (divergences.length > 0) {
-    const d = divergences[0]
-    t.compare(
-      d.jsonB,
-      d.jsonA,
-      `mode=${d.mode} u${d.idxA} vs u${d.idxB} (${divergences.length} divergence(s) total)`
-    )
-  }
+  cohort.seed('lorem ipsum dolor sit amet')
+  for (const op of TRACE) applyTracedOp(cohort, op)
+  assertCohortConsistency(cohort, 'cross-mode replay')
+  cohort.destroy()
 }
 
 /**
@@ -1428,119 +1233,21 @@ export const testCohortReplayConvergesAcrossModes = () => {
  * fixed upstream). This test stays in the suite as a regression guard.
  */
 export const testCohortReplayConvergesAfterDeleteSpansCrossPeerInsert = () => {
-  /** @typedef {{ user: number, op: string, args: any }} TracedOp */
-  const TRACE = /** @type {Array<TracedOp>} */ ([
+  /** @type {Array<import('./cohort.js').TracedOp>} */
+  const TRACE = [
     { user: 0, op: 'insertPlainText', args: { pos: 23, text: 'v' } },
     { user: 3, op: 'insertParagraph', args: { pos: 29, text: 'idc' } },
     { user: 0, op: 'deleteRange', args: { from: 9, to: 31 } }
-  ])
-
-  /** @typedef {'no-suggestions' | 'view-suggestions' | 'suggestion-mode'} Mode */
-  const COHORT = /** @type {Array<Mode>} */ ([
+  ]
+  const cohort = new Cohort([
     'no-suggestions', 'no-suggestions',
     'view-suggestions', 'view-suggestions',
     'suggestion-mode', 'suggestion-mode'
   ])
-
-  const baseDoc = new Y.Doc({ gc: false, guid: 'base' })
-  const attrs = new Y.Attributions()
-  const docs = COHORT.map((mode, i) => mode === 'no-suggestions'
-    ? null
-    : new Y.Doc({ isSuggestionDoc: true, gc: false, guid: `sugg-${i}` }))
-  const suggDocs = docs.filter(d => d !== null)
-  for (let i = 0; i + 1 < suggDocs.length; i++) {
-    setupTwoWaySync(/** @type {Y.Doc} */ (suggDocs[i]), /** @type {Y.Doc} */ (suggDocs[i + 1]))
-  }
-  /** @type {Array<{mode: Mode, view: EditorView, am: any}>} */
-  const users = COHORT.map((mode, i) => {
-    if (mode === 'no-suggestions') {
-      return {
-        mode,
-        view: createPMView(baseDoc.get('prosemirror'), Y.noAttributionsManager),
-        am: Y.noAttributionsManager
-      }
-    }
-    const am = Y.createAttributionManagerFromDiff(
-      baseDoc, /** @type {Y.Doc} */ (docs[i]), { attrs })
-    am.suggestionMode = mode === 'suggestion-mode'
-    return {
-      mode,
-      view: createPMView(/** @type {Y.Doc} */ (docs[i]).get('prosemirror'), am),
-      am
-    }
-  })
-
-  baseDoc.get('prosemirror').applyDelta(
-    delta.create()
-      .insert([delta.create('paragraph', {}, 'lorem ipsum dolor sit amet')])
-      .done()
-  )
-
-  const apply = (/** @type {{view: EditorView}} */ user, /** @type {TracedOp} */ tt) => {
-    const { state } = user.view
-    const dispatch = (/** @type {import('prosemirror-state').Transaction} */ tr) => {
-      try { user.view.dispatch(tr) } catch (_) { /* swallow */ }
-    }
-    try {
-      if (tt.op === 'insertPlainText') {
-        const $pos = state.doc.resolve(tt.args.pos)
-        if (!$pos.parent.isTextblock) return
-        dispatch(state.tr.insert(tt.args.pos, schema.text(tt.args.text)))
-      } else if (tt.op === 'deleteRange') {
-        dispatch(state.tr.delete(tt.args.from, tt.args.to))
-      } else if (tt.op === 'insertParagraph') {
-        dispatch(state.tr.insert(tt.args.pos, schema.nodes.paragraph.create(null, schema.text(tt.args.text))))
-      }
-    } catch (_) { /* schema-invalid edits skip */ }
-  }
-
-  for (const op of TRACE) {
-    apply(users[op.user], op)
-  }
-
-  // Stable JSON.stringify so that mark-`attrs` key ordering noise (e.g.
-  // `userIdsByAttr: {em, code}` vs `{code, em}`) doesn't masquerade as a
-  // real divergence. Only structural differences should fail this test.
-  /**
-   * @param {any} v
-   * @return {string}
-   **/
-  const stable = (v) => {
-    if (v === null || typeof v !== 'object') return JSON.stringify(v)
-    if (Array.isArray(v)) return '[' + v.map(stable).join(',') + ']'
-    return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stable(v[k])).join(',') + '}'
-  }
-
-  /** @type {Array<{mode: Mode, idxA: number, idxB: number, jsonA: any, jsonB: any}>} */
-  const divergences = []
-  /** @type {Map<Mode, Array<{idx: number, view: EditorView}>>} */
-  const groups = new Map()
-  users.forEach((u, idx) => {
-    const arr = groups.get(u.mode) || []
-    arr.push({ idx, view: u.view })
-    groups.set(u.mode, arr)
-  })
-  for (const [mode, group] of groups) {
-    if (group.length < 2) continue
-    const jsonA = JSON.parse(JSON.stringify(group[0].view.state.doc.toJSON()))
-    const baseStr = stable(jsonA)
-    for (let i = 1; i < group.length; i++) {
-      const jsonB = JSON.parse(JSON.stringify(group[i].view.state.doc.toJSON()))
-      if (stable(jsonB) !== baseStr) {
-        divergences.push({ mode, idxA: group[0].idx, idxB: group[i].idx, jsonA, jsonB })
-      }
-    }
-  }
-  users.forEach(u => u.view.destroy())
-
-  if (divergences.length > 0) {
-    const d = divergences[0]
-    t.compare(
-      d.jsonB,
-      d.jsonA,
-      `mode=${d.mode} u${d.idxA} vs u${d.idxB} (${divergences.length} divergence(s) total)`
-    )
-  }
+  cohort.seed('lorem ipsum dolor sit amet')
+  for (const op of TRACE) applyTracedOp(cohort, op)
+  assertCohortConsistency(cohort, 'delete spans cross-peer insert')
+  cohort.destroy()
 }
 
 export const testViewSuggestionsDeleteOutOfBounds = () => {
