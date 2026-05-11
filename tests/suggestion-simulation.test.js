@@ -8,14 +8,16 @@
  *
  * We then drive a stream of random ProseMirror operations (insertText, delete,
  * format, split, etc.) generated from `tc.prng`, dispatched against random users.
- * After each op we settle for a few ms to let updates propagate through Yjs,
- * the AttributionManager's prevDoc<->nextDoc bridge, and the sync-plugin's
- * deferred reconciliation pass (`setTimeout(..., 0)` inside sync-plugin.js).
+ *
+ * Everything in y-prosemirror, @y/y, and lib0 is fully synchronous: the moment
+ * `view.dispatch` returns, every cascading observeDeep / AM-change listener /
+ * sync-plugin appendTransaction has finished. So the simulation does not need
+ * to yield to the event loop between ops, and the tests stay synchronous.
  *
  * Invariant under test: at the end of the simulation, all users in the same
  * mode must render the same ProseMirror document. Since we drive operations
- * sequentially with full settling, there is no concurrent-conflict resolution
- * to test. Any divergence is a real-time sync bug.
+ * sequentially, there is no concurrent-conflict resolution to test. Any
+ * divergence is a real-time sync bug.
  *
  * The framework is loosely modeled after Yjs's `applyRandomTests`
  * (testHelper.js): a list of `mods` (operation generators), a per-iteration
@@ -27,7 +29,6 @@ import * as Y from '@y/y'
 import * as ldelta from 'lib0/delta'
 import * as t from 'lib0/testing'
 import * as prng from 'lib0/prng'
-import * as promise from 'lib0/promise'
 import { EditorState } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { schema } from './complexSchema.js'
@@ -126,11 +127,6 @@ class Simulation {
         /** @type {Y.Doc} */ (suggUsers[i + 1].suggestionDoc)
       )
     }
-  }
-
-  /** Allow the sync plugin's setTimeout(0) reconciliation + Y.Doc updates to settle. */
-  async settle (ticks = 4) {
-    for (let i = 0; i < ticks; i++) await promise.wait(1)
   }
 
   /**
@@ -324,63 +320,23 @@ const ALL_OPS = [
 // === Driver & assertions ===
 
 /**
- * Run async code with a temporary `process.on('uncaughtException')` handler
- * installed. The sync-plugin's `setTimeout(0)` reconciliation pass and the
- * AttributionManager's async observer chain can throw long after `view.dispatch`
- * returned, so a try/catch around the dispatching op is not enough to keep the
- * suite alive. We swallow + record those errors so the simulation can continue
- * to its final consistency check (which is what we actually want to assert on).
- *
- * @param {(record: (e: Error) => void) => Promise<void>} fn
- * @returns {Promise<Array<Error>>}
- */
-const withCaughtAsyncErrors = async (fn) => {
-  /** @type {Array<Error>} */
-  const errors = []
-  const record = (/** @type {Error} */ e) => errors.push(e)
-  const handler = (/** @type {Error} */ e) => record(e)
-  // Node-only: in browsers this is a no-op (the in-test errors won't be
-  // catchable, but our test runner is node-based, so we accept that).
-  // @ts-ignore - `process` is not typed without @types/node, but it's available at runtime.
-  const proc = typeof process !== 'undefined' ? process : null
-  if (proc?.on) {
-    proc.on('uncaughtException', handler)
-  }
-  try {
-    await fn(record)
-  } finally {
-    if (proc?.off) {
-      proc.off('uncaughtException', handler)
-    }
-  }
-  return errors
-}
-
-/**
  * @param {Simulation} sim
  * @param {prng.PRNG} gen
  * @param {number} iterations
  * @param {(e: Error, ctx: { user: SimUser, op: typeof ALL_OPS[number], iter: number }) => void} [onError]
  */
-const runSim = async (sim, gen, iterations, onError) => {
+const runSim = (sim, gen, iterations, onError) => {
   for (let i = 0; i < iterations; i++) {
     const user = prng.oneOf(gen, sim.users)
     const op = prng.oneOf(gen, ALL_OPS)
-    // Two layers of protection:
-    //   - try/catch around the synchronous op() catches sync-plugin throws that
-    //     bubble up through the dispatch lifecycle.
-    //   - the outer withCaughtAsyncErrors handler (installed by the caller)
-    //     catches throws that happen later via setTimeout(0) reconciliation or
-    //     async Y.Doc observer cascades.
+    // Catch sync-plugin throws that bubble up through the dispatch lifecycle.
+    // The stack is fully sync; nothing fires later out-of-band.
     try {
       op(user, gen)
     } catch (e) {
       onError?.(/** @type {Error} */ (e), { user, op, iter: i })
     }
-    await sim.settle()
   }
-  // Extra-long final settle - drain any in-flight setTimeout(0) chains.
-  await sim.settle(20)
 }
 
 /**
@@ -398,6 +354,7 @@ const runSim = async (sim, gen, iterations, onError) => {
  * of `doc.toJSON()` output.
  *
  * @param {any} v
+ * @return {string}
  */
 const stableStringify = (v) => {
   if (v === null || typeof v !== 'object') return JSON.stringify(v)
@@ -406,6 +363,10 @@ const stableStringify = (v) => {
   return '{' + keys.map(k => JSON.stringify(k) + ':' + stableStringify(v[k])).join(',') + '}'
 }
 
+/**
+ * @param {Simulation} sim
+ * @param {string} label
+ */
 const assertConsistency = (sim, label = '') => {
   const groups = sim.byMode()
   /** @type {Array<{ mode: string, a: number, b: number, jsonA: any, jsonB: any }>} */
@@ -447,13 +408,12 @@ const STANDARD_COHORT = /** @type {Array<UserMode>} */ ([
  * @param {Simulation} sim
  * @param {string} text
  */
-const seedBase = async (sim, text) => {
+const seedBase = (sim, text) => {
   sim.baseDoc.get(PM_KEY).applyDelta(
     ldelta.create()
       .insert([ldelta.create('paragraph', {}, text)])
       .done()
   )
-  await sim.settle(10)
 }
 
 // === Tests ===
@@ -462,9 +422,9 @@ const seedBase = async (sim, text) => {
  * Sanity check: the framework itself converges with no edits.
  * @param {t.TestCase} _tc
  */
-export const testSimSetupConverges = async (_tc) => {
+export const testSimSetupConverges = (_tc) => {
   const sim = new Simulation(STANDARD_COHORT)
-  await seedBase(sim, 'hello world')
+  seedBase(sim, 'hello world')
   assertConsistency(sim, 'init')
   sim.destroy()
 }
@@ -474,13 +434,12 @@ export const testSimSetupConverges = async (_tc) => {
  * (and view-suggestions) must agree.
  * @param {t.TestCase} _tc
  */
-export const testSimSingleSuggestionEditConverges = async (_tc) => {
+export const testSimSingleSuggestionEditConverges = (_tc) => {
   const sim = new Simulation(STANDARD_COHORT)
-  await seedBase(sim, 'hello world')
+  seedBase(sim, 'hello world')
   const sm = sim.users.find(u => u.mode === 'suggestion-mode')
   if (!sm) throw new Error('no suggestion-mode user')
   sm.view.dispatch(sm.view.state.tr.insertText(' more', 12))
-  await sim.settle(20)
   assertConsistency(sim, 'after one suggestion insert')
   sim.destroy()
 }
@@ -491,15 +450,10 @@ export const testSimSingleSuggestionEditConverges = async (_tc) => {
  * makes lib0/testing run it many times with new seeds, surfacing rare bugs.
  * @param {t.TestCase} tc
  */
-export const testRepeatGeneratingSuggestionEdits = async (tc) => {
+export const testRepeatGeneratingSuggestionEdits = (tc) => {
   const sim = new Simulation(STANDARD_COHORT)
-  await seedBase(sim, 'lorem ipsum dolor sit amet')
-  const asyncErrors = await withCaughtAsyncErrors(async (_record) => {
-    await runSim(sim, tc.prng, 30)
-  })
-  if (asyncErrors.length > 0) {
-    console.log(`[seed=${tc.seed}] swallowed ${asyncErrors.length} async error(s) during sim:`, asyncErrors[0]?.message)
-  }
+  seedBase(sim, 'lorem ipsum dolor sit amet')
+  runSim(sim, tc.prng, 30)
   assertConsistency(sim, `seed=${tc.seed}`)
   sim.destroy()
 }
@@ -509,15 +463,10 @@ export const testRepeatGeneratingSuggestionEdits = async (tc) => {
  * the infinite-repeat harness.
  * @param {t.TestCase} tc
  */
-export const testSimLongRunningFuzz = async (tc) => {
+export const testSimLongRunningFuzz = (tc) => {
   const sim = new Simulation(STANDARD_COHORT)
-  await seedBase(sim, 'lorem ipsum dolor sit amet')
-  const asyncErrors = await withCaughtAsyncErrors(async (_record) => {
-    await runSim(sim, tc.prng, 100)
-  })
-  if (asyncErrors.length > 0) {
-    console.log(`[long seed=${tc.seed}] swallowed ${asyncErrors.length} async error(s) during sim:`, asyncErrors[0]?.message)
-  }
+  seedBase(sim, 'lorem ipsum dolor sit amet')
+  runSim(sim, tc.prng, 100)
   assertConsistency(sim, `long seed=${tc.seed}`)
   sim.destroy()
 }

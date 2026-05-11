@@ -2,7 +2,6 @@ import * as YPM from '@y/prosemirror'
 import * as Y from '@y/y'
 import * as delta from 'lib0/delta'
 import * as t from 'lib0/testing'
-import * as promise from 'lib0/promise'
 import { EditorState } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { schema } from './complexSchema.js'
@@ -54,15 +53,14 @@ const setupTwoWaySync = (doc1, doc2) => {
 }
 
 /**
- * Dispatch a transaction to a ProseMirror view and wait a tick so that any
- * deferred sync-plugin follow-up work (e.g. adjustments scheduled via
- * `setTimeout(..., 0)`) has a chance to run before the test proceeds.
+ * Dispatch a transaction to a ProseMirror view. Kept as a thin sync wrapper
+ * around `view.dispatch` so callers read uniformly; the y-prosemirror stack
+ * is fully synchronous so no event-loop yielding is needed.
  * @param {EditorView} view
  * @param {import('prosemirror-state').Transaction} tr
  */
-const safeDispatch = async (view, tr) => {
+const safeDispatch = (view, tr) => {
   view.dispatch(tr)
-  await promise.wait(1)
 }
 
 /**
@@ -166,7 +164,7 @@ const deletionMark = {
  * Content sync + marks: base doc content flows to suggestion views without marks,
  * suggestion mode edits are isolated from base and show insertion marks in View Suggestions.
  */
-export const testSuggestionSyncAndMarks = async () => {
+export const testSuggestionSyncAndMarks = () => {
   const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({ baseContent: 'hello' })
   const helloDoc = {
     type: 'doc',
@@ -189,7 +187,7 @@ export const testSuggestionSyncAndMarks = async () => {
   )
 
   // Type in Suggestion Mode → isolated from base, marks in View Suggestions
-  await safeDispatch(
+  safeDispatch(
     viewSuggestionMode,
     viewSuggestionMode.state.tr.insertText(' world', 6)
   )
@@ -224,13 +222,13 @@ export const testSuggestionSyncAndMarks = async () => {
  * Sequential typing: both characters should have marks in View Suggestions.
  * Reproduces: "when adding 2 characters in right editor, left editor only shows marks on the second char"
  */
-export const testSequentialTypingMarks = async () => {
+export const testSequentialTypingMarks = () => {
   const { viewSuggestion, viewSuggestionMode } = createSuggestionSetup({
     baseContent: 'hello'
   })
   // Type 'a' then 'b' as separate dispatches (like real typing)
-  await safeDispatch(viewSuggestionMode, viewSuggestionMode.state.tr.insertText('a', 6))
-  await safeDispatch(viewSuggestionMode, viewSuggestionMode.state.tr.insertText('b', 7))
+  safeDispatch(viewSuggestionMode, viewSuggestionMode.state.tr.insertText('a', 6))
+  safeDispatch(viewSuggestionMode, viewSuggestionMode.state.tr.insertText('b', 7))
   const abDoc = {
     type: 'doc',
     content: [
@@ -261,12 +259,12 @@ export const testSequentialTypingMarks = async () => {
  * should show insertion marks on the new block's text content.
  * (Paragraph nodes themselves don't support marks in prosemirror-schema-basic.)
  */
-export const testBlockInsertionMarks = async () => {
+export const testBlockInsertionMarks = () => {
   const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({ baseContent: 'hello' })
   // Insert a new paragraph with text at the end of the document (before trailing empty paragraph)
   const { tr } = viewSuggestionMode.state
   const insertPos = tr.doc.content.size // before the last empty paragraph's close
-  await safeDispatch(
+  safeDispatch(
     viewSuggestionMode,
     tr.insert(
       insertPos,
@@ -316,10 +314,10 @@ export const testBlockInsertionMarks = async () => {
  * Inline image insertion: inserting an image node in suggestion mode
  * should show insertion marks on the image.
  */
-export const testImageInsertionMarks = async () => {
+export const testImageInsertionMarks = () => {
   const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({ baseContent: 'hello' })
   // Insert an image after "hello"
-  await safeDispatch(
+  safeDispatch(
     viewSuggestionMode,
     viewSuggestionMode.state.tr.insert(
       6,
@@ -445,14 +443,14 @@ export const testSchemaImageInParaNodeMark = () => {
   )
 }
 
-export const testDeletionOfSuggestedContent = async () => {
+export const testDeletionOfSuggestedContent = () => {
   const { viewA, viewSuggestion, viewSuggestionMode, suggestionModeDoc, doc, suggestionModeAM } = createSuggestionSetup({ baseContent: 'hello' })
 
-  await t.groupAsync('insert suggestion', async () => {
+  t.group('insert suggestion', () => {
     // Insert a new paragraph with text at the end of the document (before trailing empty paragraph)
     const { tr } = viewSuggestionMode.state
     const insertPos = tr.doc.content.size // before the last empty paragraph's close
-    await safeDispatch(
+    safeDispatch(
       viewSuggestionMode,
       tr.insert(
         insertPos,
@@ -497,11 +495,11 @@ export const testDeletionOfSuggestedContent = async () => {
       'Suggestion Mode: new paragraph node and text have insertion marks'
     )
   })
-  await t.groupAsync('delete suggested content', async () => {
+  t.group('delete suggested content', () => {
     const { tr } = viewSuggestionMode.state
     const deletePos = tr.doc.content.size - 3
     // delete 'c'
-    await safeDispatch(
+    safeDispatch(
       viewSuggestionMode,
       tr.delete(deletePos, deletePos + 1)
     )
@@ -533,9 +531,9 @@ export const testDeletionOfSuggestedContent = async () => {
   console.log({ doc, suggestionModeDoc, suggestionModeAM })
 }
 
-export const testDeleteSuggustion = async () => {
+export const testDeleteSuggustion = () => {
   const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({ baseContent: 'hello' })
-  await t.groupAsync('populate content', async () => {
+  t.group('populate content', () => {
     const tr = viewA.state.tr
     // Replace doc content with blockquote > paragraph
     tr.replaceWith(
@@ -543,13 +541,13 @@ export const testDeleteSuggustion = async () => {
       tr.doc.content.size,
       schema.nodes.paragraph.create(null, schema.text('hello world'))
     )
-    await safeDispatch(viewA, tr)
+    safeDispatch(viewA, tr)
   })
-  await t.groupAsync('suggest delete', async () => {
+  t.group('suggest delete', () => {
     // Insert a new paragraph with text at the end of the document (before trailing empty paragraph)
     const tr = viewSuggestionMode.state.tr
     // delete 'hello'
-    await safeDispatch(viewSuggestionMode, tr.delete(1, 6))
+    safeDispatch(viewSuggestionMode, tr.delete(1, 6))
     const baseDoc = {
       type: 'doc',
       content: [
@@ -586,7 +584,7 @@ export const testDeleteSuggustion = async () => {
  * unchanged, and the suggestion views should show the new paragraph with
  * insertion marks.
  */
-export const testEnterInSuggestionMode = async () => {
+export const testEnterInSuggestionMode = () => {
   const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({
     baseContent: 'hello'
   })
@@ -598,7 +596,7 @@ export const testEnterInSuggestionMode = async () => {
   }
   // Press Enter after "hel" (position 4 = after 'l' in "hel|lo")
   const { tr } = viewSuggestionMode.state
-  await safeDispatch(viewSuggestionMode, tr.split(4))
+  safeDispatch(viewSuggestionMode, tr.split(4))
   // Base doc should stay unchanged
   assertDocJSON(viewA.state.doc, helloDoc, 'Client A unchanged after Enter')
   const expectedSuggestionDoc = {
@@ -635,7 +633,7 @@ export const testEnterInSuggestionMode = async () => {
  * in suggestion mode should merge it with the previous paragraph. The base doc
  * stays unchanged, and the suggestion views should show the merged paragraph.
  */
-export const testBackspaceJoinInSuggestionMode = async () => {
+export const testBackspaceJoinInSuggestionMode = () => {
   const { doc, suggestionDoc, viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup()
   // Set up two paragraphs in the base doc: "hel" and "lo"
   doc.get('prosemirror').applyDelta(
@@ -664,7 +662,7 @@ export const testBackspaceJoinInSuggestionMode = async () => {
   //                0    1  4  5   6 8  9
   // join depth 1 at pos 5 (between </p> and <p>)
   const { tr } = viewSuggestionMode.state
-  await safeDispatch(viewSuggestionMode, tr.join(5))
+  safeDispatch(viewSuggestionMode, tr.join(5))
   // Base doc should stay unchanged
   assertDocJSON(
     viewA.state.doc,
@@ -714,9 +712,9 @@ export const testBackspaceJoinInSuggestionMode = async () => {
   )
 }
 
-export const testReconfigureAfterDeletion = async () => {
+export const testReconfigureAfterDeletion = () => {
   const { viewA, viewSuggestion, viewSuggestionMode, doc } = createSuggestionSetup({ baseContent: 'hello' })
-  await t.groupAsync('populate content', async () => {
+  t.group('populate content', () => {
     const tr = viewA.state.tr
     // Replace doc content with blockquote > paragraph
     tr.replaceWith(
@@ -724,7 +722,7 @@ export const testReconfigureAfterDeletion = async () => {
       tr.doc.content.size,
       schema.nodes.paragraph.create(null, schema.text('hello world'))
     )
-    await safeDispatch(viewA, tr)
+    safeDispatch(viewA, tr)
   })
   const baseDoc = {
     type: 'doc',
@@ -738,11 +736,11 @@ export const testReconfigureAfterDeletion = async () => {
       { type: 'paragraph', content: [{ type: 'text', text: 'he' }, { type: 'text', text: 'llo', marks: [deletionMark] }, { type: 'text', text: ' world' }, { type: 'text', text: '!', marks: [insertionMark] }] }
     ]
   }
-  await t.groupAsync('suggest delete', async () => {
+  t.group('suggest delete', () => {
     // Insert a new paragraph with text at the end of the document (before trailing empty paragraph)
     const tr = viewSuggestionMode.state.tr
     // delete 'hello', append '!'
-    await safeDispatch(viewSuggestionMode, tr.delete(3, 6).insert(9, schema.text('!')))
+    safeDispatch(viewSuggestionMode, tr.delete(3, 6).insert(9, schema.text('!')))
     assertDocJSON(
       viewA.state.doc,
       baseDoc,
@@ -774,9 +772,9 @@ export const testReconfigureAfterDeletion = async () => {
   })
 }
 
-export const testReconfigureAfterDeletion2 = async () => {
+export const testReconfigureAfterDeletion2 = () => {
   const { viewA, viewSuggestionMode, suggestionModeDoc, doc, suggestionModeAM, suggestionDoc, suggestionAM } = createSuggestionSetup({ baseContent: 'hello' })
-  await t.groupAsync('populate content', async () => {
+  t.group('populate content', () => {
     const tr = viewA.state.tr
     // Replace doc content with blockquote > paragraph
     tr.replaceWith(
@@ -784,7 +782,7 @@ export const testReconfigureAfterDeletion2 = async () => {
       tr.doc.content.size,
       schema.nodes.paragraph.create(null, schema.text('abc abc abc'))
     )
-    await safeDispatch(viewA, tr)
+    safeDispatch(viewA, tr)
   })
   const baseDoc = {
     type: 'doc',
@@ -809,9 +807,9 @@ export const testReconfigureAfterDeletion2 = async () => {
       }
     ]
   }
-  await t.groupAsync('suggest delete', async () => {
+  t.group('suggest delete', () => {
     const tr = viewSuggestionMode.state.tr
-    await safeDispatch(viewSuggestionMode, tr.insert(8, schema.text('!')).delete(6, 8).insert(4, schema.text('!')).delete(2, 4))
+    safeDispatch(viewSuggestionMode, tr.insert(8, schema.text('!')).delete(6, 8).insert(4, schema.text('!')).delete(2, 4))
     assertDocJSON(
       viewA.state.doc,
       baseDoc,
@@ -861,7 +859,7 @@ export const testReconfigureAfterDeletion2 = async () => {
  *      both users see "1" + strike("2") + insert("xyz") + strike("34") + "5".
  *   4. The base doc is never modified (we are in suggestion mode the whole time).
  */
-export const testSuggestInsertIntoDeletion = async () => {
+export const testSuggestInsertIntoDeletion = () => {
   // user1 brings the full setup (base doc + suggestion view + suggestion-mode editor).
   const setup1 = createSuggestionSetup({ baseContent: '12345' })
   // user2 has their own suggestion-mode doc that syncs with user1's via two-way sync.
@@ -894,9 +892,8 @@ export const testSuggestInsertIntoDeletion = async () => {
     ]
   }
   // Allow init sync to settle for both users.
-  await promise.wait(1)
 
-  await t.groupAsync('initial sync', async () => {
+  t.group('initial sync', () => {
     assertDocJSON(setup1.viewA.state.doc, initDoc, 'Base doc has 12345')
     assertDocJSON(
       setup1.viewSuggestionMode.state.doc,
@@ -930,15 +927,14 @@ export const testSuggestInsertIntoDeletion = async () => {
     ]
   }
 
-  await t.groupAsync('user1 suggests deleting "234"', async () => {
+  t.group('user1 suggests deleting "234"', () => {
     // <p>12345</p>: pos 1=before "1", 2=between "1"&"2", 3=between "2"&"3",
     // 4=between "3"&"4", 5=between "4"&"5", 6=after "5". delete("234") = (2, 5).
-    await safeDispatch(
+    safeDispatch(
       setup1.viewSuggestionMode,
       setup1.viewSuggestionMode.state.tr.delete(2, 5)
     )
     // Wait for setupTwoWaySync to propagate the update to user2.
-    await promise.wait(1)
 
     assertDocJSON(
       setup1.viewA.state.doc,
@@ -980,15 +976,14 @@ export const testSuggestInsertIntoDeletion = async () => {
     ]
   }
 
-  await t.groupAsync('user1 suggests inserting "xyz" between "2" and "3"', async () => {
+  t.group('user1 suggests inserting "xyz" between "2" and "3"', () => {
     // In the rendered suggestion view ('1'+strike('234')+'5'), pos 3 sits
     // between the deletion-marked "2" and "3".
-    await safeDispatch(
+    safeDispatch(
       setup1.viewSuggestionMode,
       setup1.viewSuggestionMode.state.tr.insertText('xyz', 3)
     )
     // Wait for sync to propagate to user2.
-    await promise.wait(1)
 
     assertDocJSON(
       setup1.viewA.state.doc,
@@ -1057,7 +1052,7 @@ export const testSuggestInsertIntoDeletion = async () => {
  *
  * Found by greedy delta-debug reduction (originally 26 ops -> 1 op).
  */
-export const testTwoViewSuggestionsUsersDivergeOnSplit = async () => {
+export const testTwoViewSuggestionsUsersDivergeOnSplit = () => {
   const baseDoc = new Y.Doc({ gc: false, guid: 'base' })
   const suggDocA = new Y.Doc({ isSuggestionDoc: true, gc: false, guid: 'sugg-a' })
   const suggDocB = new Y.Doc({ isSuggestionDoc: true, gc: false, guid: 'sugg-b' })
@@ -1078,8 +1073,6 @@ export const testTwoViewSuggestionsUsersDivergeOnSplit = async () => {
       .insert([delta.create('paragraph', {}, 'lorem ipsum dolor sit amet')])
       .done()
   )
-  for (let i = 0; i < 10; i++) await promise.wait(1)
-
   // Sanity: both views see the seed.
   const seedDoc = {
     type: 'doc',
@@ -1095,11 +1088,8 @@ export const testTwoViewSuggestionsUsersDivergeOnSplit = async () => {
   // Swallow it - the divergence we care about manifests regardless.
   try {
     // viewB splits the paragraph at position 21 (between 'i' and 't' of "sit").
-    await safeDispatch(viewB, viewB.state.tr.split(21))
+    safeDispatch(viewB, viewB.state.tr.split(21))
   } catch (_) { /* swallow downstream throw */ }
-  for (let i = 0; i < 20; i++) {
-    try { await promise.wait(1) } catch (_) { /* swallow */ }
-  }
 
   // Both view-suggestions users must converge.
   assertDocJSON(
@@ -1123,7 +1113,7 @@ export const testTwoViewSuggestionsUsersDivergeOnSplit = async () => {
  * Found by greedy delta-debug reduction of seed=2941783507 from
  * `testSimLongRunningFuzz` (originally 100 ops -> 4 ops, cohort 6 -> 3).
  */
-export const testTwoViewSuggestionsUsersDivergeOnFormatAcrossInsert = async () => {
+export const testTwoViewSuggestionsUsersDivergeOnFormatAcrossInsert = () => {
   const baseDoc = new Y.Doc({ gc: false, guid: 'base' })
   const suggDocS1 = new Y.Doc({ isSuggestionDoc: true, gc: false, guid: 'sugg-s1' })
   const suggDocS2 = new Y.Doc({ isSuggestionDoc: true, gc: false, guid: 'sugg-s2' })
@@ -1150,30 +1140,24 @@ export const testTwoViewSuggestionsUsersDivergeOnFormatAcrossInsert = async () =
       .insert([delta.create('paragraph', {}, 'lorem ipsum dolor sit amet')])
       .done()
   )
-  for (let i = 0; i < 10; i++) await promise.wait(1)
-
-  // Helpers that swallow any downstream throw from in-flight reconciliation.
-  const dispatch = async (/** @type {EditorView} */ view, /** @type {import('prosemirror-state').Transaction} */ tr) => {
-    try { await safeDispatch(view, tr) } catch (_) { /* swallow */ }
+  // Helper that swallows any throw from dispatch (the test framework reports
+  // throws, but for replay we want to push through and assert the final state).
+  const dispatch = (/** @type {EditorView} */ view, /** @type {import('prosemirror-state').Transaction} */ tr) => {
+    try { safeDispatch(view, tr) } catch (_) { /* swallow */ }
   }
 
   // 1. suggestion-mode user inserts a new top paragraph (suggested insertion).
-  await dispatch(viewM, viewM.state.tr.insert(0, schema.nodes.paragraph.create(null, schema.text('kjqj'))))
+  dispatch(viewM, viewM.state.tr.insert(0, schema.nodes.paragraph.create(null, schema.text('kjqj'))))
   // 2. view-suggestions user S1 inserts plain text inside the second paragraph
   //    (this commits to the base doc since viewS1.suggestionMode = false).
-  await dispatch(viewS1, viewS1.state.tr.insertText('qwlff', 6))
+  dispatch(viewS1, viewS1.state.tr.insertText('qwlff', 6))
   // 3. suggestion-mode user adds `strong` across the boundary - covering its
   //    own suggested "kjqj" plus the start of viewS1's freshly inserted "qw"
   //    in the base paragraph (positions 1..9 in viewM's doc).
-  await dispatch(viewM, viewM.state.tr.addMark(1, 9, schema.marks.strong.create()))
+  dispatch(viewM, viewM.state.tr.addMark(1, 9, schema.marks.strong.create()))
   // 4. viewS1 deletes a range that straddles its own insertion and the
   //    seeded base text.
-  await dispatch(viewS1, viewS1.state.tr.delete(9, 14))
-
-  // Drain in-flight reconciliation passes.
-  for (let i = 0; i < 20; i++) {
-    try { await promise.wait(1) } catch (_) { /* swallow */ }
-  }
+  dispatch(viewS1, viewS1.state.tr.delete(9, 14))
 
   // The two view-suggestions peers must agree.
   assertDocJSON(
@@ -1285,14 +1269,8 @@ export const testCohortReplayConvergesAfterSplitDeleteInterleave = () => {
  * `diff` + `deltaToPSteps` round-trip) failing to drive each peer's PM
  * doc to the canonical AM render.
  *
- * Important: ops are dispatched **fully synchronously**, with no
- * `await promise.wait(1)` between them. Everything in y-prosemirror,
- * `@y/y`, and lib0 is sync; the only async sources are
- * prosemirror-view's DOM-observer / selection-sync setTimeout(20)s
- * driven by jsdom's MutationObserver. Yielding to the event loop
- * between ops lets those timers fire interleaved with the trace and
- * was the entire source of the test's earlier flakiness (~70% / ~30%).
- * With no awaits the divergence reproduces deterministically.
+ * Everything in y-prosemirror, `@y/y`, and lib0 is fully synchronous;
+ * ops are dispatched directly with no event-loop yield between them.
  */
 export const testCohortReplayConvergesAcrossModes = () => {
   /** @typedef {{ user: number, op: string, args: any }} TracedOp */
@@ -1444,19 +1422,12 @@ export const testCohortReplayConvergesAcrossModes = () => {
  * seed=2882758352. The original 30-op fuzz trace was greedily reduced down to
  * these 3 ops; further trims either lose the divergence or move it.
  *
- * Symptom: u2 (view-suggestions) ends up with an extra "amet" text node carrying
- * a `y-attributed-delete` mark that u3 lacks. This is a real structural
- * divergence (not just JSON key-ordering noise). It shows up consistently
- * with awaits between ops; the underlying y-prosemirror reconcile pipeline
- * fails to drive every PM peer to the canonical AM render.
- *
- * Awaits are required: both prosemirror-view's setTimeout(20) DOM-observer
- * pass and any cascading observeDeep / AM-change listeners need to fire
- * before the next op runs against an up-to-date PM state. With purely
- * synchronous dispatch the trace converges (this is the same shape the
- * simulation framework's `runSim` uses).
+ * Originally u2 (view-suggestions) ended up with an extra "amet" text node
+ * carrying a `y-attributed-delete` mark that u3 lacked - the symptom of an
+ * unsorted IdSet mis-marked as sorted in `@y/y`'s `_insertIntoIdSet` (since
+ * fixed upstream). This test stays in the suite as a regression guard.
  */
-export const testCohortReplayConvergesAfterDeleteSpansCrossPeerInsert = async () => {
+export const testCohortReplayConvergesAfterDeleteSpansCrossPeerInsert = () => {
   /** @typedef {{ user: number, op: string, args: any }} TracedOp */
   const TRACE = /** @type {Array<TracedOp>} */ ([
     { user: 0, op: 'insertPlainText', args: { pos: 23, text: 'v' } },
@@ -1504,10 +1475,6 @@ export const testCohortReplayConvergesAfterDeleteSpansCrossPeerInsert = async ()
       .insert([delta.create('paragraph', {}, 'lorem ipsum dolor sit amet')])
       .done()
   )
-  const settle = async (ticks = 4) => {
-    for (let i = 0; i < ticks; i++) await promise.wait(1)
-  }
-  await settle(10)
 
   const apply = (/** @type {{view: EditorView}} */ user, /** @type {TracedOp} */ tt) => {
     const { state } = user.view
@@ -1529,14 +1496,15 @@ export const testCohortReplayConvergesAfterDeleteSpansCrossPeerInsert = async ()
 
   for (const op of TRACE) {
     apply(users[op.user], op)
-    await settle()
   }
-  await settle(20)
 
   // Stable JSON.stringify so that mark-`attrs` key ordering noise (e.g.
   // `userIdsByAttr: {em, code}` vs `{code, em}`) doesn't masquerade as a
   // real divergence. Only structural differences should fail this test.
-  /** @param {any} v */
+  /**
+   * @param {any} v
+   * @return {string}
+   **/
   const stable = (v) => {
     if (v === null || typeof v !== 'object') return JSON.stringify(v)
     if (Array.isArray(v)) return '[' + v.map(stable).join(',') + ']'
@@ -1575,14 +1543,14 @@ export const testCohortReplayConvergesAfterDeleteSpansCrossPeerInsert = async ()
   }
 }
 
-export const testViewSuggestionsDeleteOutOfBounds = async () => {
+export const testViewSuggestionsDeleteOutOfBounds = () => {
   const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({
     baseContent: 'lorem ipsum dolor sit amet'
   })
 
   // <p>lorem ipsum dolor sit amet</p> ; doc.content.size = 28
   // tr.delete(3, 23) removes 20 inline chars: "rem ipsum dolor sit "
-  await safeDispatch(
+  safeDispatch(
     viewSuggestion,
     viewSuggestion.state.tr.delete(3, 23)
   )
