@@ -1,4 +1,32 @@
 import { Schema } from 'prosemirror-model'
+import { userColorForId } from './user-colors.js'
+
+/**
+ * Pick the "primary" user id from a userIds array stored on an attribution mark.
+ * @param {any} userIds
+ * @returns {string | null}
+ */
+const primaryUserId = (userIds) => {
+  if (Array.isArray(userIds) && userIds.length > 0) return String(userIds[0])
+  if (typeof userIds === 'string' || typeof userIds === 'number') return String(userIds)
+  return null
+}
+
+/**
+ * Build the dom attrs that turn the per-user color into a CSS variable the
+ * stylesheet can pick up. The mark's existing tooltip is preserved.
+ * @param {any} mark
+ * @param {string} title
+ */
+const attributionMarkAttrs = (mark, title) => {
+  const uid = primaryUserId(mark.attrs.userIds)
+  if (!uid) return { title }
+  return {
+    title,
+    'data-userid': uid,
+    style: `--user-color: ${userColorForId(uid)}`
+  }
+}
 
 /**
  * @type {import('prosemirror-model').DOMOutputSpec}
@@ -177,7 +205,8 @@ export const marks = {
     excludes: '',
     parseDOM: [{ tag: 'y-ins' }],
     toDOM (mark) {
-      return /** @type {const} */ (['y-ins', { title: formatAttributionTitle('Inserted', mark.attrs.userIds, mark.attrs.timestamp) }, 0])
+      const title = formatAttributionTitle('Inserted', mark.attrs.userIds, mark.attrs.timestamp)
+      return /** @type {const} */ (['y-ins', attributionMarkAttrs(mark, title), 0])
     }
   },
 
@@ -186,7 +215,8 @@ export const marks = {
     excludes: '',
     parseDOM: [{ tag: 'y-del' }],
     toDOM (mark) {
-      return /** @type {const} */ (['y-del', { title: formatAttributionTitle('Deleted', mark.attrs.userIds, mark.attrs.timestamp) }, 0])
+      const title = formatAttributionTitle('Deleted', mark.attrs.userIds, mark.attrs.timestamp)
+      return /** @type {const} */ (['y-del', attributionMarkAttrs(mark, title), 0])
     }
   },
 
@@ -197,7 +227,12 @@ export const marks = {
     toDOM (mark) {
       const byAttr = /** @type {Record<string, string[]>|null} */ (mark.attrs.userIdsByAttr)
       const ids = byAttr ? [...new Set(Object.values(byAttr).flat())] : null
-      return /** @type {const} */ (['y-fmt', { title: formatAttributionTitle('Formatted', ids, mark.attrs.timestamp) }, 0])
+      const title = formatAttributionTitle('Formatted', ids, mark.attrs.timestamp)
+      const uid = primaryUserId(ids)
+      const attrs = uid
+        ? { title, 'data-userid': uid, style: `--user-color: ${userColorForId(uid)}` }
+        : { title }
+      return /** @type {const} */ (['y-fmt', attrs, 0])
     }
   }
 }
