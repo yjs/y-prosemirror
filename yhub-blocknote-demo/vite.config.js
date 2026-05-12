@@ -11,6 +11,11 @@ export default defineConfig({
       'prosemirror-model'
     ]
   },
+  server: {
+    // Allow access via Tailscale Magic-DNS (`*.ts.net`) and the matching
+    // numeric Tailnet hostname. Vite 5+ blocks unknown Host headers by default.
+    allowedHosts: ['.ts.net', 'localhost']
+  },
   build: {
     sourcemap: true
   }

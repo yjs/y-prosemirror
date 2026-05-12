@@ -18,19 +18,38 @@ import { yhub, mapAttributionToMark } from './yhub.js'
 // it, the moment the cursor lands inside a y-attributed-* range BlockNote throws
 // "style y-attributed-insert not found in styleSchema". Same flag BlockNote uses
 // for its own SuggestionAddMark / comment marks.
+/**
+ * Build the `title` tooltip shown on hover over an attribution mark.
+ *
+ * @param {string} action - 'Inserted' | 'Deleted' | 'Formatted'
+ * @param {string[]|null} userIds
+ * @param {number|null} timestamp
+ */
+const formatAttributionTitle = (action, userIds, timestamp) => {
+  const who = userIds && userIds.length > 0 ? userIds.join(', ') : 'unknown'
+  const when = timestamp != null
+    ? new Date(timestamp).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+    : 'unknown time'
+  return `${action} by ${who} on ${when}`
+}
+
+// Suppress per-attribute auto-rendering: we synthesize a single `title`
+// attribute from userIds/timestamp inside the mark's renderHTML below.
+const hiddenAttr = { default: null, rendered: false }
+
 const YAttributedInsert = Mark.create({
   name: 'y-attributed-insert',
   // Putting this mark in the `insertion` group lets BlockNote nodes that
   // already declare `marks: "insertion modification deletion"` accept it.
   group: 'insertion',
   addAttributes () {
-    return {
-      userIds: { default: null },
-      timestamp: { default: null }
-    }
+    return { userIds: hiddenAttr, timestamp: hiddenAttr }
   },
   parseHTML () { return [{ tag: 'y-ins' }] },
-  renderHTML ({ HTMLAttributes }) { return ['y-ins', HTMLAttributes, 0] },
+  renderHTML ({ mark, HTMLAttributes }) {
+    const title = formatAttributionTitle('Inserted', mark.attrs.userIds, mark.attrs.timestamp)
+    return ['y-ins', { ...HTMLAttributes, title }, 0]
+  },
   extendMarkSchema () { return { blocknoteIgnore: true } }
 })
 
@@ -38,13 +57,13 @@ const YAttributedDelete = Mark.create({
   name: 'y-attributed-delete',
   group: 'deletion',
   addAttributes () {
-    return {
-      userIds: { default: null },
-      timestamp: { default: null }
-    }
+    return { userIds: hiddenAttr, timestamp: hiddenAttr }
   },
   parseHTML () { return [{ tag: 'y-del' }] },
-  renderHTML ({ HTMLAttributes }) { return ['y-del', HTMLAttributes, 0] },
+  renderHTML ({ mark, HTMLAttributes }) {
+    const title = formatAttributionTitle('Deleted', mark.attrs.userIds, mark.attrs.timestamp)
+    return ['y-del', { ...HTMLAttributes, title }, 0]
+  },
   extendMarkSchema () { return { blocknoteIgnore: true } }
 })
 
@@ -52,13 +71,15 @@ const YAttributedFormat = Mark.create({
   name: 'y-attributed-format',
   group: 'modification',
   addAttributes () {
-    return {
-      userIdsByAttr: { default: null },
-      timestamp: { default: null }
-    }
+    return { userIdsByAttr: hiddenAttr, timestamp: hiddenAttr }
   },
   parseHTML () { return [{ tag: 'y-fmt' }] },
-  renderHTML ({ HTMLAttributes }) { return ['y-fmt', HTMLAttributes, 0] },
+  renderHTML ({ mark, HTMLAttributes }) {
+    const byAttr = /** @type {Record<string, string[]>|null} */ (mark.attrs.userIdsByAttr)
+    const ids = byAttr ? [...new Set(Object.values(byAttr).flat())] : null
+    const title = formatAttributionTitle('Formatted', ids, mark.attrs.timestamp)
+    return ['y-fmt', { ...HTMLAttributes, title }, 0]
+  },
   extendMarkSchema () { return { blocknoteIgnore: true } }
 })
 

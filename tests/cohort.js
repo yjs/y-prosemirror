@@ -68,7 +68,7 @@ const PM_KEY = 'prosemirror'
  * @param {Y.AbstractAttributionManager} [attributionManager]
  * @param {Object} [opts]
  * @param {import('prosemirror-model').Schema} [opts.schema]
- * @param {Function} [opts.mapAttributionToMark]
+ * @param {typeof YPM.defaultMapAttributionToMark} [opts.mapAttributionToMark]
  * @returns {EditorView}
  */
 export const createPMView = (ytype, attributionManager = Y.noAttributionsManager, opts = {}) => {
@@ -136,7 +136,7 @@ export class Cohort {
    * @param {Array<UserMode>} modes
    * @param {Object} [opts]
    * @param {import('prosemirror-model').Schema} [opts.schema]
-   * @param {Function} [opts.mapAttributionToMark]
+   * @param {typeof YPM.defaultMapAttributionToMark} [opts.mapAttributionToMark]
    */
   constructor (modes, opts = {}) {
     this.opts = opts
@@ -229,10 +229,15 @@ export class Cohort {
 }
 
 /**
+ * Args shape varies by op kind; downstream code reads only the fields the
+ * matching switch case needs and the whole dispatcher is wrapped in a
+ * try/catch that swallows schema-invalid edits, so we widen `args` to a
+ * loose record. Each `case` documents which keys it consumes.
+ *
  * @typedef {Object} TracedOp
  * @property {number} user — index into `cohort.users`
  * @property {('insertText'|'insertPlainText'|'deleteRange'|'addMark'|'removeMark'|'splitBlock'|'insertParagraph')} op
- * @property {Object} args
+ * @property {Record<string, any>} args
  */
 
 /**

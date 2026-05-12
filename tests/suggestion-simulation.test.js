@@ -74,7 +74,7 @@ const MARK_NAMES = ['em', 'strong', 'code']
 // support the op (empty doc, etc.) - the simulation tolerates skipped
 // iterations.
 
-/** @typedef {import('./cohort.js').Cohort} Cohort */
+// `Cohort` is already imported above as a value; TS uses the class as a type.
 /** @typedef {import('./cohort.js').CohortUser} CohortUser */
 
 /**
