@@ -176,8 +176,8 @@ export const marks = {
     attrs: { userIds: { default: null }, timestamp: { default: null } },
     excludes: '',
     parseDOM: [{ tag: 'y-ins' }],
-    toDOM () {
-      return /** @type {const} */ (['y-ins', 0])
+    toDOM (mark) {
+      return /** @type {const} */ (['y-ins', { title: formatAttributionTitle('Inserted', mark.attrs.userIds, mark.attrs.timestamp) }, 0])
     }
   },
 
@@ -185,8 +185,8 @@ export const marks = {
     attrs: { userIds: { default: null }, timestamp: { default: null } },
     excludes: '',
     parseDOM: [{ tag: 'y-del' }],
-    toDOM () {
-      return /** @type {const} */ (['y-del', 0])
+    toDOM (mark) {
+      return /** @type {const} */ (['y-del', { title: formatAttributionTitle('Deleted', mark.attrs.userIds, mark.attrs.timestamp) }, 0])
     }
   },
 
@@ -194,10 +194,28 @@ export const marks = {
     attrs: { userIdsByAttr: { default: null }, timestamp: { default: null } },
     excludes: '',
     parseDOM: [{ tag: 'y-fmt' }],
-    toDOM () {
-      return /** @type {const} */ (['y-fmt', 0])
+    toDOM (mark) {
+      const byAttr = /** @type {Record<string, string[]>|null} */ (mark.attrs.userIdsByAttr)
+      const ids = byAttr ? [...new Set(Object.values(byAttr).flat())] : null
+      return /** @type {const} */ (['y-fmt', { title: formatAttributionTitle('Formatted', ids, mark.attrs.timestamp) }, 0])
     }
   }
+}
+
+/**
+ * Build the `title` tooltip string shown on hover over an attribution mark.
+ *
+ * @param {string} action - 'Inserted' | 'Deleted' | 'Formatted'
+ * @param {string[]|null} userIds
+ * @param {number|null} timestamp
+ * @returns {string}
+ */
+function formatAttributionTitle (action, userIds, timestamp) {
+  const who = userIds && userIds.length > 0 ? userIds.join(', ') : 'unknown'
+  const when = timestamp != null
+    ? new Date(timestamp).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+    : 'unknown time'
+  return `${action} by ${who} on ${when}`
 }
 
 export const schema = new Schema({ nodes, marks })

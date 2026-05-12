@@ -193,7 +193,7 @@ const initLiveEditor = () => {
  */
 const initVersionDiffEditor = (prev, next, attributions) => {
   isViewingVersion = true
-  const diffAM = Y.createAttributionManagerFromDiff(prev, next /* { attrs: attributions } */)
+  const diffAM = Y.createAttributionManagerFromDiff(prev, next, { attrs: attributions })
   const versionFragment = next.get('prosemirror')
   configureYProsemirror({
     ytype: versionFragment,
