@@ -1224,6 +1224,45 @@ export const testCohortReplayConvergesAcrossModes = () => {
 
 /**
  * Cohort-replay regression test reduced from `testRepeatGeneratingSuggestionEdits`
+ * seed=2618968838. The original 30-op fuzz trace was greedily reduced down to
+ * these 6 ops; further trims either lose the divergence or move it.
+ *
+ * The bug: when a peer (u1, no-suggestions, op 5) inserts content into a
+ * paragraph that another peer has previously suggestion-deleted (u4,
+ * suggestion-mode, op 4), the new items are integrated into the deleted-
+ * tombstoned parent in the suggestion docs. `@y/y`'s transaction logic then
+ * skips `_callObserver` for the deleted parent (Transaction.js:233), so
+ * `changedParentTypes` never propagates up to the root - the y-prosemirror
+ * sync-plugin's root deep observer (its primary reconcile hook) never fires
+ * for that suggDoc, and the PM peers go stale.
+ *
+ * Fix is in `@y/y` itself: stop performing changes on items whose parent
+ * is deleted. Once that lands upstream, this test passes without any
+ * change in y-prosemirror.
+ */
+export const testCohortReplayConvergesAfterInsertIntoSuggestionDeletedParagraph = () => {
+  /** @type {Array<import('./cohort.js').TracedOp>} */
+  const TRACE = [
+    { user: 5, op: 'insertPlainText', args: { pos: 11, text: 'wd' } },
+    { user: 3, op: 'insertParagraph', args: { pos: 17, text: 'fu' } },
+    { user: 4, op: 'insertParagraph', args: { pos: 0, text: 'nc' } },
+    { user: 4, op: 'deleteRange', args: { from: 4, to: 38 } },
+    { user: 1, op: 'insertPlainText', args: { pos: 17, text: 'tjmc' } },
+    { user: 4, op: 'insertText', args: { pos: 9, text: 'vmp' } }
+  ]
+  const cohort = new Cohort([
+    'no-suggestions', 'no-suggestions',
+    'view-suggestions', 'view-suggestions',
+    'suggestion-mode', 'suggestion-mode'
+  ])
+  cohort.seed('lorem ipsum dolor sit amet')
+  for (const op of TRACE) applyTracedOp(cohort, op)
+  assertCohortConsistency(cohort, 'insert into suggestion-deleted paragraph')
+  cohort.destroy()
+}
+
+/**
+ * Cohort-replay regression test reduced from `testRepeatGeneratingSuggestionEdits`
  * seed=2882758352. The original 30-op fuzz trace was greedily reduced down to
  * these 3 ops; further trims either lose the divergence or move it.
  *

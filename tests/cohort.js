@@ -141,12 +141,11 @@ export class Cohort {
   constructor (modes, opts = {}) {
     this.opts = opts
     this.baseDoc = new Y.Doc({ gc: false, guid: 'base' })
-    // Deterministic clientIDs so traces (which encode `{client, clock}` Y item
-    // identifiers) reproduce across runs. Y.Doc normally assigns a random
-    // clientID per process, which makes CRDT ordering and fuzz-failure
-    // reductions non-reproducible. We give baseDoc clientID 0 and every
-    // suggestion doc the matching user's `idx + 1` - all unique, and trivially
-    // mapped back to the user that produced the items.
+    // Deterministic clientIDs so CRDT ordering and any captured Y item
+    // identifiers (`{client, clock}`) reproduce across runs. Y.Doc normally
+    // assigns a random clientID per process. We give baseDoc clientID 0 and
+    // every suggestion doc the matching user's `idx + 1` - all unique, and
+    // trivially mapped back to the user that produced the items.
     this.baseDoc.clientID = 0
     this.attrs = new Y.Attributions()
     /** @type {Array<CohortUser>} */
