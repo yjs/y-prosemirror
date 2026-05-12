@@ -179,7 +179,20 @@ export function syncPlugin (opts = {}) {
       function subscribeToYType ({ view, ytype, attributionManager, attributionMapper }) {
         unsubscribeFn?.()
         if (ytype != null) {
-          const yTypeCb = ytype.observeDeep((_change, tr) => {
+          // Listen on the doc's `afterTransaction` event rather than
+          // `ytype.observeDeep`. `observeDeep` skips firing for any
+          // changes whose path runs through a *deleted* parent type
+          // (Y.js `Transaction._callObserver` short-circuits when
+          // `parent._item.deleted`). That happens in suggestion-mode
+          // when one peer suggestion-deletes a paragraph and another
+          // peer then inserts into it - the integrate path leaves the
+          // root deep observer silent, so the PM view never reconciles
+          // and goes stale (see `testCohortReplayConvergesAfterInsert
+          // IntoSuggestionDeletedParagraph`). `afterTransaction` fires
+          // unconditionally, so the reconcile pass always runs.
+          /** @type {Y.Doc} */
+          const ydoc = /** @type {Y.Doc} */ (ytype.doc)
+          const onAfterTransaction = (/** @type {any} */ tr) => {
             if (!view || view.isDestroyed) {
               return unsubscribeFn?.()
             }
@@ -213,7 +226,8 @@ export function syncPlugin (opts = {}) {
               ytype
             }))
             view.dispatch(ptr)
-          })
+          }
+          ydoc.on('afterTransaction', onAfterTransaction)
           const onAttrsChanged = attributionManager?.on('change', (_changes) => {
             if (!view || view.isDestroyed) {
               return unsubscribeFn?.()
@@ -243,7 +257,7 @@ export function syncPlugin (opts = {}) {
             view.dispatch(ptr)
           })
           unsubscribeFn = () => {
-            ytype.unobserveDeep(yTypeCb)
+            ydoc.off('afterTransaction', onAfterTransaction)
             onAttrsChanged && attributionManager?.off('change', onAttrsChanged)
             unsubscribeFn = null
           }
