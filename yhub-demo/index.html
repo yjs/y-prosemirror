@@ -99,11 +99,13 @@
 
       #editor .ProseMirror {
         min-height: 100%;
-        padding: 16px;
+        padding: 16px 16px 16px 56px;  /* extra left padding reserves space for avatar gutter */
         outline: none;
+        white-space: pre-wrap;  /* required by prosemirror-view, suppresses console warning */
       }
 
-      #editor .ProseMirror p { margin-bottom: 0.5em; }
+      /* Pin line-height so the gutter-avatar vertical offset stays predictable. */
+      #editor .ProseMirror p { margin-bottom: 0.5em; line-height: 1.5; }
 
       /* Remote cursor */
       .ProseMirror-yjs-cursor {
@@ -139,22 +141,129 @@
         opacity: 0.3;
       }
 
-      /* Attribution marks styling */
+      /* ── Attribution marks ────────────────────────────────────────────────
+         Per-user color is set via --user-color in schema.js#toDOM. */
       y-ins {
-        background-color: #bbf7d0;
+        background-color: color-mix(in srgb, var(--user-color, #6c5ce7) 22%, transparent);
       }
-
       y-del {
-        color: #9ca3af;
+        color: color-mix(in srgb, var(--user-color, #6c5ce7) 75%, #4a4a4a);
         text-decoration: line-through;
-        background-color: #fee2e2;
+        text-decoration-color: var(--user-color, #6c5ce7);
+        text-decoration-thickness: 1.5px;
       }
-
       y-fmt {
         text-decoration: underline;
         text-decoration-style: wavy;
-        text-decoration-color: #7ce24d;
+        text-decoration-color: var(--user-color, #7ce24d);
       }
+
+      /* PM allows attribution marks on doc-level too, so a wholly-inserted
+         <p> ends up wrapped in a sibling-level <y-ins>. That wrapper must not
+         paint, otherwise the inline mark inside paints a second time on top.
+         display:contents dissolves the wrapper from layout entirely. */
+      y-ins:has(> p, > h1, > h2, > h3, > h4, > h5, > h6, > blockquote, > pre, > ul, > ol, > div),
+      y-del:has(> p, > h1, > h2, > h3, > h4, > h5, > h6, > blockquote, > pre, > ul, > ol, > div) {
+        background: transparent;
+        color: inherit;
+        text-decoration: none;
+        display: contents;
+      }
+      /* Genuine inline-in-inline nesting (one user writes inside another user's
+         insertion) gets a deeper tint + dashed outline. The :not(:has) guard
+         keeps the block-wrapper case from counting as "nesting". */
+      y-ins:not(:has(> p, > h1, > h2, > h3, > h4, > h5, > h6, > blockquote, > pre, > ul, > ol, > div)) y-ins:not(:has(> p, > h1, > h2, > h3, > h4, > h5, > h6, > blockquote, > pre, > ul, > ol, > div)) {
+        background-color: color-mix(in srgb, var(--user-color, #6c5ce7) 40%, transparent);
+        outline: 1px dashed color-mix(in srgb, var(--user-color, #6c5ce7) 60%, transparent);
+        outline-offset: -1px;
+      }
+
+      /* ── Block-level attribution decorations (added by the gutter plugin) ─
+         All edited blocks (plain / inserted / deleted) share the same
+         negative-margin layout shift. That way the padding-box of every
+         edited block sits at the same x, and the gutter avatar lands at the
+         same absolute x regardless of the block's sub-state. The 14 px-wide
+         negative-margin / padding pair is the "bar gutter": insert/delete
+         decorations paint into that 14 px strip via background-image. */
+      #editor .ProseMirror .y-block-edited {
+        position: relative;
+        margin-left: -14px;
+        padding-left: 14px;
+      }
+      #editor .ProseMirror .y-block-edited::before {
+        content: attr(data-initials);
+        position: absolute;
+        /* Sit just outside the text column with a small gap, vertically
+           centered on the FIRST LINE of the paragraph (line-height 1.5 → 24px;
+           avatar 22px → (24-22)/2 = 1px from line top, which is at em-top). */
+        left: -32px;
+        top: 1px;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: var(--block-user-color, #6c5ce7);
+        color: white;
+        font-size: 9px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 1;
+        user-select: none;
+      }
+      /* Second avatar for when a block has been touched by two distinct users. */
+      #editor .ProseMirror .y-block-edited[data-initials-2]::after {
+        content: attr(data-initials-2);
+        position: absolute;
+        left: -18px;
+        top: 1px;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: var(--block-user-color-2, #6c5ce7);
+        color: white;
+        font-size: 9px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 1;
+        border: 2px solid white;
+        user-select: none;
+      }
+      /* When attribution carries no real user identity ("··" placeholder), the
+         avatar is meaningless noise — hide it. The block-inserted left bar still
+         communicates the edit. */
+      #editor .ProseMirror .y-block-edited[data-initials="··"]::before,
+      #editor .ProseMirror .y-block-edited[data-initials="··"]::after { display: none; }
+
+      /* Wholly-inserted blocks: a solid 3 px-wide user-colored bar painted
+         into the 14 px gutter via background-image (NOT border-left, which
+         would consume layout space and shift the avatar relative to plain
+         edited blocks). */
+      #editor .ProseMirror .y-block-inserted {
+        background-image: linear-gradient(var(--block-user-color, #6c5ce7), var(--block-user-color, #6c5ce7));
+        background-repeat: no-repeat;
+        background-position: 0 0;
+        background-size: 3px 100%;
+      }
+      /* Wholly-deleted blocks: zig-zag RED left bar (NOT user-colored) plus a
+         faint red wash. Both are background layers so they don't affect the
+         block's outer dimensions — the gutter avatar stays aligned. The
+         zig-zag tiles seamlessly because both endpoints of the SVG path sit
+         at x=0. */
+      #editor .ProseMirror .y-block-deleted {
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='4' height='8' viewBox='0 0 4 8'><path d='M0 0 L4 2 L0 4 L4 6 L0 8' stroke='%23dc2626' fill='none' stroke-width='1.3' stroke-linejoin='miter' stroke-linecap='round'/></svg>");
+        background-repeat: repeat-y;
+        background-position: 0 0;
+        background-size: 4px 8px;
+        background-color: rgba(220, 38, 38, 0.07);
+      }
+      /* When a block is both inserted and deleted (edge case), the deleted
+         zig-zag wins — its background-image overrides the inserted gradient
+         simply by selector ordering. */
 
       /* Right column */
       .right-column {
@@ -178,52 +287,164 @@
       }
 
       .panel-header {
-        padding: 12px 16px;
-        font-size: 14px;
+        padding: 14px 16px;
+        font-size: 15px;
         font-weight: 600;
         border-bottom: 1px solid #e5e7eb;
-        background: #f9fafb;
         flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
       }
+      .panel-header .panel-title { flex: 1; }
+
+      /* The Rollback / Close buttons get re-parented into .comparing-bar by
+         renderComparingBar — they're hidden until that happens. */
+      #rollback-btn, #close-version-btn {
+        background: white;
+        border: 1px solid #c7d2fe;
+        cursor: pointer;
+        padding: 3px 8px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 500;
+        color: #4f46e5;
+      }
+      #close-version-btn:hover { background: #f5f3ff; }
+      #rollback-btn {
+        color: #dc2626;
+        border-color: #fecaca;
+      }
+      #rollback-btn:hover { background: #fef2f2; }
 
       #activity-list {
         overflow-y: auto;
         flex: 1;
         user-select: none;
+        padding: 8px;
+      }
+
+      /* "Compare" header — two rows in the active state:
+              ↔️ Compare                 [Rollback] [✕]
+              [from ▾] to [to ▾]
+         Always present at top of the list so items below never shift. */
+      .comparing-bar {
+        padding: 10px 12px;
+        margin: 4px;
+        font-size: 12px;
+        line-height: 1.4;
+        color: #1e1b4b;
+        background: #eef2ff;
+        border-radius: 8px;
+        /* Pin the active-state height so the bar is the same size whether
+           empty or filled — items below never shift. */
+        min-height: 72px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 6px;
+      }
+      .comparing-bar.empty {
+        color: #6b7280;
+        background: #f5f3ff;
+        border: 1px dashed #c7d2fe;
+        font-style: italic;
+        flex-direction: row;
+        align-items: center;
+      }
+      .comparing-bar .cmp-icon { margin-right: 4px; font-style: normal; }
+
+      .cmp-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;  /* allow children to shrink past their content width */
+      }
+      .cmp-row-top { justify-content: space-between; }
+      .cmp-label { font-weight: 600; color: #4f46e5; }
+      .cmp-actions { display: flex; gap: 6px; flex-shrink: 0; }
+      .cmp-to-label { color: #4f46e5; font-weight: 500; flex-shrink: 0; }
+      .cmp-row-bottom { flex-wrap: nowrap; }
+      .cmp-dropdown {
+        position: relative;
+        display: inline-block;
+        padding: 2px 6px;
+        background: white;
+        border: 1px solid #c7d2fe;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 600;
+        color: #4f46e5;
+        font-size: 12px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        flex: 1 1 0;
+        min-width: 0;
+      }
+      .cmp-dropdown:hover { background: #f5f3ff; }
+      .cmp-dropdown-caret { opacity: 0.7; font-weight: normal; }
+
+      /* Dropdown popup menu of activity items. */
+      .pick-menu {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        background: white;
+        color: #111827;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+        min-width: 220px;
+        max-height: 280px;
+        overflow-y: auto;
+        z-index: 20;
+        display: none;
+        font-weight: normal;
+      }
+      .cmp-dropdown.open .pick-menu { display: block; }
+      .pick-option {
+        padding: 8px 12px;
+        cursor: pointer;
+        font-size: 12px;
+        line-height: 1.4;
+        border-bottom: 1px solid #f3f4f6;
+      }
+      .pick-option:last-child { border-bottom: none; }
+      .pick-option:hover { background: #f9fafb; }
+      .pick-date { color: #6b7280; font-weight: 500; margin-bottom: 1px; }
+      .pick-option.disabled { opacity: 0.4; cursor: not-allowed; }
+      .pick-option.disabled:hover { background: white; }
+
+      .activity-section-divider {
+        height: 1px;
+        margin: 8px 12px;
+        background: #e5e7eb;
       }
 
       .activity-item {
-        padding: 8px 16px;
+        padding: 10px 12px;
         font-size: 12px;
-        border-bottom: 1px solid #f3f4f6;
         cursor: pointer;
+        border-radius: 6px;
+        line-height: 1.4;
       }
+      .activity-item:hover { background: #f9fafb; }
+      .activity-time { color: #6b7280; font-weight: 500; margin-bottom: 2px; }
+      .activity-users { color: #111827; font-size: 12px; }
 
-      .activity-item:last-child { border-bottom: none; }
-      .activity-item:nth-child(odd) { background: #f9fafb; }
-
-      .activity-meta {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 2px;
+      /* Every item in the half-open [from, to) selection gets the same blue
+         highlight — the user reads the range as one contiguous block. */
+      .activity-item.selected {
+        background: #4f46e5;
+        color: white;
       }
-
-      .activity-user { font-weight: 500; color: #111827; }
-      .activity-time { color: #9ca3af; font-size: 11px; }
-
-      .activity-delta {
-        font-size: 11px;
-        color: #6b7280;
-        font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-        white-space: pre-wrap;
-        word-break: break-all;
-        max-height: 60px;
-        overflow: hidden;
-      }
-
-      .delta-insert { color: #16a34a; font-weight: 600; }
-      .delta-delete { color: #dc2626; font-weight: 600; }
+      .activity-item.selected:hover { background: #4338ca; }
+      .activity-item.selected .activity-time,
+      .activity-item.selected .activity-users { color: #e0e7ff; }
+      /* During drag-select don't show text-selection highlights, they fight
+         with our background highlight and feel sticky. */
+      #activity-list { user-select: none; }
 
       .activity-prompt {
         font-size: 11px;
@@ -234,21 +455,11 @@
         overflow: hidden;
         text-overflow: ellipsis;
       }
-
       .activity-rollback {
         font-size: 11px;
         color: #dc2626;
         font-weight: 500;
         margin-top: 2px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      .activity-item.selected {
-        background: #eff6ff !important;
-        border-left: 3px solid #4f46e5;
-        padding-left: 13px;
       }
 
       .activity-empty {
@@ -257,21 +468,6 @@
         color: #9ca3af;
         font-size: 13px;
       }
-
-      #rollback-btn {
-        display: none;
-        padding: 4px 12px;
-        font-size: 12px;
-        font-weight: 500;
-        background: #dc2626;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        margin-left: auto;
-      }
-
-      #rollback-btn:hover { background: #b91c1c; }
 
 
       /* ProseMirror menu bar styling */
@@ -347,13 +543,17 @@
       </div>
       <div class="right-column">
         <div id="activity-panel">
-          <div class="panel-header" style="display:flex;align-items:center;">
-            <span>Activity</span>
-            <button id="rollback-btn">Rollback</button>
+          <div class="panel-header">
+            <span class="panel-title">Activity</span>
           </div>
           <div id="activity-list">
             <div class="activity-empty">No activity yet</div>
           </div>
+          <!-- The Rollback and Close buttons live inside the Comparing bar
+               once it becomes active; they start detached from the panel
+               header and are re-parented by renderComparingBar. -->
+          <button id="rollback-btn" title="Roll back selected range" style="display:none">↩️ Rollback</button>
+          <button id="close-version-btn" title="Exit version view" style="display:none">✕</button>
         </div>
       </div>
     </div>
