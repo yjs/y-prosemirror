@@ -7,6 +7,7 @@ import jsdom from 'jsdom'
 import * as delta from './delta.test.js'
 import * as positions from './positions.test.js'
 import * as suggestions from './suggestions.test.js'
+import * as suggestionSimulation from './suggestion-simulation.test.js'
 import * as undo from './undo.test.js'
 // import * as tr from './tr.test.js'
 
@@ -53,6 +54,7 @@ runTests({
   delta,
   positions,
   suggestions,
+  suggestionSimulation,
   undo
   // prosemirror,
   // tr

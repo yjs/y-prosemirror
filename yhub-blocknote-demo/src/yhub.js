@@ -215,12 +215,15 @@ const initLiveEditor = () => {
 /**
  * @param {Y.Doc} prev
  * @param {Y.Doc} next
- * @param {Y.ContentMap} _attributions
+ * @param {Y.ContentMap} attributions
  */
-const initVersionDiffEditor = (prev, next, _attributions) => {
+const initVersionDiffEditor = (prev, next, attributions) => {
   if (!currentView) return
   isViewingVersion = true
-  const diffAM = Y.createAttributionManagerFromDiff(prev, next)
+  // Pass the contentmap so the diff AM knows who/when authored each change.
+  // Without `attrs`, the AM only produces "what changed" (empty userIds, null
+  // timestamp), and downstream mark tooltips show "unknown / unknown time".
+  const diffAM = Y.createAttributionManagerFromDiff(prev, next, { attrs: attributions })
   const versionFragment = next.get('blocknote')
   configureYProsemirror({
     ytype: versionFragment,

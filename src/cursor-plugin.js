@@ -241,16 +241,31 @@ export const yCursorPlugin = (
         const cursor = current[cursorStateField]
         if (view.hasFocus() && ystate?.ytype) {
           const selection = getSelection(view.state)
-          const anchor = absolutePositionToRelativePosition(
-            selection.$anchor,
-            ystate.ytype,
-            ystate.attributionManager
-          )
-          const head = absolutePositionToRelativePosition(
-            selection.$head,
-            ystate.ytype,
-            ystate.attributionManager
-          )
+          // Belt-and-braces around the PM->Y position encoding. positions.js
+          // already falls back to a doc-root relative position on traversal
+          // failure, but anything else throwing here (DOM-change-time selection
+          // resolution, AM internals) would bubble up through dispatch and
+          // tear the editor down on every keystroke - just skip the awareness
+          // update in that case.
+          /** @type {Y.RelativePosition} */
+          let anchor
+          /** @type {Y.RelativePosition} */
+          let head
+          try {
+            anchor = absolutePositionToRelativePosition(
+              selection.$anchor,
+              ystate.ytype,
+              ystate.attributionManager
+            )
+            head = absolutePositionToRelativePosition(
+              selection.$head,
+              ystate.ytype,
+              ystate.attributionManager
+            )
+          } catch (err) {
+            console.warn('y-prosemirror cursor-plugin: failed to encode selection, skipping awareness update', err)
+            return
+          }
           if (
             cursor == null ||
             !Y.compareRelativePositions(
