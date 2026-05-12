@@ -2,11 +2,12 @@ import * as t from 'lib0/testing'
 import * as YPM from '@y/prosemirror'
 import * as basicSchema from 'prosemirror-schema-basic'
 import * as Y from '@y/y'
-import { EditorState } from 'prosemirror-state'
+import { EditorState, Plugin } from 'prosemirror-state'
 import { Fragment, Schema, Slice } from 'prosemirror-model'
 import * as delta from 'lib0/delta'
 import { findWrapping, ReplaceAroundStep } from 'prosemirror-transform'
 import { EditorView } from 'prosemirror-view'
+import { setupTwoWaySync } from './cohort.js'
 
 const schema = new Schema({
   nodes: basicSchema.nodes,
@@ -15,13 +16,14 @@ const schema = new Schema({
 
 /**
  * @param {Y.Type} ytype
- * @param {Y.AbstractAttributionManager} attributionManager
+ * @param {Y.AbstractAttributionManager} [attributionManager]
+ * @param {Array<Plugin>} [extraPlugins]
  */
-const createProsemirrorView = (ytype, attributionManager = Y.noAttributionsManager) => {
+const createProsemirrorView = (ytype, attributionManager = Y.noAttributionsManager, extraPlugins = []) => {
   const view = new EditorView({ mount: document.createElement('div') }, {
     state: EditorState.create({
       schema,
-      plugins: [YPM.syncPlugin()]
+      plugins: [YPM.syncPlugin(), ...extraPlugins]
     })
   })
   YPM.configureYProsemirror({ ytype, attributionManager })(view.state, view.dispatch)
@@ -56,25 +58,20 @@ const validate = pm => {
 /**
  * @param {Array<(opts:YPMTestConf)=>(delta.DeltaAny|import('prosemirror-state').Transaction|null)>} changes
  * @param {delta.Delta} [initialDelta]
+ * @param {Array<Plugin>} [extraPlugins]
  */
 const testHelper = (changes,
   // never change this structure!
   // <heading>[1]Hello World![13]</heading>[14]<paragraph>[15]Lorem [21]ipsum..[28]</paragraph>[29]
-  initialDelta = (delta.create().insert([delta.create('heading', { level: 1 }, 'Hello World!'), delta.create('paragraph', {}, 'Lorem ipsum..')]).done())) => {
-  // sync two ydocs
+  initialDelta = (delta.create().insert([delta.create('heading', { level: 1 }, 'Hello World!'), delta.create('paragraph', {}, 'Lorem ipsum..')]).done()),
+  extraPlugins = []) => {
   const ydoc = new Y.Doc()
   const ydoc2 = new Y.Doc()
-  ydoc.on('update', update => {
-    Y.applyUpdate(ydoc2, update)
-  })
-  ydoc2.on('update', update => {
-    Y.applyUpdate(ydoc, update)
-  })
   const ytype = ydoc.get('prosemirror')
-
   ytype.applyDelta(initialDelta)
-  const view = createProsemirrorView(ytype)
-  const view2 = createProsemirrorView(ydoc2.get('prosemirror'))
+  setupTwoWaySync(ydoc, ydoc2)
+  const view = createProsemirrorView(ytype, undefined, extraPlugins)
+  const view2 = createProsemirrorView(ydoc2.get('prosemirror'), undefined, extraPlugins)
 
   for (const change of changes) {
     const ytype = YPM.ySyncPluginKey.getState(view.state)?.ytype || null
@@ -197,4 +194,53 @@ export const testFilledBlockquoteInsert = () => {
   testHelper([
     ({ tr }) => tr.insertText('Hello', 2)
   ], delta.create().insert([delta.create('blockquote', {})]).done())
+}
+
+// Test: appendTransaction that adds marks syncs to second client
+export const testAppendTransactionMarkSync = () => {
+  // appendTransaction that bolds any text containing "BOLD"
+  const autoBoldPlugin = new Plugin({
+    appendTransaction (_trs, _oldState, newState) {
+      const { tr } = newState
+      let modified = false
+      newState.doc.descendants((node, pos) => {
+        if (!node.isText || node.text == null) return
+        const idx = node.text.indexOf('BOLD')
+        if (idx === -1) return
+        const from = pos + idx
+        const to = from + 4
+        const strong = newState.schema.marks.strong.create()
+        if (!strong.isInSet(newState.doc.resolve(from + 1).marks())) {
+          tr.addMark(from, to, strong)
+          modified = true
+        }
+      })
+      return modified ? tr : null
+    }
+  })
+  testHelper([
+    ({ tr }) => tr.insertText('say BOLD stuff', 1, 1)
+  ], delta.create().insert([delta.create('paragraph', {}, '')]).done(), [autoBoldPlugin])
+}
+
+// Test: ephemeral state.apply() should not permanently mutate the Y.Doc
+export const testEphemeralStateDoesNotAffectSync = () => {
+  const ydoc1 = new Y.Doc()
+  const ydoc2 = new Y.Doc()
+  ydoc1.get('prosemirror').applyDelta(
+    delta.create().insert([delta.create('paragraph', {}, '')]).done()
+  )
+  setupTwoWaySync(ydoc1, ydoc2)
+  const view1 = createProsemirrorView(ydoc1.get('prosemirror'))
+  const view2 = createProsemirrorView(ydoc2.get('prosemirror'))
+
+  // Simulate input-rules pattern: speculatively apply a transaction, then discard it
+  view1.state.apply(view1.state.tr.insertText('ephemeral'))
+
+  // Now dispatch different text on the real state
+  view1.dispatch(view1.state.tr.insertText('Hello'))
+
+  // The view should only contain the dispatched text, not the ephemeral text
+  t.assert(view1.state.doc.textContent === 'Hello', 'ephemeral apply should not leak into view1')
+  t.assert(view2.state.doc.textContent === 'Hello', 'ephemeral apply should not leak into view2')
 }
