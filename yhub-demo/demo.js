@@ -686,6 +686,13 @@ const fetchActivity = async () => {
  *
  * The diff goes from the OLDER baseline state (just below the range) to the
  * NEWER end-state at fromArrayIdx.
+ *
+ * Off-by-one note: `/activity` reports `.to` as the timestamp of the LAST
+ * Yjs item in the activity group (inclusive). `/changeset?from=T` builds
+ * `prevDoc` from items with timestamp strictly less than T, so an item whose
+ * server timestamp equals `acts[N+1].to` would be excluded from `prevDoc`
+ * and end up *inside* the newer diff. We compensate by passing `+1` for the
+ * older boundary so the cutoff falls in the gap between activities.
  */
 const resolveDiffRange = () => {
   if (fromArrayIdx === null || toArrayIdx === null) return null
@@ -694,7 +701,7 @@ const resolveDiffRange = () => {
   const newer = activityData[newestSelectedIdx].to
   const older = toArrayIdx >= activityData.length
     ? 0 // empty-document baseline
-    : activityData[toArrayIdx].to
+    : activityData[toArrayIdx].to + 1
   return { from: older, to: newer }
 }
 
