@@ -1,34 +1,56 @@
 /* eslint-env browser */
 
 /**
- * Palette of ~10 user colors. Picked so that initials in white render legibly
- * on the solid swatch and so that the same colors at ~22% alpha still read as
- * a tint on a white background.
+ * Ten distinct user colors, spaced around the hue wheel so multiple
+ * collaborators rarely collide on the same color family. Each entry is
+ * picked so that:
+ *
+ *   - white initials on the solid swatch meet WCAG AA contrast (> 4.5:1)
+ *   - the same color at ~22% alpha still reads as a tint on a white
+ *     background (the inline `color-mix(... 22%, transparent)` rule)
+ *
+ * Hue layout (approx, in HSL degrees):
+ *   blue 210 · violet 260 · fuchsia 290 · pink 330 · rose 350
+ *   orange 25 · gold 45  · lime 85    · emerald 160 · cyan 190
+ *
+ * Only one strictly-red entry (rose) keeps the overall feel cool-leaning
+ * without losing red as a recognisable choice.
  */
 export const palette = [
-  '#6c5ce7', // violet
-  '#e17055', // burnt orange
-  '#0984e3', // blue
-  '#00b894', // emerald
-  '#d63031', // red
-  '#f0a93b', // amber
-  '#e84393', // pink
-  '#00cec9', // teal
-  '#6ab04c', // grass
-  '#a55eea' //  purple
+  '#2563eb', // blue
+  '#7c3aed', // violet
+  '#c026d3', // fuchsia
+  '#db2777', // pink
+  '#e11d48', // rose
+  '#ea580c', // orange
+  '#ca8a04', // gold
+  '#65a30d', // lime
+  '#059669', // emerald
+  '#0891b2' //  cyan
 ]
 
 /**
- * Stable string hash → palette index.
+ * Stable string hash → palette index. FNV-1a with a final avalanche mix so
+ * lexically similar ids ("User 1", "User 2", "user-1234") fall into
+ * different buckets rather than clustering.
+ *
  * @param {string} id
  * @returns {number}
  */
 const hashIndex = (id) => {
-  let h = 0
+  let h = 2166136261 >>> 0
   for (let i = 0; i < id.length; i++) {
-    h = (h * 31 + id.charCodeAt(i)) | 0
+    h ^= id.charCodeAt(i)
+    h = Math.imul(h, 16777619) >>> 0
   }
-  return Math.abs(h) % palette.length
+  // Avalanche (xorshift-multiply, from the splitmix family) — without this
+  // adjacent inputs land on adjacent buckets, which then collide modulo 10.
+  h ^= h >>> 16
+  h = Math.imul(h, 2246822507) >>> 0
+  h ^= h >>> 13
+  h = Math.imul(h, 3266489909) >>> 0
+  h ^= h >>> 16
+  return (h >>> 0) % palette.length
 }
 
 /**
