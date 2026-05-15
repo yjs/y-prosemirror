@@ -1,7 +1,7 @@
 import * as Y from '@y/y'
-import * as mux from 'lib0/mutex'
 import { Plugin } from 'prosemirror-state'
 import {
+  $prosemirrorDelta,
   defaultMapAttributionToMark,
   deltaAttributionToFormat,
   deltaToPSteps,
@@ -11,7 +11,6 @@ import * as d from 'lib0/delta'
 import { ySyncPluginKey } from './keys.js'
 import * as s from 'lib0/schema'
 import * as object from 'lib0/object'
-import * as list from 'lib0/list'
 
 /**
  * The y-prosemirror binding is a bi-directional synchronization with the provided Y.Type and the EditorView
@@ -42,40 +41,59 @@ const attributionMarkNames = [
 ]
 
 /**
- * only safe to use on diffed deltas
+ * Strip attribution-mark formats (`y-attributed-*`). Returns a fresh
+ * delta - **never mutates** the input. `lib0/delta.diff` reuses op
+ * references (and nested delta references) from its inputs, so an
+ * in-place mutation here would also mutate `pcontent`/`desiredPM` and
+ * corrupt subsequent diff calls. `lib0/delta.clone` only deep-clones
+ * the top level - nested deltas inside an `InsertOp.insert` array stay
+ * shared by reference - so cloning then mutating is also unsafe.
  *
- * 1. strip formats
- * 2. transform delete-attribution to delete op
- * @param {d.DeltaAny} delta
+ * @param {d.DeltaAny} input
+ * @returns {d.DeltaAny}
  */
-const stripAttributionFormattingFromDelta = delta => {
-  for (const child of delta.children) {
-    if (!d.$deleteOp.check(child)) {
-      if (child.format?.[attributedDeleteMark] != null) {
-        list.replace(delta.children, child, new d.DeleteOp(child.length, null))
-        continue
-      }
+const stripAttributionFormattingFromDelta = (input) => {
+  /** @param {Record<string, unknown> | null | undefined} format */
+  const stripFormat = (format) => {
+    if (format == null) return format
+    /** @type {Record<string, unknown>} */
+    const out = {}
+    for (const k in format) {
+      if (!attributionMarkNames.includes(k)) out[k] = format[k]
     }
-    if (d.$modifyOp.check(child)) {
-      stripAttributionFormattingFromDelta(child.value)
-    }
-    if (d.$insertOp.check(child)) {
-      child.insert.forEach(ins => {
-        if (d.$deltaAny.check(ins)) {
-          stripAttributionFormattingFromDelta(ins)
-        }
-      })
-    }
-    if (!d.$deleteOp.check(child) && child.format != null) {
-      attributionMarkNames.forEach(n => {
-        delete child.format?.[n]
-      })
+    return out
+  }
+  const out = /** @type {any} */ (d.create(input.name, $prosemirrorDelta))
+  for (const attr of input.attrs) {
+    // @ts-ignore
+    out.attrs[attr.key] = attr.clone()
+  }
+  for (const child of input.children) {
+    if (d.$retainOp.check(child)) {
+      out.retain(child.retain, stripFormat(child.format))
+    } else if (d.$textOp.check(child)) {
+      out.insert(child.insert, stripFormat(child.format))
+    } else if (d.$insertOp.check(child)) {
+      const newInsert = child.insert.map(ins =>
+        d.$deltaAny.check(ins) ? stripAttributionFormattingFromDelta(ins) : ins
+      )
+      out.insert(newInsert, stripFormat(child.format))
+    } else if (d.$deleteOp.check(child)) {
+      out.delete(child.delete)
+    } else if (d.$modifyOp.check(child)) {
+      out.modify(stripAttributionFormattingFromDelta(child.value), stripFormat(child.format))
     }
   }
+  return out.done(false)
 }
 
 /**
  * This Prosemirror {@link Plugin} is responsible for synchronizing the prosemirror {@link EditorState} with a {@link Y.XmlFragment}
+ *
+ * NOTE: register this plugin LAST in your editor's plugin list. Its
+ * `appendTransaction` runs the PM->Y diff/apply pipeline and must
+ * observe the post-keymap, post-other-plugin state.
+ *
  * @param {object} opts
  * @param {Y.Doc} [opts.suggestionDoc] A {@link Y.Doc} to use for suggestion tracking
  * @param {AttributionMapper} [opts.mapAttributionToMark] A function to map the {@link Y.Attribution} to a {@link import('prosemirror-model').Mark} - the mark names *must* be one of: `y-attributed-insert`, `y-attributed-delete`, `y-attributed-format`. No other mark names are permitted
@@ -100,123 +118,54 @@ export function syncPlugin (opts = {}) {
         return object.assign({}, prevPluginState, stateUpdate, stateUpdate.attributionManager == null ? { attributionManager: Y.noAttributionsManager } : {})
       }
     },
-    // appendTransaction (trs, _oldState, newState) {
-    //   const pluginState = $syncPluginState.cast(ySyncPluginKey.getState(newState))
-    //   if (
-    //     pluginState.ytype == null ||
-    //       pluginState.attributionManager == null ||
-    //       pluginState.attributionManager === Y.noAttributionsManager ||
-    //       trs.some(tr => tr.getMeta('y-sync-transaction') || tr.getMeta(ySyncPluginKey) || tr.getMeta('y-sync-append'))
-    //   ) {
-    //     return null
-    //   }
-    //   // @ts-ignore
-    //   /**
-    //    * Whether to re-insert deletions as text or not
-    //    * @type {boolean}
-    //    */
-    //   const suggestionMode = /** @type {any} */ (pluginState.attributionManager).suggestionMode || false
-    //   const schema = newState.schema
-    //   const attributionMapper = pluginState.attributionMapper
-    //   const deletionFormat = attributionMapper(null, { delete: [] })
-    //   const insertionFormat = attributionMapper(null, { insert: [] })
-    //   const formatFormat = attributionMapper(null, { format: {} })
-    //   if (formatFormat == null || insertionFormat == null || deletionFormat == null) error.unexpectedCase()
-    //   const deletionMarks = formattingAttributesToMarks(deletionFormat, schema)
-    //   const insertionMarks = formattingAttributesToMarks(insertionFormat, schema)
-    //   const formatMarks = formattingAttributesToMarks(formatFormat, schema)
-    //   const tr = newState.tr
-    //   let changed = false
-    //
-    //   /**
-    //    * Map a position from a step through all subsequent steps, subsequent
-    //    * transactions, and the appended transaction's own steps.
-    //    * @param {number} pos
-    //    * @param {Transaction} transaction
-    //    * @param {number} stepIndex
-    //    * @return {number}
-    //    */
-    //   const mapPos = (pos, transaction, stepIndex) => {
-    //     for (let j = stepIndex + 1; j < transaction.steps.length; j++) {
-    //       pos = transaction.steps[j].getMap().map(pos)
-    //     }
-    //     const trIndex = trs.indexOf(transaction)
-    //     for (let j = trIndex + 1; j < trs.length; j++) {
-    //       pos = trs[j].mapping.map(pos)
-    //     }
-    //     pos = tr.mapping.map(pos)
-    //     return pos
-    //   }
-    //
-    //   for (const transaction of trs) {
-    //     for (let i = 0; i < transaction.steps.length; i++) {
-    //       const step = transaction.steps[i]
-    //       if (step instanceof ReplaceStep) {
-    //         if (/** @type {any} */ (step).structure) continue
-    //         const deleted = transaction.docs[i].slice(step.from, step.to)
-    //         const insertedSize = step.slice.content.size
-    //         // Map position before any modifications to our tr
-    //         const pos = mapPos(step.from, transaction, i)
-    //         // Handle deletions:
-    //         // - Content with y-attributed-insert mark: actually delete (revert the suggestion)
-    //         // - Other content: re-insert with deletion marks
-    //         let reinsertedSize = 0
-    //         if (deleted.content.size > 0) {
-    //           const insertionMarkType = schema.marks['y-attributed-insert']
-    //           deleted.content.forEach((node) => {
-    //             if (insertionMarkType && node.marks.some(m => m.type === insertionMarkType)) {
-    //               // Suggested insertion — let it stay deleted
-    //             } else if (suggestionMode) {
-    //               // Non-attributed content — re-insert with deletion mark
-    //               const insertAt = pos + reinsertedSize
-    //               tr.insert(insertAt, node)
-    //               for (const mark of deletionMarks) {
-    //                 tr.addMark(insertAt, insertAt + node.nodeSize, mark)
-    //               }
-    //               reinsertedSize += node.nodeSize
-    //             }
-    //           })
-    //           if (reinsertedSize > 0) changed = true
-    //         }
-    //         // Handle insertions: add insertion marks to inserted content
-    //         // After re-inserting deleted content, inserted content is shifted by reinserted size
-    //         if (insertedSize > 0 && suggestionMode) {
-    //           const insertPos = pos + reinsertedSize
-    //           for (const mark of insertionMarks) {
-    //             tr.addMark(insertPos, insertPos + insertedSize, mark)
-    //           }
-    //           // Also add marks to nodes themselves (addMark only affects inline content)
-    //           tr.doc.nodesBetween(insertPos, insertPos + insertedSize, (node, nodePos) => {
-    //             if (node.isBlock && insertPos <= nodePos && nodePos <= insertPos + insertedSize) {
-    //               for (const mark of insertionMarks) {
-    //                 if (node.type.allowsMarkType(mark.type)) {
-    //                   tr.addNodeMark(nodePos, mark)
-    //                 }
-    //               }
-    //             }
-    //           })
-    //           changed = true
-    //         }
-    //       } else if (suggestionMode && (step instanceof AddMarkStep || step instanceof RemoveMarkStep) && !step.mark.type.name.startsWith('y-attribution-')) {
-    //         // Handle mark changes: add format marks to the affected range
-    //         const from = mapPos(step.from, transaction, i)
-    //         const to = mapPos(step.to, transaction, i)
-    //         for (const mark of formatMarks) {
-    //           tr.addMark(from, to, mark)
-    //         }
-    //         changed = true
-    //       }
-    //     }
-    //   }
-    //
-    //   if (!changed) return null
-    //   tr.setMeta('y-sync-append', true)
-    //   tr.setMeta('addToHistory', false)
-    //   return tr
-    // },
+    /**
+     * Mirror PM doc changes into the Y type, then re-render the Y
+     * type through the AttributionManager and append any difference
+     * back to PM in the same dispatch. Idempotent: if PM already
+     * matches the AM-rendered ytype, returns null.
+     *
+     * @param {readonly import('prosemirror-state').Transaction[]} trs
+     * @param {import('prosemirror-state').EditorState} _oldState
+     * @param {import('prosemirror-state').EditorState} newState
+     */
+    appendTransaction (trs, _oldState, newState) {
+      const pluginState = $syncPluginState.cast(ySyncPluginKey.getState(newState))
+      const ytype = pluginState.ytype
+      if (ytype == null) return null
+      if (!trs.some(tr => tr.docChanged)) return null
+      if (trs.every(tr => tr.getMeta('y-sync-transaction') != null)) return null
+      const attributionManager = pluginState.attributionManager
+      const am = attributionManager || Y.noAttributionsManager
+      const mapper = pluginState.attributionMapper
+      const ycontent = deltaAttributionToFormat(
+        ytype.toDeltaDeep(am),
+        mapper
+      ).done()
+      const pcontent = nodeToDelta(newState.doc).done()
+      const pmToYDiff = stripAttributionFormattingFromDelta(d.diff(ycontent, pcontent))
+      if (!pmToYDiff.isEmpty()) {
+        /** @type {Y.Doc} */ (ytype.doc).transact(() => {
+          ytype.applyDelta(pmToYDiff, am)
+        }, ySyncPluginKey.get(newState))
+      }
+      const desiredPM = deltaAttributionToFormat(
+        ytype.toDeltaDeep(am),
+        mapper
+      ).done()
+      const pmReconcileDiff = d.diff(pcontent, desiredPM)
+      if (pmReconcileDiff.isEmpty()) return null
+      const tr = newState.tr
+      deltaToPSteps(tr, pmReconcileDiff)
+      tr.setMeta('addToHistory', false)
+      tr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
+        change: null,
+        attributionManager,
+        attributionMapper: mapper,
+        ytype
+      }))
+      return tr
+    },
     view () {
-      const mutex = mux.createMutex()
-      // Store the current subscription unsubscribe function
       /** @type {(() => void) | null} */
       let unsubscribeFn = null
       /**
@@ -228,69 +177,77 @@ export function syncPlugin (opts = {}) {
        * @param {AttributionMapper} opts.attributionMapper
        */
       function subscribeToYType ({ view, ytype, attributionManager, attributionMapper }) {
-        // Unsubscribe from previous subscription if it exists
         unsubscribeFn?.()
-        /**
-         * @type {number|null}
-         */
-        let timeouthandler = null
         if (ytype != null) {
-          const yTypeCb = ytype.observeDeep(change => {
+          // Listen on the doc's `afterTransaction` event rather than
+          // `ytype.observeDeep`. `observeDeep` skips firing for any
+          // changes whose path runs through a *deleted* parent type
+          // (Y.js `Transaction._callObserver` short-circuits when
+          // `parent._item.deleted`). That happens in suggestion-mode
+          // when one peer suggestion-deletes a paragraph and another
+          // peer then inserts into it - the integrate path leaves the
+          // root deep observer silent, so the PM view never reconciles
+          // and goes stale (see `testCohortReplayConvergesAfterInsert
+          // IntoSuggestionDeletedParagraph`). `afterTransaction` fires
+          // unconditionally, so the reconcile pass always runs.
+          /** @type {Y.Doc} */
+          const ydoc = /** @type {Y.Doc} */ (ytype.doc)
+          const onAfterTransaction = (/** @type {any} */ tr) => {
             if (!view || view.isDestroyed) {
               return unsubscribeFn?.()
             }
-            mutex(() => {
-              const d = deltaAttributionToFormat(
-                change.getDelta(attributionManager || Y.noAttributionsManager, { deep: true }),
-                attributionMapper
-              ).done()
-              const ptr = deltaToPSteps(view.state.tr, d)
-              ptr.setMeta('addToHistory', false)
-              ptr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
-                change,
-                attributionManager,
-                attributionMapper,
-                ytype
-              }))
-              view.dispatch(ptr)
-            }, () => {
-              if (attributionManager == null || attributionManager === Y.noAttributionsManager) return
-              timeouthandler != null && clearTimeout(timeouthandler)
-              timeouthandler = setTimeout(() => {
-                /**
-                 * @type {ProsemirrorDelta}
-                 */
-                const ycontent = deltaAttributionToFormat(
-                  ytype.toDeltaDeep(attributionManager || Y.noAttributionsManager),
-                  attributionMapper
-                )
-                const pcontent = nodeToDelta(view.state.doc)
-                const diff = d.diff(pcontent.done(), ycontent.done())
-                if (!diff.isEmpty()) {
-                  const ptr = deltaToPSteps(view.state.tr, diff)
-                  ptr.setMeta('addToHistory', false)
-                  ptr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
-                    change,
-                    attributionManager,
-                    attributionMapper,
-                    ytype
-                  }))
-                  view.dispatch(ptr)
-                }
-              }, 0)
-            })
-          })
-          const onAttrsChanged = attributionManager?.on('change', (changes) => {
-            console.log('attrs changed!!', changes)
-            if (!view || view.isDestroyed) {
-              return unsubscribeFn?.()
-            }
-            const d = deltaAttributionToFormat(
-              ytype.toDelta(attributionManager, { deep: true, itemsToRender: changes, retainInserts: true, retainDeletes: true }),
+            // Skip changes we wrote ourselves from `appendTransaction`
+            // - PM is already at the post-apply state, the reconcile
+            // tr was already appended in the same dispatch.
+            if (/** @type {any} */ (tr).origin === ySyncPluginKey.get(view.state)) return
+            // Same pipeline as `appendTransaction` and `onAttrsChanged`:
+            // render ytype through the AM, diff against the current PM doc,
+            // apply only the difference. Using `change.getDelta` here
+            // produced wrong/asymmetric output for some interleavings
+            // (notably commits-to-base from one peer that touched suggestion
+            // overlays from another), causing PM views to diverge from each
+            // other and from the canonical AM render. The full re-render is
+            // more expensive per update but is the only diff target all
+            // peers agree on.
+            const am = attributionManager || Y.noAttributionsManager
+            const desiredPM = deltaAttributionToFormat(
+              ytype.toDeltaDeep(am),
               attributionMapper
             ).done()
-            const ptr = deltaToPSteps(view.state.tr, d)
+            const pcontent = nodeToDelta(view.state.doc).done()
+            const diff = d.diff(pcontent, desiredPM)
+            if (diff.isEmpty()) return
+            const ptr = deltaToPSteps(view.state.tr, diff)
             ptr.setMeta('addToHistory', false)
+            ptr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
+              change: null,
+              attributionManager,
+              attributionMapper,
+              ytype
+            }))
+            view.dispatch(ptr)
+          }
+          ydoc.on('afterTransaction', onAfterTransaction)
+          const onAttrsChanged = attributionManager?.on('change', (_changes) => {
+            if (!view || view.isDestroyed) {
+              return unsubscribeFn?.()
+            }
+            // Same pipeline as `appendTransaction`: render ytype through
+            // the AM, diff against the current PM doc, apply only the
+            // difference. We give up the `itemsToRender` targeted-rerender
+            // optimization in exchange for going through the same path
+            // that the rest of the plugin uses, which keeps the deltas
+            // shallow (only what actually changed).
+            const desiredPM = deltaAttributionToFormat(
+              ytype.toDeltaDeep(attributionManager || Y.noAttributionsManager),
+              attributionMapper
+            ).done()
+            const pcontent = nodeToDelta(view.state.doc).done()
+            const diff = d.diff(pcontent, desiredPM)
+            if (diff.isEmpty()) return
+            const ptr = deltaToPSteps(view.state.tr, diff)
+            ptr.setMeta('addToHistory', false)
+            // @todo stop updating meta on every transaction
             ptr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
               change: null, // @todo - remove this property
               attributionManager,
@@ -300,9 +257,8 @@ export function syncPlugin (opts = {}) {
             view.dispatch(ptr)
           })
           unsubscribeFn = () => {
-            ytype.unobserveDeep(yTypeCb)
+            ydoc.off('afterTransaction', onAfterTransaction)
             onAttrsChanged && attributionManager?.off('change', onAttrsChanged)
-            timeouthandler != null && clearTimeout(timeouthandler)
             unsubscribeFn = null
           }
         }
@@ -326,25 +282,6 @@ export function syncPlugin (opts = {}) {
               attributionManager,
               attributionMapper: pluginState.attributionMapper
             })
-          }
-          if (ytype != null) {
-            /**
-             * @type {ProsemirrorDelta}
-             */
-            const ycontent = deltaAttributionToFormat(
-              ytype.toDeltaDeep(attributionManager || Y.noAttributionsManager),
-              pluginState.attributionMapper
-            )
-            const pcontent = nodeToDelta(view.state.doc)
-            const diff = d.diff(ycontent.done(), pcontent.done())
-            stripAttributionFormattingFromDelta(diff)
-            if (!diff.isEmpty()) {
-              mutex(() => {
-                /** @type {Y.Doc} */ (ytype.doc).transact(() => {
-                  ytype.applyDelta(diff, attributionManager || Y.noAttributionsManager)
-                }, ySyncPluginKey.get(view.state))
-              })
-            }
           }
         },
         destroy () {

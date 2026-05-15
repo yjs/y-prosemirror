@@ -15,13 +15,29 @@ export const absolutePositionToRelativePosition = (resolvedPos, type, am) => {
     return Y.createRelativePositionFromTypeIndex(type, 0, type.length === 0 ? -1 : 0, am || Y.noAttributionsManager)
   }
   const depth = resolvedPos.depth
-  // Navigate through the Y.js structure using the path from ResolvedPos
+  // Navigate through the Y.js structure using the path from ResolvedPos.
+  // The PM resolved-pos can transiently disagree with the Y type when this
+  // runs mid-dispatch (cursor-plugin's view.update fires before the next
+  // sync-plugin appendTransaction has applied; AM-filtered subtrees can also
+  // shift child indices). If traversal can't follow the PM path all the way,
+  // fall back to a relative position at the start of the bound type rather
+  // than throwing - the contract here is non-nullable.
   let currentYType = type
+  let traversedDepth = 0
   for (let d = 0; d < depth; d++) {
+    if (currentYType == null || typeof (/** @type {any} */ (currentYType).get) !== 'function') break
     const childIndex = resolvedPos.index(d)
+    if (currentYType.length == null || childIndex >= currentYType.length) break
     // @TODO
     // @ts-ignore
-    currentYType = currentYType.get(childIndex, am) // @todo get method should support attribution manager
+    const next = currentYType.get(childIndex, am) // @todo get method should support attribution manager
+    if (next == null) break
+    currentYType = next
+    traversedDepth = d + 1
+  }
+  if (traversedDepth !== depth || currentYType == null || currentYType.length == null) {
+    return Y.createRelativePositionFromTypeIndex(
+      type, 0, type.length === 0 ? -1 : 0, am || Y.noAttributionsManager)
   }
   // Use the parent offset as the position within the target Y.js type.
   // For inline content (text containers), parentOffset equals the Y type index.

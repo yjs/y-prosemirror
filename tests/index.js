@@ -3,6 +3,7 @@ import * as cursor from './cursor.test.js'
 import * as delta from './delta.test.js'
 import * as positions from './positions.test.js'
 import * as suggestions from './suggestions.test.js'
+import * as suggestionSimulation from './suggestion-simulation.test.js'
 // import * as tr from './tr.test.js'
 
 import { runTests } from 'lib0/testing'
@@ -16,7 +17,8 @@ runTests({
   cursor,
   delta,
   positions,
-  suggestions
+  suggestions,
+  suggestionSimulation
   // prosemirror,
   // tr
 }).then(success => {

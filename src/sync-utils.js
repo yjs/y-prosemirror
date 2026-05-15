@@ -1,4 +1,5 @@
 import * as Y from '@y/y'
+import * as array from 'lib0/array'
 import * as delta from 'lib0/delta'
 import * as error from 'lib0/error'
 import * as math from 'lib0/math'
@@ -18,12 +19,6 @@ import {
 
 export const $prosemirrorDelta = delta.$delta({ name: s.$string, attrs: s.$record(s.$string, s.$any), text: true, recursiveChildren: true })
 
-const _clearAttributionFormatting = {
-  'y-attributed-format': null,
-  'y-attributed-insert': null,
-  'y-attributed-retain': null
-}
-
 /**
  * Default attribution-to-mark mapper.
  *
@@ -42,41 +37,49 @@ const _clearAttributionFormatting = {
  * marks may land. See `CAVEATS.md` ("Attribution mark names are fixed") for the
  * full rationale and the schema gotcha around mark-group resolution.
  *
+ * Note: a single op may carry multiple attribution kinds simultaneously
+ * (e.g. inserted text whose format was also suggested), so the mapper sets
+ * each applicable mark independently rather than picking one. Absent kinds
+ * are not added to the format object - the diff layer naturally produces a
+ * format-remove when comparing PM content (where a stale mark is present)
+ * against the freshly-rendered AM delta (where the key is absent).
+ *
  * @template {import('lib0/delta').Attribution} T
  * @param {Record<string, unknown> | null} format
  * @param {T} attribution
  * @returns {Record<string, unknown> | null}
  */
 export const defaultMapAttributionToMark = (format, attribution) => {
-  /**
-   * @type {Record<string, unknown> | null}
-   */
-  let mergeWith = null
+  const out = /** @type {Record<string, unknown>} */ (object.assign({}, format))
+  // Set each attribution kind that is present. Do NOT explicitly null out
+  // the absent kinds: lib0/delta's diff naturally produces a format-remove
+  // when comparing pcontent (where the mark is present) with desiredPM
+  // (where the key is absent). Including explicit `null` here would change
+  // the delta op's fingerprint and prevent the diff from matching ops by
+  // content, causing spurious text-node splits.
   if (attribution.insert) {
-    mergeWith = {
-      'y-attributed-insert': {
-        userIds: attribution.insert ? attribution.insert : null,
-        timestamp: attribution.insertAt ? attribution.insertAt : null
-      }
+    out['y-attributed-insert'] = {
+      userIds: attribution.insert,
+      timestamp: attribution.insertAt ?? null
     }
-  } else if (attribution.delete) {
-    mergeWith = {
-      'y-attributed-delete': {
-        userIds: attribution.delete ? attribution.delete : null,
-        timestamp: attribution.deleteAt ? attribution.deleteAt : null
-      }
-    }
-  } else if (attribution.format) {
-    mergeWith = {
-      'y-attributed-format': {
-        userIdsByAttr: attribution.format ? attribution.format : null,
-        timestamp: attribution.formatAt ? attribution.formatAt : null
-      }
-    }
-  } else {
-    mergeWith = _clearAttributionFormatting
   }
-  return object.assign({}, format, mergeWith)
+  if (attribution.delete) {
+    out['y-attributed-delete'] = {
+      userIds: attribution.delete,
+      timestamp: attribution.deleteAt ?? null
+    }
+  }
+  if (attribution.format) {
+    // `userIdsByAttr` keeps the per-format-key authorship for callers that
+    // need it; `userIds` is the deduped union across all format keys for
+    // callers that just want "who suggested any format on this span".
+    out['y-attributed-format'] = {
+      userIds: array.unique(object.map(attribution.format, v => v).flat()),
+      userIdsByAttr: attribution.format,
+      timestamp: attribution.formatAt ?? null
+    }
+  }
+  return out
 }
 
 /**
@@ -128,10 +131,16 @@ const marksToFormattingAttributes = marks => {
 }
 
 /**
+ * Convert a delta `format` object to PM marks. `null` entries (which mean
+ * "this mark is absent / cleared") are filtered out - a custom attribution
+ * mapper may emit `null` for absent attribution kinds, and a fresh insert
+ * should not materialize a mark for them.
+ *
  * @param {{[key:string]:any}|null} formatting
  * @param {import('prosemirror-model').Schema} schema
  */
-export const formattingAttributesToMarks = (formatting, schema) => object.map(formatting ?? {}, (v, k) => schema.mark(k, v))
+export const formattingAttributesToMarks = (formatting, schema) =>
+  object.map(formatting ?? {}, (v, k) => v != null ? schema.mark(k, v) : null).filter(m => m != null)
 
 /**
  * @param {Array<Node>} ns
@@ -285,9 +294,20 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
           tr.addNodeMark(currPos.i, schema.mark(k, v))
         }
       })
-      currPos.i++
-      deltaToPSteps(tr, op.value, pchildren[currParentIndex++], currPos)
-      currPos.i++
+      const child = pchildren[currParentIndex++]
+      const childStart = currPos.i
+      // Snapshot `tr.doc.content.size` so we can detect inserts/deletes
+      // appended inside the recursion below.
+      const sizeBefore = tr.doc.content.size
+      currPos.i = childStart + 1
+      deltaToPSteps(tr, op.value, child, currPos)
+      // `lib0/delta.diff` produces short deltas that omit trailing
+      // retains, so the recursive call may exit before `currPos.i`
+      // reaches the child's close tag. Snap forward to the position right
+      // after the child's close in the *current* `tr.doc`, accounting for
+      // any size delta from inserts/deletes inside the recursion.
+      const netChange = tr.doc.content.size - sizeBefore
+      currPos.i = childStart + child.nodeSize + netChange
     } else if (delta.$insertOp.check(op)) {
       const newPChildren = op.insert.map(ins => deltaToPNode(ins, schema, op.format))
       tr.insert(currPos.i, newPChildren)
@@ -351,12 +371,6 @@ export const deltaToPNode = (d, schema, dformat) => {
     inputChildren,
     inputMarks
   )
-  // eslint-disable-next-line
-  console.log('[d2p]', (d.name ?? '<doc>'),
-    'IN children=', inputChildren.length,
-    JSON.stringify(inputChildren.map(n => n && n.toJSON ? n.toJSON() : n)),
-    'marks=', JSON.stringify(inputMarks),
-    'OUT=', pNode === null ? 'NULL' : JSON.stringify(pNode.toJSON()))
   if (pNode === null) {
     throw new Error('[y/prosemirror]: failed to create node: ' + d.name)
   }

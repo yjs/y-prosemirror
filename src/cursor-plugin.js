@@ -254,8 +254,17 @@ export const yCursorPlugin = (
             }
           : null
 
-        const nextState = ystate?.ytype
-          ? {
+        // Belt-and-braces around the PM->Y position encoding. positions.js
+        // already falls back to a doc-root relative position on traversal
+        // failure, but anything else throwing here (DOM-change-time selection
+        // resolution, AM internals) would bubble up through dispatch and
+        // tear the editor down on every keystroke - just skip the awareness
+        // update in that case.
+        /** @type {{anchor: Y.RelativePosition, head: Y.RelativePosition} | null} */
+        let nextState = null
+        if (ystate?.ytype) {
+          try {
+            nextState = {
               anchor: absolutePositionToRelativePosition(
                 view.state.selection.$anchor,
                 ystate.ytype,
@@ -267,7 +276,11 @@ export const yCursorPlugin = (
                 ystate.attributionManager
               )
             }
-          : null
+          } catch (err) {
+            console.warn('y-prosemirror cursor-plugin: failed to encode selection, skipping awareness update', err)
+            return
+          }
+        }
         const resolvedState = resolveLocalCursorState({
           view,
           prevState,
