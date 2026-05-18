@@ -1,5 +1,6 @@
 export * from './sync-plugin.js'
 export * from './keys.js'
+export * from './positions.js'
 export { docToDelta, $prosemirrorDelta, defaultMapAttributionToMark } from './sync-utils.js'
 export * from './commands.js'
 export * from './undo-plugin.js'
