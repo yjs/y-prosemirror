@@ -17,6 +17,7 @@
  * appendTransaction has finished.
  */
 
+import * as YPM from '@y/prosemirror'
 import * as prng from 'lib0/prng'
 import { Cohort, applyTracedOp, assertCohortConsistency } from './cohort.js'
 
@@ -166,7 +167,31 @@ const opInsertParagraph = (cohort, user, gen) => {
   applyTracedOp(cohort, { user: user.idx, op: 'insertParagraph', args: { pos: prng.oneOf(gen, tops), text: randomWord(gen, 4) } })
 }
 
-const ALL_OPS = [opInsertText, opInsertPlainText, opDeleteRange, opAddMark, opRemoveMark, opSplitBlock, opInsertParagraph]
+/**
+ * Accept all pending suggestions. Only fires for users with a
+ * DiffAttributionManager (view-suggestions / suggestion-mode); silently
+ * skips no-suggestions users.
+ *
+ * @param {Cohort} _cohort
+ * @param {CohortUser} user
+ * @param {prng.PRNG} _gen
+ */
+const opAcceptAllChanges = (_cohort, user, _gen) => {
+  YPM.acceptAllChanges()(user.view.state, user.view.dispatch)
+}
+
+/**
+ * Reject all pending suggestions. Same user-mode filtering as accept.
+ *
+ * @param {Cohort} _cohort
+ * @param {CohortUser} user
+ * @param {prng.PRNG} _gen
+ */
+const opRejectAllChanges = (_cohort, user, _gen) => {
+  YPM.rejectAllChanges()(user.view.state, user.view.dispatch)
+}
+
+const ALL_OPS = [opInsertText, opInsertPlainText, opDeleteRange, opAddMark, opRemoveMark, opSplitBlock, opInsertParagraph, opAcceptAllChanges, opRejectAllChanges]
 
 /**
  * Drive `iterations` random ops against the cohort.
