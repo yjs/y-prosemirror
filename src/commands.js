@@ -2,6 +2,7 @@ import * as d from 'lib0/delta'
 import { ySyncPluginKey, yUndoPluginKey } from './keys.js'
 import { deltaToPSteps, deltaAttributionToFormat, nodeToDelta, deltaToPNode } from './sync-utils.js'
 import * as Y from '@y/y'
+import { absolutePositionToRelativePosition } from './positions.js'
 
 /**
  * Switch to pause mode (stop synchronization between prosemirror and ytype)
@@ -33,7 +34,7 @@ const debugging = false
  * @param {object} [opts]
  * @param {YType?} [opts.ytype] Sync different ytype. Set to null to pause sync
  * @param {AttributionManager?} [opts.attributionManager] Optional attribution manager to switch to
- * @returns {(state:import('prosemirror-state').EditorState, dispatch?: CommandDispatch | null ) => boolean}
+ * @returns {import('prosemirror-state').Command}
  */
 export const configureYProsemirror = (opts = {}) => (state, dispatch) => {
   const pluginState = ySyncPluginKey.getState(state)
@@ -90,3 +91,73 @@ export const undoCommand = (state, dispatch) => dispatch == null ? (yUndoPluginK
  * @type {import('prosemirror-state').Command}
  */
 export const redoCommand = (state, dispatch) => dispatch == null ? (yUndoPluginKey.getState(state)?.undoManager?.canRedo() || false) : redo(state)
+
+/**
+ * Reject changes between start and end
+ * @param {number} start
+ * @param {number} [end]
+ * @returns {import('prosemirror-state').Command}
+ */
+export const rejectChanges = (start, end = start) => (state, dispatch) => {
+  const pluginState = ySyncPluginKey.getState(state)
+  if (!pluginState?.ytype || !(pluginState?.attributionManager instanceof Y.DiffAttributionManager)) {
+    return false
+  }
+  if (dispatch) {
+    const relStart = absolutePositionToRelativePosition(state.doc.resolve(start), pluginState.ytype, pluginState.attributionManager)
+    const relEnd = absolutePositionToRelativePosition(state.doc.resolve(end), pluginState.ytype, pluginState.attributionManager)
+
+    pluginState.attributionManager.rejectChanges(relStart.item, relEnd.item)
+  }
+  return true
+}
+
+/**
+ * Accept changes between start and end
+ * @param {number} start
+ * @param {number} [end]
+ * @returns {import('prosemirror-state').Command}
+ */
+export const acceptChanges = (start, end = start) => (state, dispatch) => {
+  const pluginState = ySyncPluginKey.getState(state)
+  if (!pluginState?.ytype || !(pluginState?.attributionManager instanceof Y.DiffAttributionManager)) {
+    return false
+  }
+  if (dispatch) {
+    const relStart = absolutePositionToRelativePosition(state.doc.resolve(start), pluginState.ytype, pluginState.attributionManager)
+    const relEnd = absolutePositionToRelativePosition(state.doc.resolve(end), pluginState.ytype, pluginState.attributionManager)
+
+    pluginState.attributionManager.acceptChanges(relStart.item, relEnd.item)
+  }
+  return true
+}
+
+/**
+ * Accept all changes
+ * @returns {import('prosemirror-state').Command}
+ */
+export const acceptAllChanges = () => (state, dispatch) => {
+  const pluginState = ySyncPluginKey.getState(state)
+  if (!pluginState?.ytype || !(pluginState?.attributionManager instanceof Y.DiffAttributionManager)) {
+    return false
+  }
+  if (dispatch) {
+    pluginState.attributionManager.acceptAllChanges()
+  }
+  return true
+}
+
+/**
+ * Reject all changes
+ * @returns {import('prosemirror-state').Command}
+ */
+export const rejectAllChanges = () => (state, dispatch) => {
+  const pluginState = ySyncPluginKey.getState(state)
+  if (!pluginState?.ytype || !(pluginState?.attributionManager instanceof Y.DiffAttributionManager)) {
+    return false
+  }
+  if (dispatch) {
+    pluginState.attributionManager.rejectAllChanges()
+  }
+  return true
+}

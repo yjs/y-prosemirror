@@ -1,6 +1,6 @@
 /* eslint-env browser */
 import * as Y from '@y/y'
-import { syncPlugin, ySyncPluginKey, configureYProsemirror, defaultMapAttributionToMark, yCursorPlugin } from '../src/index.js'
+import { syncPlugin, ySyncPluginKey, configureYProsemirror, defaultMapAttributionToMark, yCursorPlugin, acceptChanges, rejectChanges, acceptAllChanges, rejectAllChanges } from '../src/index.js'
 import { WebsocketProvider } from '@y/websocket'
 import { EditorState, Plugin, PluginKey } from 'prosemirror-state'
 import { EditorView, Decoration, DecorationSet } from 'prosemirror-view'
@@ -301,45 +301,21 @@ elemSelectSuggestionMode.addEventListener('change', () => {
 })
 
 btnAcceptChanges.addEventListener('click', () => {
-  const pluginState = ySyncPluginKey.getState(currentView.state)
-  if (!pluginState) return
   const { from, to } = currentView.state.selection
-  try {
-    /** @type {any} */ (pluginState).acceptChanges(from, to)
-  } catch (e) {
-    console.error('Error accepting changes:', e)
-  }
+  acceptChanges(from, to)(currentView.state, currentView.dispatch)
 })
 
 btnRejectChanges.addEventListener('click', () => {
-  const pluginState = ySyncPluginKey.getState(currentView.state)
-  if (!pluginState) return
   const { from, to } = currentView.state.selection
-  try {
-    /** @type {any} */ (pluginState).rejectChanges(from, to)
-  } catch (e) {
-    console.error('Error rejecting changes:', e)
-  }
+  rejectChanges(from, to)(currentView.state, currentView.dispatch)
 })
 
 btnAcceptAll.addEventListener('click', () => {
-  const pluginState = ySyncPluginKey.getState(currentView.state)
-  if (!pluginState) return
-  try {
-    /** @type {any} */ (pluginState).acceptAllChanges()
-  } catch (e) {
-    console.error('Error accepting all changes:', e)
-  }
+  acceptAllChanges()(currentView.state, currentView.dispatch)
 })
 
 btnRejectAll.addEventListener('click', () => {
-  const pluginState = ySyncPluginKey.getState(currentView.state)
-  if (!pluginState) return
-  try {
-    /** @type {any} */ (pluginState).rejectAllChanges()
-  } catch (e) {
-    console.error('Error rejecting all changes:', e)
-  }
+  rejectAllChanges()(currentView.state, currentView.dispatch)
 })
 
 // ── Editor Init ──
