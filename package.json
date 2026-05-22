@@ -10,7 +10,7 @@
   },
   "scripts": {
     "clean": "rm -rf dist",
-    "dist": "npm run clean && rollup -c && (tsc --skipLibCheck || true)",
+    "dist": "npm run clean && PRODUCTION=1 tsc --skipLibCheck --noEmit false && test -e dist/src/index.d.ts",
     "test": "node ./tests/index.node.js",
     "test:debug": "node --inspect-brk ./tests/index.node.js",
     "lint": "standard && tsc --skipLibCheck",
@@ -21,10 +21,10 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/src/y-prosemirror.d.ts",
-      "import": "./src/index.js",
-      "require": "./dist/y-prosemirror.cjs"
-    }
+      "types": "./dist/src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist/*",
