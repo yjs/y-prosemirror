@@ -93,11 +93,10 @@ const buildNextState = (val, prevSel, addToHistory) => {
  * on undo stack items.
  *
  * `getLatestPrevSel` returns the most recently apply()-computed prevSel.
- * sync-plugin's `appendTransaction` writes to ytype synchronously inside
- * dispatch, which fires `stack-item-added` before `view.state` has been
- * updated. Reading `view.state.prevSel` at that moment yields the
- * previous tr's value; the closure ref maintained by apply() gives us
- * the in-flight one.
+ * sync-plugin writes to ytype from `view().update`, which can re-enter
+ * dispatch and fire `stack-item-added` during the recursive call. The
+ * closure ref maintained by apply() gives us the in-flight prevSel
+ * regardless of where in the dispatch nesting we are.
  *
  * @param {import('prosemirror-view').EditorView} view
  * @param {() => UndoPluginState['prevSel']} getLatestPrevSel

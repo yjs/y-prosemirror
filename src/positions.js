@@ -17,11 +17,12 @@ export const absolutePositionToRelativePosition = (resolvedPos, type, am) => {
   const depth = resolvedPos.depth
   // Navigate through the Y.js structure using the path from ResolvedPos.
   // The PM resolved-pos can transiently disagree with the Y type when this
-  // runs mid-dispatch (cursor-plugin's view.update fires before the next
-  // sync-plugin appendTransaction has applied; AM-filtered subtrees can also
-  // shift child indices). If traversal can't follow the PM path all the way,
-  // fall back to a relative position at the start of the bound type rather
-  // than throwing - the contract here is non-nullable.
+  // runs mid-dispatch (the cursor-plugin's view.update may observe the PM
+  // doc before sync-plugin's view.update has flushed the PM->Y commit and
+  // reconcile; AM-filtered subtrees can also shift child indices). If
+  // traversal can't follow the PM path all the way, fall back to a
+  // relative position at the start of the bound type rather than throwing
+  // - the contract here is non-nullable.
   let currentYType = type
   let traversedDepth = 0
   for (let d = 0; d < depth; d++) {

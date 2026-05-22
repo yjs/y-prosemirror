@@ -90,9 +90,11 @@ const stripAttributionFormattingFromDelta = (input) => {
 /**
  * This Prosemirror {@link Plugin} is responsible for synchronizing the prosemirror {@link EditorState} with a {@link Y.XmlFragment}
  *
- * NOTE: register this plugin LAST in your editor's plugin list. Its
- * `appendTransaction` runs the PM->Y diff/apply pipeline and must
- * observe the post-keymap, post-other-plugin state.
+ * The PM->Y diff/apply pipeline runs in the plugin's `view().update`
+ * hook (i.e. after the dispatch has been committed to the view), not
+ * in `appendTransaction`. Running it in `appendTransaction` would
+ * cause speculative `state.apply` callers to write to Y as a side
+ * effect.
  *
  * @param {object} opts
  * @param {Y.Doc} [opts.suggestionDoc] A {@link Y.Doc} to use for suggestion tracking
@@ -117,53 +119,6 @@ export function syncPlugin (opts = {}) {
         }
         return object.assign({}, prevPluginState, stateUpdate, stateUpdate.attributionManager == null ? { attributionManager: Y.noAttributionsManager } : {})
       }
-    },
-    /**
-     * Mirror PM doc changes into the Y type, then re-render the Y
-     * type through the AttributionManager and append any difference
-     * back to PM in the same dispatch. Idempotent: if PM already
-     * matches the AM-rendered ytype, returns null.
-     *
-     * @param {readonly import('prosemirror-state').Transaction[]} trs
-     * @param {import('prosemirror-state').EditorState} _oldState
-     * @param {import('prosemirror-state').EditorState} newState
-     */
-    appendTransaction (trs, _oldState, newState) {
-      const pluginState = $syncPluginState.cast(ySyncPluginKey.getState(newState))
-      const ytype = pluginState.ytype
-      if (ytype == null) return null
-      if (!trs.some(tr => tr.docChanged)) return null
-      if (trs.every(tr => tr.getMeta('y-sync-transaction') != null)) return null
-      const attributionManager = pluginState.attributionManager
-      const am = attributionManager || Y.noAttributionsManager
-      const mapper = pluginState.attributionMapper
-      const ycontent = deltaAttributionToFormat(
-        ytype.toDeltaDeep(am),
-        mapper
-      ).done()
-      const pcontent = nodeToDelta(newState.doc).done()
-      const pmToYDiff = stripAttributionFormattingFromDelta(d.diff(ycontent, pcontent))
-      if (!pmToYDiff.isEmpty()) {
-        /** @type {Y.Doc} */ (ytype.doc).transact(() => {
-          ytype.applyDelta(pmToYDiff, am)
-        }, ySyncPluginKey.get(newState))
-      }
-      const desiredPM = deltaAttributionToFormat(
-        ytype.toDeltaDeep(am),
-        mapper
-      ).done()
-      const pmReconcileDiff = d.diff(pcontent, desiredPM)
-      if (pmReconcileDiff.isEmpty()) return null
-      const tr = newState.tr
-      deltaToPSteps(tr, pmReconcileDiff)
-      tr.setMeta('addToHistory', false)
-      tr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
-        change: null,
-        attributionManager,
-        attributionMapper: mapper,
-        ytype
-      }))
-      return tr
     },
     view () {
       /** @type {(() => void) | null} */
@@ -196,11 +151,11 @@ export function syncPlugin (opts = {}) {
             if (!view || view.isDestroyed) {
               return unsubscribeFn?.()
             }
-            // Skip changes we wrote ourselves from `appendTransaction`
-            // - PM is already at the post-apply state, the reconcile
-            // tr was already appended in the same dispatch.
+            // Skip changes we wrote ourselves from `view().update`
+            // - the PM->Y commit there already handled the reconcile
+            // dispatch in the same call.
             if (/** @type {any} */ (tr).origin === ySyncPluginKey.get(view.state)) return
-            // Same pipeline as `appendTransaction` and `onAttrsChanged`:
+            // Same pipeline as the PM->Y sync in `view().update`:
             // render ytype through the AM, diff against the current PM doc,
             // apply only the difference. Using `change.getDelta` here
             // produced wrong/asymmetric output for some interleavings
@@ -232,12 +187,12 @@ export function syncPlugin (opts = {}) {
             if (!view || view.isDestroyed) {
               return unsubscribeFn?.()
             }
-            // Same pipeline as `appendTransaction`: render ytype through
-            // the AM, diff against the current PM doc, apply only the
-            // difference. We give up the `itemsToRender` targeted-rerender
-            // optimization in exchange for going through the same path
-            // that the rest of the plugin uses, which keeps the deltas
-            // shallow (only what actually changed).
+            // Same pipeline as the PM->Y sync in `view().update`:
+            // render ytype through the AM, diff against the current PM doc,
+            // apply only the difference. We give up the `itemsToRender`
+            // targeted-rerender optimization in exchange for going through
+            // the same path that the rest of the plugin uses, which keeps
+            // the deltas shallow (only what actually changed).
             const desiredPM = deltaAttributionToFormat(
               ytype.toDeltaDeep(attributionManager || Y.noAttributionsManager),
               attributionMapper
@@ -283,6 +238,47 @@ export function syncPlugin (opts = {}) {
               attributionMapper: pluginState.attributionMapper
             })
           }
+          if (ytype == null) return
+          if (view.state.doc === prevState.doc) return
+          // PM->Y diff/apply pipeline. Runs after the dispatch is
+          // committed to the view, so speculative `state.apply` calls
+          // do not write to Y. The Y `afterTransaction` observer
+          // skips the write we make here via the origin check. The
+          // AM `change` handler may, however, dispatch its own
+          // reconcile synchronously during `transact` - so we
+          // re-read `pcontent` from `view.state.doc` after the write
+          // before computing our own reconcile, otherwise we'd
+          // apply the same insert twice.
+          const am = attributionManager || Y.noAttributionsManager
+          const mapper = pluginState.attributionMapper
+          const ycontent = deltaAttributionToFormat(
+            ytype.toDeltaDeep(am),
+            mapper
+          ).done()
+          const pcontent = nodeToDelta(view.state.doc).done()
+          const pmToYDiff = stripAttributionFormattingFromDelta(d.diff(ycontent, pcontent))
+          if (!pmToYDiff.isEmpty()) {
+            /** @type {Y.Doc} */ (ytype.doc).transact(() => {
+              ytype.applyDelta(pmToYDiff, am)
+            }, ySyncPluginKey.get(view.state))
+          }
+          const desiredPM = deltaAttributionToFormat(
+            ytype.toDeltaDeep(am),
+            mapper
+          ).done()
+          const pcontentAfter = nodeToDelta(view.state.doc).done()
+          const pmReconcileDiff = d.diff(pcontentAfter, desiredPM)
+          if (pmReconcileDiff.isEmpty()) return
+          const tr = view.state.tr
+          deltaToPSteps(tr, pmReconcileDiff)
+          tr.setMeta('addToHistory', false)
+          tr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
+            change: null,
+            attributionManager,
+            attributionMapper: mapper,
+            ytype
+          }))
+          view.dispatch(tr)
         },
         destroy () {
           unsubscribeFn?.()
