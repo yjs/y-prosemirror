@@ -7,6 +7,7 @@ import { Fragment, Schema, Slice } from 'prosemirror-model'
 import * as delta from 'lib0/delta'
 import { findWrapping, ReplaceAroundStep } from 'prosemirror-transform'
 import { EditorView } from 'prosemirror-view'
+import { setupTwoWaySync } from './cohort.js'
 
 const schema = new Schema({
   nodes: basicSchema.nodes,
@@ -197,4 +198,26 @@ export const testFilledBlockquoteInsert = () => {
   testHelper([
     ({ tr }) => tr.insertText('Hello', 2)
   ], delta.create().insert([delta.create('blockquote', {})]).done())
+}
+
+// Test: ephemeral state.apply() should not permanently mutate the Y.Doc
+export const testEphemeralStateDoesNotAffectSync = () => {
+  const ydoc1 = new Y.Doc()
+  const ydoc2 = new Y.Doc()
+  ydoc1.get('prosemirror').applyDelta(
+    delta.create().insert([delta.create('paragraph', {}, '')]).done()
+  )
+  setupTwoWaySync(ydoc1, ydoc2)
+  const view1 = createProsemirrorView(ydoc1.get('prosemirror'))
+  const view2 = createProsemirrorView(ydoc2.get('prosemirror'))
+
+  // Simulate input-rules pattern: speculatively apply a transaction, then discard it
+  view1.state.apply(view1.state.tr.insertText('ephemeral'))
+
+  // Now dispatch different text on the real state
+  view1.dispatch(view1.state.tr.insertText('Hello'))
+
+  // The view should only contain the dispatched text, not the ephemeral text
+  t.assert(view1.state.doc.textContent === 'Hello', 'ephemeral apply should not leak into view1')
+  t.assert(view2.state.doc.textContent === 'Hello', 'ephemeral apply should not leak into view2')
 }
