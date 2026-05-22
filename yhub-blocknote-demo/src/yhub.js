@@ -1,6 +1,6 @@
 /* eslint-env browser */
 import * as Y from '@y/y'
-import { configureYProsemirror, ySyncPluginKey, defaultMapAttributionToMark } from '@y/prosemirror'
+import { configureYProsemirror, ySyncPluginKey } from '@y/prosemirror'
 import { deltaAttributionToFormat, deltaToPNode } from '../../src/sync-utils.js'
 import * as delta from 'lib0/delta'
 import { WebsocketProvider } from '@y/websocket'
@@ -37,8 +37,6 @@ function debugWalk (d, indent = '') {
   })
 }
 
-export const mapAttributionToMark = defaultMapAttributionToMark
-
 const usercolors = [
   { color: '#30bced', light: '#30bced33' },
   { color: '#6eeb83', light: '#6eeb8333' },
@@ -48,6 +46,76 @@ const usercolors = [
   { color: '#8acb88', light: '#8acb8833' },
   { color: '#1be7ff', light: '#1be7ff33' }
 ]
+
+const palette = usercolors.map(c => c.color)
+
+/**
+ * @param {string} s
+ * @return {number}
+ */
+const hashStr = (s) => {
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0
+  return h >>> 0
+}
+
+/**
+ * @param {readonly string[] | undefined | null} userIds
+ * @return {string}
+ */
+const colorForUserIds = (userIds) => {
+  if (!userIds || userIds.length === 0) return palette[0]
+  return palette[hashStr(String(userIds[0])) % palette.length]
+}
+
+/**
+ * Map a Y attribution to BlockNote's `y-attributed-*` mark attrs.
+ *
+ * BlockNote ships its own definitions of these marks (see
+ * `@blocknote/core/src/extensions/tiptap-extensions/Suggestions/SuggestionMarks.ts`)
+ * with attrs that differ from what y-prosemirror's `defaultMapAttributionToMark`
+ * emits, so we have to hand-roll the translation here. The mapper must be
+ * deterministic in `(format, attribution)`: any non-determinism makes the
+ * PM <-> Y reconcile diff non-empty on every transaction and the sync plugin
+ * fires phantom reconcile dispatches in a loop. See ATTRIBUTION.md.
+ *
+ * Note: ideally this mapper would be maintained by the BlockNote authors
+ * alongside the mark schema in the same repo, because any change to the
+ * declared attrs (rename, added required field, dropped attr) will silently
+ * break sync from y-prosemirror's side and we have no shared types to catch
+ * it at build time.
+ *
+ * @param {Record<string, unknown> | null} format
+ * @param {import('lib0/delta').Attribution} attribution
+ * @return {Record<string, unknown>}
+ */
+export const mapAttributionToMark = (format, attribution) => {
+  const out = /** @type {Record<string, unknown>} */ ({ ...format })
+  if (attribution.insert) {
+    out['y-attributed-insert'] = {
+      id: attribution.insert[0] ?? null,
+      'user-color': colorForUserIds(attribution.insert)
+    }
+  }
+  if (attribution.delete) {
+    out['y-attributed-delete'] = {
+      id: attribution.delete[0] ?? null,
+      'user-color': colorForUserIds(attribution.delete)
+    }
+  }
+  if (attribution.format) {
+    const userIds = [...(new Set(Object.values(attribution.format).flat()))]
+    out['y-attributed-format'] = {
+      id: userIds[0] ?? null,
+      'user-color': colorForUserIds(userIds),
+      type: 'modification',
+      attrName: null,
+      previousValue: null,
+      newValue: null
+    }
+  }
+  return out
+}
 
 const userColor = usercolors[random.uint32() % usercolors.length]
 const org = 'yhub-blocknote-demo'
@@ -130,7 +198,7 @@ elemSelectSuggestionMode.addEventListener('change', () => {
       const rawDelta = ytype.toDeltaDeep(am)
       console.log('[debug] === walking RAW delta ===')
       debugWalk(rawDelta)
-      const ycontent = deltaAttributionToFormat(rawDelta, defaultMapAttributionToMark)
+      const ycontent = deltaAttributionToFormat(rawDelta, mapAttributionToMark)
       console.log('[debug] === walking FORMATTED delta ===')
       debugWalk(ycontent)
       const node = deltaToPNode(ycontent, currentView.state.schema, null)
