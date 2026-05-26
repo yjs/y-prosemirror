@@ -11,9 +11,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@blocknote/core": "https://pkg.pr.new/@blocknote/core@ac52371",
-    "@blocknote/mantine": "https://pkg.pr.new/@blocknote/mantine@ac52371",
-    "@blocknote/react": "https://pkg.pr.new/@blocknote/react@ac52371",
+    "@blocknote/core": "https://pkg.pr.new/@blocknote/core@2739",
+    "@blocknote/mantine": "https://pkg.pr.new/@blocknote/mantine@2739",
+    "@blocknote/react": "https://pkg.pr.new/@blocknote/react@2739",
     "@y/prosemirror": "file:..",
     "@y/protocols": "^1.0.6-rc.1",
     "@y/websocket": "^4.0.0-rc.1",
