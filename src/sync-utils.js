@@ -5,7 +5,7 @@ import * as error from 'lib0/error'
 import * as math from 'lib0/math'
 import * as object from 'lib0/object'
 import * as s from 'lib0/schema'
-import { Node } from 'prosemirror-model'
+import { Node, Slice, Fragment } from 'prosemirror-model'
 import {
   AddMarkStep,
   AddNodeMarkStep,
@@ -310,10 +310,10 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
       currPos.i = childStart + child.nodeSize + netChange
     } else if (delta.$insertOp.check(op)) {
       const newPChildren = op.insert.map(ins => deltaToPNode(ins, schema, op.format))
-      tr.insert(currPos.i, newPChildren)
+      tr.step(new ReplaceStep(currPos.i, currPos.i, new Slice(Fragment.from(newPChildren), 0, 0)))
       currPos.i += newPChildren.reduce((s, c) => c.nodeSize + s, 0)
     } else if (delta.$textOp.check(op)) {
-      tr.insert(currPos.i, schema.text(op.insert, formattingAttributesToMarks(op.format, schema)))
+      tr.step(new ReplaceStep(currPos.i, currPos.i, new Slice(Fragment.from(schema.text(op.insert, formattingAttributesToMarks(op.format, schema))), 0, 0)))
       currPos.i += op.length
     } else if (delta.$deleteOp.check(op)) {
       for (let remainingDelLen = op.delete; remainingDelLen > 0;) {
@@ -323,7 +323,7 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
         }
         if (pc.isText) {
           const delLen = math.min(pc.nodeSize - nOffset, remainingDelLen)
-          tr.delete(currPos.i, currPos.i + delLen)
+          tr.step(new ReplaceStep(currPos.i, currPos.i + delLen, Slice.empty))
           nOffset += delLen
           if (nOffset === pc.nodeSize) {
             // TODO this can't actually "jump out" of the current node
@@ -333,7 +333,7 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
           }
           remainingDelLen -= delLen
         } else {
-          tr.delete(currPos.i, currPos.i + pc.nodeSize)
+          tr.step(new ReplaceStep(currPos.i, currPos.i + pc.nodeSize, Slice.empty))
           currParentIndex++
           remainingDelLen--
         }
