@@ -2,6 +2,7 @@ import * as YPM from '@y/prosemirror'
 import * as Y from '@y/y'
 import * as delta from 'lib0/delta'
 import * as t from 'lib0/testing'
+import { Schema } from 'prosemirror-model'
 import { EditorState } from 'prosemirror-state'
 import { schema } from './complexSchema.js'
 import { Cohort, applyTracedOp, assertCohortConsistency, createPMView, setupTwoWaySync } from './cohort.js'
@@ -1324,5 +1325,158 @@ export const testViewSuggestionsDeleteOutOfBounds = () => {
     viewSuggestionMode.state.doc,
     expected,
     'Suggestion Mode peer agrees after sync'
+  )
+}
+
+// === Issue #247 regression: BlockNote-shaped indent in suggestion mode ===
+
+/**
+ * Faithful BlockNote-shaped schema. Issue #247 only reproduces against a
+ * schema with nested `blockContainer` content - complexSchema doesn't have
+ * that, so the schema lives here next to the regression test.
+ *
+ *   doc            { content: 'blockGroup' }
+ *   blockGroup     { content: 'blockContainer+' }
+ *   blockContainer { content: 'blockContent blockGroup?', attrs: { id } }
+ *   blockContent   { content: 'paragraph' }
+ *   paragraph      { content: 'inline*' }
+ *
+ * Tab/indent on a blockContainer X is:
+ *
+ *   blockGroup[ A, B, X ]  ->  blockGroup[ A, B[ ..., blockGroup[X] ] ]
+ *
+ * X moves from sibling-of-B to grandchild-of-B. In Y, the old B XML element
+ * is suggestion-deleted and a new B-prime is suggestion-inserted; the old
+ * B's child `setAttr id` items get tombstoned and the attribution manager
+ * surfaces them as `DeleteAttrOp`s, which lib0/delta `diff` rejects with
+ * `unexpectedCase` on its target side.
+ */
+const blocknoteAttributionMarkNames = 'y-attributed-insert y-attributed-delete y-attributed-format'
+
+const blocknoteSchema = new Schema({
+  nodes: {
+    doc: { content: 'blockGroup', marks: blocknoteAttributionMarkNames },
+    blockGroup: {
+      content: 'blockContainer+',
+      group: 'block',
+      marks: blocknoteAttributionMarkNames,
+      toDOM () { return ['div', { class: 'blockGroup' }, 0] },
+      parseDOM: [{ tag: 'div.blockGroup' }]
+    },
+    blockContainer: {
+      content: 'blockContent blockGroup?',
+      attrs: { id: { default: null } },
+      group: 'blockContainer',
+      marks: blocknoteAttributionMarkNames,
+      defining: true,
+      toDOM (n) { return ['div', { class: 'blockContainer', 'data-id': n.attrs.id }, 0] },
+      parseDOM: [{ tag: 'div.blockContainer' }]
+    },
+    blockContent: {
+      content: 'paragraph',
+      marks: blocknoteAttributionMarkNames,
+      toDOM () { return ['div', { class: 'blockContent' }, 0] },
+      parseDOM: [{ tag: 'div.blockContent' }]
+    },
+    paragraph: {
+      content: 'inline*',
+      marks: blocknoteAttributionMarkNames,
+      toDOM () { return ['p', 0] },
+      parseDOM: [{ tag: 'p' }]
+    },
+    text: { group: 'inline' }
+  },
+  marks: {
+    'y-attributed-insert': {
+      attrs: { userIds: { default: null }, timestamp: { default: null } },
+      parseDOM: [{ tag: 'y-ins' }],
+      toDOM () { return ['y-ins', 0] }
+    },
+    'y-attributed-delete': {
+      attrs: { userIds: { default: null }, timestamp: { default: null } },
+      parseDOM: [{ tag: 'y-del' }],
+      toDOM () { return ['y-del', 0] }
+    },
+    'y-attributed-format': {
+      attrs: { userIds: { default: null }, userIdsByAttr: { default: null }, timestamp: { default: null } },
+      parseDOM: [{ tag: 'y-fmt' }],
+      toDOM () { return ['y-fmt', 0] }
+    }
+  }
+})
+
+/**
+ * @param {string} id
+ * @param {string} text
+ */
+const bnBlock = (id, text) =>
+  blocknoteSchema.nodes.blockContainer.create({ id },
+    blocknoteSchema.nodes.blockContent.create(null,
+      blocknoteSchema.nodes.paragraph.create(null,
+        text ? blocknoteSchema.text(text) : null)))
+
+/**
+ * Issue #247: indenting a block in suggestion mode used to crash the sync
+ * pipeline on the view-suggestion peer with `unexpectedCase` from
+ * lib0/delta `diff`. The fix lives in `deltaAttributionToFormat`
+ * (sync-utils.js): `DeleteAttrOp`s emitted by the attribution manager are
+ * folded back to a `SetAttrOp` with the previous value, because PM has no
+ * model for an attribute deleted under attribution. The parent node's own
+ * delete attribution already carries the visual signal.
+ */
+export const testIssue247BlockNoteIndent = () => {
+  const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({ schema: blocknoteSchema })
+
+  // Seed: doc > blockGroup > [ bc(A), bc(B), bc(C) ]
+  safeDispatch(viewA, viewA.state.tr.replaceWith(
+    0,
+    viewA.state.doc.content.size,
+    blocknoteSchema.nodes.blockGroup.create(null, [
+      bnBlock('A', 'A'),
+      bnBlock('B', 'B'),
+      bnBlock('C', 'C')
+    ])
+  ))
+
+  // Tab/indent on C: remove it from the top blockGroup and append a new
+  // blockGroup containing it as a child of B.
+  const sm = viewSuggestionMode.state
+  const blockGroup = sm.doc.firstChild
+  if (!blockGroup) throw new Error('expected blockGroup at top of doc')
+  const bcB = blockGroup.child(1)
+  const bcC = blockGroup.child(2)
+  const posBeforeC = 1 + blockGroup.child(0).nodeSize + bcB.nodeSize
+  const posOfB = 1 + blockGroup.child(0).nodeSize
+  const newB = blocknoteSchema.nodes.blockContainer.create(bcB.attrs, [
+    bcB.child(0),
+    blocknoteSchema.nodes.blockGroup.create(null, bcC)
+  ])
+  // Delete C first (higher position) then replace B (lower position).
+  safeDispatch(viewSuggestionMode, sm.tr
+    .delete(posBeforeC, posBeforeC + bcC.nodeSize)
+    .replaceWith(posOfB, posOfB + bcB.nodeSize, newB))
+
+  // Base doc is untouched (suggestion-mode edits don't commit to base).
+  assertDocJSON(
+    viewA.state.doc,
+    {
+      type: 'doc',
+      content: [{
+        type: 'blockGroup',
+        content: [
+          { type: 'blockContainer', attrs: { id: 'A' }, content: [{ type: 'blockContent', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'A' }] }] }] },
+          { type: 'blockContainer', attrs: { id: 'B' }, content: [{ type: 'blockContent', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'B' }] }] }] },
+          { type: 'blockContainer', attrs: { id: 'C' }, content: [{ type: 'blockContent', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'C' }] }] }] }
+        ]
+      }]
+    },
+    'base doc unchanged by suggestion-mode indent'
+  )
+
+  // View-suggestion peer agrees with suggestion-mode peer (no crash, no divergence).
+  t.compare(
+    JSON.parse(JSON.stringify(viewSuggestion.state.doc.toJSON())),
+    JSON.parse(JSON.stringify(viewSuggestionMode.state.doc.toJSON())),
+    'view-suggestion peer matches suggestion-mode peer after indent'
   )
 }
