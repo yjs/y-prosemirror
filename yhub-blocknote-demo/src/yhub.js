@@ -108,10 +108,6 @@ export const mapAttributionToMark = (format, attribution) => {
     out['y-attributed-format'] = {
       id: userIds[0] ?? null,
       'user-color': colorForUserIds(userIds),
-      type: 'modification',
-      attrName: null,
-      previousValue: null,
-      newValue: null
     }
   }
   return out
