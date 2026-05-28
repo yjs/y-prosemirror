@@ -101,7 +101,7 @@ export const deltaAttributionToFormat = (d, attributionsToFormat) => {
       if (delta.$insertOp.check(child)) {
         r.insert(child.insert.map(c => delta.$deltaAny.check(c) ? deltaAttributionToFormat(c, attributionsToFormat) : c), format)
       } else if (delta.$textOp.check(child)) {
-        r.insert(child.insert.slice(), format)
+        r.insert(child.insert, format)
       } else if (delta.$retainOp.check(child)) {
         r.retain(child.retain, format)
       } else if (delta.$modifyOp.check(child)) {
