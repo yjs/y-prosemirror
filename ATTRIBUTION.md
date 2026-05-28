@@ -199,6 +199,37 @@ Note that:
 - The mapper sets each present kind independently and leaves absent kinds untouched on `format`. A span that is both inserted and reformatted ends up with both marks.
 - `colorForUser` is deterministic in the user id, so two calls of the mapper with the same `attribution` produce byte-equal output.
 
+## Rendering attributed nodes under a variant node type
+
+By default, attribution on a block (or leaf) node is surfaced only as a `y-attributed-*` *node mark*. Sometimes it is easier to integrate attribution into an existing schema if the attributed node also renders under a *different node type* - so that we can give it its own NodeView, content rules, or styling without touching the base node. The `attributedNodes` option does exactly that: an attributed `paragraph` can render as `paragraph--attributed`.
+
+```js
+syncPlugin({
+  // (nodeName, kinds) => boolean. `kinds` is { insert?, delete?, format? }
+  // reflecting which attribution kinds are present on the node.
+  attributedNodes: (nodeName, kinds) => kinds.delete === true
+})
+```
+
+When the predicate returns `true` for an attributed node *and* a `{nodeName}--attributed` type exists in the schema, that node renders under the variant type. The marks still determine behavior: the `y-attributed-*` marks are applied to the variant exactly as they would be to the canonical node (they carry the who/when payload and remain the single source of truth). The variant name is an additional schema hook, nothing more.
+
+A few properties follow from this design:
+
+- **The suffix `--attributed` is fixed and reserved.** Canonicalizing back (PM to Y) is a pure string operation, so the forward and inverse mappings can never drift apart. As a consequence, a real node type whose name literally ends in `--attributed` would be canonicalized away on the way to Y. Do not name unrelated node types with that suffix.
+- **The Y document always stores the canonical name.** The variant exists only in the rendered ProseMirror document. When attribution is accepted/rejected (or otherwise clears), the node flips back to its canonical type in place.
+- **The predicate must be deterministic** in `(nodeName, kinds)`, for the same reason `mapAttributionToMark` must be (see "Stability is mandatory"). A non-deterministic predicate causes an endless reconcile loop.
+- **Per-kind selection, not per-kind naming.** The predicate decides *whether* a node becomes attributed; the variant name is always the single `--attributed` sibling. A node carrying several kinds (e.g. inserted and then deleted) still resolves to one `--attributed` variant; the marks encode which kinds.
+
+### Schema contract for variant nodes
+
+The `{nodeName}--attributed` type must be a faithful sibling of the canonical node:
+
+- It must accept the same `content` and live in the same `group`, so it is valid everywhere the canonical node is and so an in-place type flip (`setNodeMarkup`) does not violate `content`.
+- It must declare the same `attrs`.
+- It must still allow the `y-attributed-*` marks (we keep emitting them). The "easier integration" win is moving that allowance off the *base* node onto the variant, not removing it.
+
+If `{nodeName}--attributed` is absent from the schema, the node simply keeps its canonical name (with the marks) - the predicate is a no-op for that type. This is how we restrict the feature to "certain nodes": define variants only for the types we want.
+
 ## Pitfalls and debugging
 
 - **Schema attribute mismatch.** The most common failure mode. Symptom: suggestions render but the per-user color (or whatever attr you encoded) is always the default. The sync plugin fires an extra transaction on every keystroke. Fix: align the mapper output with the declared schema `attrs`, ensuring every declared attribute is also emitted by the mapper.
@@ -206,5 +237,7 @@ Note that:
 - **Mark not allowed on the target node.** Symptom: `RangeError: Invalid content for node ...` from `tr.addMark` or `tr.addNodeMark` on the first suggestion-mode edit. Fix: add the three marks by name to every node's `marks` content expression, or extend the node types' `markSet` programmatically.
 - **Non-canonical mark names.** Symptom: attribution marks accumulate on the document and eventually leak into the CRDT, because the PM to Y strip step does not recognize them. Fix: rename your marks to the canonical names.
 - **Non-deterministic mapper.** Symptom: sync plugin fires a never-ending stream of reconcile transactions, even with no user input. Fix: remove timestamps, random ids, and any other non-deterministic value from the mapper. Derive everything from the `attribution` argument.
+- **Variant node missing or mismatched.** Symptom (with `attributedNodes`): attributed nodes never switch to their `--attributed` type, or `setNodeMarkup` throws an invalid-content error on the first attributed edit. Fix: define `{nodeName}--attributed` with the same `content`/`group`/`attrs`/allowed marks as the canonical node. See "Schema contract for variant nodes".
+- **Non-deterministic `attributedNodes` predicate.** Symptom: never-ending reconcile transactions, same as a non-deterministic mapper. Fix: derive the result only from `(nodeName, kinds)`.
 
 See also [`CAVEATS.md`](./CAVEATS.md) ("Attribution mark names are fixed", "Schema mismatches in suggestion mode") for related design tradeoffs and the underlying schema-resolution gotcha.

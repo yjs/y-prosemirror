@@ -54,11 +54,11 @@ export const configureYProsemirror = (opts = {}) => (state, dispatch) => {
       // @todo it is preferred to apply the minimal diff - at least for debugging purposes. the
       // document replacal is more reliable though
       if (debugging) {
-        const pcontent = nodeToDelta(tr.doc)
+        const pcontent = nodeToDelta(tr.doc, undefined, true)
         const diff = d.diff(pcontent.done(), ycontent.done())
-        deltaToPSteps(tr, diff)
+        deltaToPSteps(tr, diff, undefined, undefined, pluginState.attributedNodes)
       } else {
-        tr.replaceWith(0, tr.doc.content.size, deltaToPNode(ycontent, tr.doc.type.schema, null))
+        tr.replaceWith(0, tr.doc.content.size, deltaToPNode(ycontent, tr.doc.type.schema, null, pluginState.attributedNodes))
       }
     }
     dispatch(tr)

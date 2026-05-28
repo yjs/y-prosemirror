@@ -4,6 +4,7 @@ import * as delta from './delta.test.js'
 import * as positions from './positions.test.js'
 import * as suggestions from './suggestions.test.js'
 import * as suggestionSimulation from './suggestion-simulation.test.js'
+import * as attributedNodes from './attributed-nodes.test.js'
 // import * as tr from './tr.test.js'
 
 import { runTests } from 'lib0/testing'
@@ -18,7 +19,8 @@ runTests({
   delta,
   positions,
   suggestions,
-  suggestionSimulation
+  suggestionSimulation,
+  attributedNodes
   // prosemirror,
   // tr
 }).then(success => {

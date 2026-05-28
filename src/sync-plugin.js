@@ -2,6 +2,7 @@ import * as Y from '@y/y'
 import { Plugin } from 'prosemirror-state'
 import {
   $prosemirrorDelta,
+  defaultAttributedNodes,
   defaultMapAttributionToMark,
   deltaAttributionToFormat,
   deltaToPSteps,
@@ -22,13 +23,19 @@ export const $syncPluginState = s.$object({
    * If provided, will switch to the given attribution manager instead of the current attribution manager
    */
   attributionManager: Y.$attributionManager.nullable,
-  attributionMapper: /** @type {s.Schema<AttributionMapper>} */ (s.$function)
+  attributionMapper: /** @type {s.Schema<AttributionMapper>} */ (s.$function),
+  /**
+   * Predicate deciding which attributed nodes render under their
+   * `{nodeName}--attributed` variant. See {@link syncPlugin}.
+   */
+  attributedNodes: /** @type {s.Schema<AttributedNodesPredicate>} */ (s.$function)
 })
 
 export const $syncPluginStateUpdate = s.$object({
   ytype: Y.$ytypeAny.nullable.optional,
   attributionManager: Y.$attributionManager.nullable.optional,
   attributionMapper: /** @type {s.Schema<AttributionMapper>} */ (s.$function).nullable.optional,
+  attributedNodes: /** @type {s.Schema<AttributedNodesPredicate>} */ (s.$function).nullable.optional,
   change: /** @type {s.Schema<Y.YEvent<any>>} */ (s.$any).nullable.optional
 })
 const $maybeSyncPluginStateUpdate = $syncPluginStateUpdate.nullable
@@ -99,6 +106,7 @@ const stripAttributionFormattingFromDelta = (input) => {
  * @param {object} opts
  * @param {Y.Doc} [opts.suggestionDoc] A {@link Y.Doc} to use for suggestion tracking
  * @param {AttributionMapper} [opts.mapAttributionToMark] A function to map the {@link Y.Attribution} to a {@link import('prosemirror-model').Mark} - the mark names *must* be one of: `y-attributed-insert`, `y-attributed-delete`, `y-attributed-format`. No other mark names are permitted
+ * @param {AttributedNodesPredicate} [opts.attributedNodes] Optional predicate `(nodeName, kinds) => boolean`. When it returns `true` for an attributed node *and* a `{nodeName}--attributed` type exists in the schema, that node is rendered under the variant type (the `y-attributed-*` marks are still applied). `kinds` is `{ insert?, delete?, format? }`. The variant is a pure rendering concern - the canonical name is what is stored in the Y document. The predicate must be deterministic in `(nodeName, kinds)`.
  * @returns {Plugin}
  */
 export function syncPlugin (opts = {}) {
@@ -109,7 +117,8 @@ export function syncPlugin (opts = {}) {
         return $syncPluginState.expect({
           ytype: null,
           attributionManager: null,
-          attributionMapper: opts.mapAttributionToMark || defaultMapAttributionToMark
+          attributionMapper: opts.mapAttributionToMark || defaultMapAttributionToMark,
+          attributedNodes: opts.attributedNodes || defaultAttributedNodes
         })
       },
       apply: (tr, prevPluginState) => {
@@ -130,8 +139,9 @@ export function syncPlugin (opts = {}) {
        * @param {Y.Type?} opts.ytype
        * @param {Y.AbstractAttributionManager?} opts.attributionManager
        * @param {AttributionMapper} opts.attributionMapper
+       * @param {AttributedNodesPredicate} opts.attributedNodes
        */
-      function subscribeToYType ({ view, ytype, attributionManager, attributionMapper }) {
+      function subscribeToYType ({ view, ytype, attributionManager, attributionMapper, attributedNodes }) {
         unsubscribeFn?.()
         if (ytype != null) {
           // Listen on the doc's `afterTransaction` event rather than
@@ -169,10 +179,10 @@ export function syncPlugin (opts = {}) {
               ytype.toDeltaDeep(am),
               attributionMapper
             ).done()
-            const pcontent = nodeToDelta(view.state.doc).done()
+            const pcontent = nodeToDelta(view.state.doc, undefined, true).done()
             const diff = d.diff(pcontent, desiredPM)
             if (diff.isEmpty()) return
-            const ptr = deltaToPSteps(view.state.tr, diff)
+            const ptr = deltaToPSteps(view.state.tr, diff, undefined, undefined, attributedNodes)
             ptr.setMeta('addToHistory', false)
             ptr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
               change: null,
@@ -197,10 +207,10 @@ export function syncPlugin (opts = {}) {
               ytype.toDeltaDeep(attributionManager || Y.noAttributionsManager),
               attributionMapper
             ).done()
-            const pcontent = nodeToDelta(view.state.doc).done()
+            const pcontent = nodeToDelta(view.state.doc, undefined, true).done()
             const diff = d.diff(pcontent, desiredPM)
             if (diff.isEmpty()) return
-            const ptr = deltaToPSteps(view.state.tr, diff)
+            const ptr = deltaToPSteps(view.state.tr, diff, undefined, undefined, attributedNodes)
             ptr.setMeta('addToHistory', false)
             // @todo stop updating meta on every transaction
             ptr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
@@ -235,7 +245,8 @@ export function syncPlugin (opts = {}) {
               view,
               ytype,
               attributionManager,
-              attributionMapper: pluginState.attributionMapper
+              attributionMapper: pluginState.attributionMapper,
+              attributedNodes: pluginState.attributedNodes
             })
           }
           if (ytype == null) return
@@ -251,11 +262,12 @@ export function syncPlugin (opts = {}) {
           // apply the same insert twice.
           const am = attributionManager || Y.noAttributionsManager
           const mapper = pluginState.attributionMapper
+          const attributedNodes = pluginState.attributedNodes
           const ycontent = deltaAttributionToFormat(
             ytype.toDeltaDeep(am),
             mapper
           ).done()
-          const pcontent = nodeToDelta(view.state.doc).done()
+          const pcontent = nodeToDelta(view.state.doc, undefined, true).done()
           const pmToYDiff = stripAttributionFormattingFromDelta(d.diff(ycontent, pcontent))
           if (!pmToYDiff.isEmpty()) {
             /** @type {Y.Doc} */ (ytype.doc).transact(() => {
@@ -266,11 +278,11 @@ export function syncPlugin (opts = {}) {
             ytype.toDeltaDeep(am),
             mapper
           ).done()
-          const pcontentAfter = nodeToDelta(view.state.doc).done()
+          const pcontentAfter = nodeToDelta(view.state.doc, undefined, true).done()
           const pmReconcileDiff = d.diff(pcontentAfter, desiredPM)
           if (pmReconcileDiff.isEmpty()) return
           const tr = view.state.tr
-          deltaToPSteps(tr, pmReconcileDiff)
+          deltaToPSteps(tr, pmReconcileDiff, undefined, undefined, attributedNodes)
           tr.setMeta('addToHistory', false)
           tr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
             change: null,
