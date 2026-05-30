@@ -13,7 +13,7 @@ import * as object from 'lib0/object'
 import * as random from 'lib0/random'
 import * as set from 'lib0/set'
 import * as PModel from 'prosemirror-model'
-import { NodeSelection, Plugin, TextSelection, Transaction } from 'prosemirror-state'; // eslint-disable-line
+import { NodeSelection, Plugin, Selection, TextSelection, Transaction } from 'prosemirror-state'; // eslint-disable-line
 import { DocAttrStep } from 'prosemirror-transform'
 import * as Y from 'yjs'
 import {
@@ -177,7 +177,7 @@ export const isVisible = (item, snapshot) =>
  * @property {Map<string,ColorDef>} [YSyncOpts.colorMapping]
  * @property {Y.PermanentUserData|null} [YSyncOpts.permanentUserData]
  * @property {function} [YSyncOpts.onFirstRender] Fired when the content from Yjs is initially rendered to ProseMirror
- * @property {function} [YSyncOpts.restoreSelection] Optional hook to restore custom selection types.
+ * @property {function(Transaction, number, number, {anchor: Y.RelativePosition, head: Y.RelativePosition, type: string}): ?Selection} [YSyncOpts.restoreSelection] Optional hook to restore custom selection types.
  *   Called with (tr, anchor, head, relSel) before the built-in node/text selection logic.
  *   Return a Selection instance to use it, or null/undefined to fall back to defaults.
  */
