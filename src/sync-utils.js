@@ -317,7 +317,7 @@ const applyNodeFormat = (tr, pos, format, attributedNodes) => {
     attributedVariant(canonicalNodeName(node.type.name), marksToFormattingAttributes(resultingMarks), attributedNodes, schema)
   ]
   if (targetType !== node.type) {
-    tr.setNodeMarkup(pos, targetType, node.attrs, resultingMarks)
+    tr.setNodeMarkup(pos, targetType, object.assign({ 'yjs-suggestion-node': true }, node.attrs), resultingMarks)
   } else {
     object.forEach(format ?? {}, (v, k) => {
       if (v == null) {
@@ -460,8 +460,13 @@ export const deltaToPNode = (d, schema, dformat, attributedNodes = defaultAttrib
   }
   const inputChildren = dc.flat(1)
   const inputMarks = formattingAttributesToMarks(dformat, schema)
+  const finalAttrs = canonical !== nodeType.name
+    ? object.assign({
+      'yjs-suggestion-node': true
+    }, attrs)
+    : attrs
   const pNode = nodeType.createAndFill(
-    attrs,
+    finalAttrs,
     inputChildren,
     inputMarks
   )
