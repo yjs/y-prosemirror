@@ -317,6 +317,8 @@ const applyNodeFormat = (tr, pos, format, attributedNodes) => {
     attributedVariant(canonicalNodeName(node.type.name), marksToFormattingAttributes(resultingMarks), attributedNodes, schema)
   ]
   if (targetType !== node.type) {
+    // TODO this assumes that when flipping the node type, that the new type fits in the same position within the parent
+    // This is not always true and will fail with a single required node like BlockNote's blockContainer
     tr.setNodeMarkup(pos, targetType, object.assign({ 'yjs-suggestion-node': true }, node.attrs), resultingMarks)
   } else {
     object.forEach(format ?? {}, (v, k) => {
