@@ -13,7 +13,7 @@ import * as object from 'lib0/object'
 import * as random from 'lib0/random'
 import * as set from 'lib0/set'
 import * as PModel from 'prosemirror-model'
-import { NodeSelection, Plugin, TextSelection, Transaction } from 'prosemirror-state'; // eslint-disable-line
+import { NodeSelection, Plugin, Selection, TextSelection, Transaction } from 'prosemirror-state'; // eslint-disable-line
 import { DocAttrStep } from 'prosemirror-transform'
 import * as Y from 'yjs'
 import {
@@ -177,6 +177,9 @@ export const isVisible = (item, snapshot) =>
  * @property {Map<string,ColorDef>} [YSyncOpts.colorMapping]
  * @property {Y.PermanentUserData|null} [YSyncOpts.permanentUserData]
  * @property {function} [YSyncOpts.onFirstRender] Fired when the content from Yjs is initially rendered to ProseMirror
+ * @property {function(Transaction, number, number, {anchor: Y.RelativePosition, head: Y.RelativePosition, type: string}): ?Selection} [YSyncOpts.restoreSelection] Optional hook to restore custom selection types.
+ *   Called with (tr, anchor, head, relSel) before the built-in node/text selection logic.
+ *   Return a Selection instance to use it, or null/undefined to fall back to defaults.
  */
 
 /**
@@ -215,7 +218,8 @@ export const ySyncPlugin = (yXmlFragment, {
   colors = defaultColors,
   colorMapping = new Map(),
   permanentUserData = null,
-  onFirstRender = () => {}
+  onFirstRender = () => {},
+  restoreSelection = null
 } = {}) => {
   let changedInitialContent = false
   let rerenderTimeout
@@ -243,7 +247,8 @@ export const ySyncPlugin = (yXmlFragment, {
           addToHistory: true,
           colors,
           colorMapping,
-          permanentUserData
+          permanentUserData,
+          restoreSelection
         }
       },
       apply: (tr, pluginState) => {
@@ -375,6 +380,27 @@ const restoreRelativeSelection = (tr, relSel, binding) => {
       binding.mapping
     )
     if (anchor !== null && head !== null) {
+      const pluginState = ySyncPluginKey.getState(binding.prosemirrorView.state)
+      const restoreSelection = pluginState && pluginState.restoreSelection
+      if (typeof restoreSelection === 'function') {
+        try {
+          const custom = restoreSelection(tr, anchor, head, relSel)
+          if (custom) {
+            tr.setSelection(custom)
+            return
+          }
+        } catch (err) {
+          console.error(
+            '[@gamma-app/y-prosemirror][sync-plugin] restoreRelativeSelection custom hook error - pos:',
+            anchor,
+            head,
+            'type:',
+            relSel.type,
+            'error:',
+            err
+          )
+        }
+      }
       let selection
       if (relSel.type === 'node') {
         try {
