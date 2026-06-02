@@ -32,7 +32,7 @@ const schema = new Schema({
       }
     },
     container: {
-      attrs: { 'yjs-suggestion-node': { } },
+      attrs: { 'y-attributed': { } },
       content: 'attributed* block attributed*',
       group: 'block',
       parseDOM: [{ tag: 'container' }],
@@ -120,7 +120,7 @@ const canonical = (name) =>
  **/
 const containerWithParagraph = (text) =>
   delta.create().insert([
-    delta.create('container', { 'yjs-suggestion-node': true }, [
+    delta.create('container', { 'y-attributed': true }, [
       delta.create('paragraph', {}, text)
     ])
   ]).done()
@@ -281,7 +281,7 @@ export const testAcceptFlipsBackToCanonical = _tc => {
  *  Container nesting: flipping a *child* node type as a suggestion.
  *
  *  The `container` node declares `content: 'attributed* block attributed*'` and
- *  carries the `yjs-suggestion-node` attr. The scenarios below nest a child
+ *  carries the `y-attributed` attr. The scenarios below nest a child
  *  block inside a container and then change that child's type (paragraph <->
  *  heading) in suggestion mode. The goal is to be able to flip the suggested
  *  child change back and forth and have every peer (base / viewer / editor)
@@ -312,7 +312,7 @@ export const testContainerSeedSyncs = _tc => {
     type: 'doc',
     content: [{
       type: 'container',
-      attrs: { 'yjs-suggestion-node': true },
+      attrs: { 'y-attributed': true },
       content: [{ type: 'paragraph', content: [{ type: 'text', text: 'child' }] }]
     }]
   }
@@ -353,7 +353,7 @@ export const testContainerChildFlipParagraphToHeading = _tc => {
     type: 'doc',
     content: [{
       type: 'container',
-      attrs: { 'yjs-suggestion-node': true },
+      attrs: { 'y-attributed': true },
       content: [{ type: 'paragraph', content: [{ type: 'text', text: 'child' }] }]
     }]
   }, 'base: child stays canonical paragraph')
@@ -364,7 +364,7 @@ export const testContainerChildFlipParagraphToHeading = _tc => {
     type: 'doc',
     content: [{
       type: 'container',
-      attrs: { 'yjs-suggestion-node': true },
+      attrs: { 'y-attributed': true },
       content: [{
         type: 'heading--attributed',
         attrs: { level: 2 },
@@ -420,7 +420,7 @@ export const testContainerChildFlipBackAndForth = _tc => {
     type: 'doc',
     content: [{
       type: 'container',
-      attrs: { 'yjs-suggestion-node': true },
+      attrs: { 'y-attributed': true },
       content: [{ type: 'paragraph', content: [{ type: 'text', text: 'child' }] }]
     }]
   }
@@ -454,7 +454,7 @@ export const testContainerChildFlipAccept = _tc => {
     type: 'doc',
     content: [{
       type: 'container',
-      attrs: { 'yjs-suggestion-node': true },
+      attrs: { 'y-attributed': true },
       content: [{
         type: 'heading',
         attrs: { level: 2 },
@@ -491,7 +491,7 @@ export const testContainerChildFlipReject = _tc => {
     type: 'doc',
     content: [{
       type: 'container',
-      attrs: { 'yjs-suggestion-node': true },
+      attrs: { 'y-attributed': true },
       content: [{ type: 'paragraph', content: [{ type: 'text', text: 'child' }] }]
     }]
   }
