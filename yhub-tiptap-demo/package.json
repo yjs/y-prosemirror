@@ -1,0 +1,28 @@
+{
+  "name": "yhub-tiptap-demo",
+  "version": "1.0.0",
+  "description": "YHub + Tiptap + @y/prosemirror suggestion/attribution demo",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tiptap/core": "^3.13.0",
+    "@tiptap/extension-image": "^3.24.0",
+    "@tiptap/extension-table": "^3.24.0",
+    "@tiptap/pm": "^3.13.0",
+    "@tiptap/starter-kit": "^3.13.0",
+    "@y/prosemirror": "file:..",
+    "@y/protocols": "^1.0.6-rc.1",
+    "@y/websocket": "^4.0.0-rc.1",
+    "@y/y": "^14.0.0-rc.17",
+    "lib0": "^1.0.0-rc.13"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  }
+}
