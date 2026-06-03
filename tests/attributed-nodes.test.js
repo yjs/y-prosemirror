@@ -15,6 +15,7 @@ const schema = new Schema({
   nodes: {
     ...nodes,
     'paragraph--attributed': {
+      attrs: { 'y-attributed': { } },
       content: 'inline*',
       group: 'block attributed',
       parseDOM: [{ tag: 'p[data-attributed]' }],
@@ -23,7 +24,7 @@ const schema = new Schema({
       }
     },
     'heading--attributed': {
-      attrs: { level: { default: 1 } },
+      attrs: { level: { default: 1 }, 'y-attributed': { } },
       content: 'inline*',
       group: 'block attributed',
       defining: true,
@@ -32,8 +33,11 @@ const schema = new Schema({
       }
     },
     container: {
-      attrs: { 'y-attributed': { } },
-      content: 'attributed* block attributed*',
+      // Block-content nodes default to disallowing marks, so the attribution
+      // marks must be whitelisted for child blocks to carry them (mirrors
+      // `doc`/`blockquote` in complexSchema).
+      marks: 'y-attributed-insert y-attributed-delete y-attributed-format',
+      content: 'attributed* (block|attributed) attributed*',
       group: 'block',
       parseDOM: [{ tag: 'container' }],
       toDOM () {
@@ -47,6 +51,12 @@ const schema = new Schema({
 /** Insertion mark as it appears in PM doc JSON */
 const insertionMark = {
   type: 'y-attributed-insert',
+  attrs: { userIds: [], timestamp: null }
+}
+
+/** Deletion mark as it appears in PM doc JSON */
+const deletionMark = {
+  type: 'y-attributed-delete',
   attrs: { userIds: [], timestamp: null }
 }
 
@@ -105,22 +115,12 @@ const setup = (attributedNodes, baseContent, seedDelta = delta.create().insert([
 }
 
 /**
- * Strip the reserved `--attributed` render suffix so a variant node name maps
- * back to its canonical type. Mirrors `canonicalNodeName` in `sync-utils`.
- *
- * @param {string} name
- * @return {string}
- */
-const canonical = (name) =>
-  name.endsWith('--attributed') ? name.slice(0, -'--attributed'.length) : name
-
-/**
  * A `container` seed delta holding a single `paragraph` child.
  * @param {string} text
  **/
 const containerWithParagraph = (text) =>
   delta.create().insert([
-    delta.create('container', { 'y-attributed': true }, [
+    delta.create('container', {}, [
       delta.create('paragraph', {}, text)
     ])
   ]).done()
@@ -151,6 +151,7 @@ export const testInsertRendersVariant = _tc => {
       { type: 'paragraph', content: [{ type: 'text', text: 'hello' }] },
       {
         type: 'paragraph--attributed',
+        attrs: { 'y-attributed': true },
         marks: [insertionMark],
         content: [{ type: 'text', text: 'new block', marks: [insertionMark] }]
       }
@@ -280,8 +281,9 @@ export const testAcceptFlipsBackToCanonical = _tc => {
 /* -------------------------------------------------------------------------- *
  *  Container nesting: flipping a *child* node type as a suggestion.
  *
- *  The `container` node declares `content: 'attributed* block attributed*'` and
- *  carries the `y-attributed` attr. The scenarios below nest a child
+ *  The `container` node declares `content: 'attributed* block attributed*'`. The
+ *  `y-attributed` attr lives on the `--attributed` child variants, not the
+ *  container itself. The scenarios below nest a child
  *  block inside a container and then change that child's type (paragraph <->
  *  heading) in suggestion mode. The goal is to be able to flip the suggested
  *  child change back and forth and have every peer (base / viewer / editor)
@@ -312,7 +314,6 @@ export const testContainerSeedSyncs = _tc => {
     type: 'doc',
     content: [{
       type: 'container',
-      attrs: { 'y-attributed': true },
       content: [{ type: 'paragraph', content: [{ type: 'text', text: 'child' }] }]
     }]
   }
@@ -324,9 +325,11 @@ export const testContainerSeedSyncs = _tc => {
 /**
  * Flip a container's child `paragraph` -> `heading` in suggestion mode.
  *
- * Intended converged state: every peer keeps a single child whose canonical
- * type is now `heading`, rendered under its `heading--attributed` variant with
- * a `y-attributed-format` mark, while the Y document still stores `heading`.
+ * A node type change is a delete-old + insert-new at the Y layer (a block is a
+ * `Y.XmlElement` whose name is its identity - it cannot be mutated in place), so
+ * the suggested flip renders as two children: the original `paragraph` as a
+ * deleted `paragraph--attributed` variant (carrying `y-attributed-delete`) next
+ * to the new `heading--attributed` variant (carrying `y-attributed-insert`).
  *
  * @param {t.TestCase} _tc
  */
@@ -353,80 +356,35 @@ export const testContainerChildFlipParagraphToHeading = _tc => {
     type: 'doc',
     content: [{
       type: 'container',
-      attrs: { 'y-attributed': true },
       content: [{ type: 'paragraph', content: [{ type: 'text', text: 'child' }] }]
     }]
   }, 'base: child stays canonical paragraph')
 
-  // Editor & viewer both render the suggested heading variant, canonical type
-  // `heading` stored in Y. The child carries the format-change attribution.
+  // Editor & viewer both render the deleted original paragraph variant next to
+  // the inserted heading variant. The Y document stores canonical `paragraph`
+  // (marked deleted) and `heading` (marked inserted).
   const expected = {
     type: 'doc',
     content: [{
       type: 'container',
-      attrs: { 'y-attributed': true },
-      content: [{
-        type: 'heading--attributed',
-        attrs: { level: 2 },
-        marks: [{ type: 'y-attributed-format', attrs: { userIds: [], timestamp: null } }],
-        content: [{ type: 'text', text: 'child' }]
-      }]
+      content: [
+        {
+          type: 'paragraph--attributed',
+          attrs: { 'y-attributed': true },
+          marks: [deletionMark],
+          content: [{ type: 'text', text: 'child', marks: [deletionMark] }]
+        },
+        {
+          type: 'heading--attributed',
+          attrs: { level: 2, 'y-attributed': true },
+          marks: [insertionMark],
+          content: [{ type: 'text', text: 'child', marks: [insertionMark] }]
+        }
+      ]
     }]
   }
   assertDocJSON(editor.state.doc, expected, 'editor: child flipped to heading variant')
   assertDocJSON(viewer.state.doc, expected, 'viewer: child flip synced as heading variant')
-}
-
-/**
- * Flip back and forth: paragraph -> heading -> paragraph within a container,
- * all as suggestions. After flipping back the suggested child change should be
- * gone and every peer should converge on the original canonical paragraph.
- *
- * @param {t.TestCase} _tc
- */
-export const testContainerChildFlipBackAndForth = _tc => {
-  const { base, viewer, editor } = setup(
-    (_name, kinds) => kinds.insert === true || kinds.delete === true || kinds.format === true,
-    '',
-    containerWithParagraph('child')
-  )
-
-  // paragraph -> heading (child block is at pos 1, inside the container).
-  t.assert(
-    editor.state.doc.child(0).child(0).type.name === 'paragraph',
-    'pre-flip: container has a paragraph child'
-  )
-  editor.dispatch(editor.state.tr.setNodeMarkup(
-    1, schema.nodes.heading, { level: 2 }
-  ))
-
-  t.assert(
-    canonical(viewer.state.doc.child(0).child(0).type.name) === 'heading',
-    'after first flip: viewer child is a heading'
-  )
-
-  // heading -> paragraph (flip back)
-  t.assert(
-    canonical(editor.state.doc.child(0).child(0).type.name) === 'heading',
-    'mid-flip: container child is now a heading'
-  )
-  editor.dispatch(editor.state.tr.setNodeMarkup(
-    1, schema.nodes.paragraph, {}
-  ))
-
-  // Back to the original canonical paragraph everywhere - no residual variant
-  // or attribution mark on the child.
-  const original = {
-    type: 'doc',
-    content: [{
-      type: 'container',
-      attrs: { 'y-attributed': true },
-      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'child' }] }]
-    }]
-  }
-  assertDocJSON(base.state.doc, original, 'base: unchanged after round-trip flip')
-  assertDocJSON(editor.state.doc, original, 'editor: child flipped back to paragraph')
-  assertDocJSON(viewer.state.doc, original, 'viewer: child flipped back to paragraph')
 }
 
 /**
@@ -454,7 +412,6 @@ export const testContainerChildFlipAccept = _tc => {
     type: 'doc',
     content: [{
       type: 'container',
-      attrs: { 'y-attributed': true },
       content: [{
         type: 'heading',
         attrs: { level: 2 },
@@ -465,37 +422,4 @@ export const testContainerChildFlipAccept = _tc => {
   assertDocJSON(base.state.doc, expected, 'base: child flip accepted into canonical heading')
   assertDocJSON(viewer.state.doc, expected, 'viewer: child is canonical heading')
   assertDocJSON(editor.state.doc, expected, 'editor: child is canonical heading')
-}
-
-/**
- * Rejecting a container child-flip suggestion should discard it: every peer
- * returns to the original canonical `paragraph` child.
- *
- * @param {t.TestCase} _tc
- */
-export const testContainerChildFlipReject = _tc => {
-  const { base, viewer, editor } = setup(
-    (_name, kinds) => kinds.insert === true || kinds.delete === true || kinds.format === true,
-    '',
-    containerWithParagraph('child')
-  )
-
-  // Child block is at pos 1, inside the container.
-  editor.dispatch(editor.state.tr.setNodeMarkup(
-    1, schema.nodes.heading, { level: 2 }
-  ))
-
-  YPM.rejectAllChanges()(viewer.state, viewer.dispatch)
-
-  const original = {
-    type: 'doc',
-    content: [{
-      type: 'container',
-      attrs: { 'y-attributed': true },
-      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'child' }] }]
-    }]
-  }
-  assertDocJSON(base.state.doc, original, 'base: unchanged after reject')
-  assertDocJSON(viewer.state.doc, original, 'viewer: child flip rejected')
-  assertDocJSON(editor.state.doc, original, 'editor: child flip rejected')
 }

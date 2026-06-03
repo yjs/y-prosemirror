@@ -276,7 +276,18 @@ export function fragmentToPm (fragment, tr) {
  */
 export const nodeToDelta = (n, nodeName = n.type.name, canonicalize = false) => {
   const d = delta.create(canonicalize && nodeName != null ? canonicalNodeName(nodeName) : nodeName, $prosemirrorDelta)
-  d.setAttrs(n.attrs)
+  // `y-attributed` is a render-only marker injected when a node is rendered
+  // under its `--attributed` variant (see the injections in `applyNodeFormat`
+  // and `deltaToPNode`). It must never persist in Y - strip it on the PM->Y
+  // (canonicalize) path, symmetric to the variant-name canonicalization above.
+  // Otherwise Y stores a canonical node carrying `y-attributed`, which the
+  // canonical PM type cannot round-trip, and the reconcile loop never converges.
+  if (canonicalize && n.attrs['y-attributed'] !== undefined) {
+    const { 'y-attributed': _omit, ...rest } = n.attrs
+    d.setAttrs(rest)
+  } else {
+    d.setAttrs(n.attrs)
+  }
   n.content.content.forEach(c => {
     d.insert(c.isText ? (c.text ?? []) : [nodeToDelta(c, undefined, canonicalize)], marksToFormattingAttributes(c.marks))
   })
@@ -330,6 +341,22 @@ const applyNodeFormat = (tr, pos, format, attributedNodes) => {
 }
 
 /**
+ * A single child op of a {@link ProsemirrorDelta} (retain / modify / insert /
+ * text / delete).
+ *
+ * @typedef {delta.ChildrenOpAny} ProsemirrorDeltaOp
+ */
+
+/**
+ * A grouped run of insert/text and/or delete ops sharing one anchor position,
+ * applied as a single atomic replace step (see {@link deltaToPSteps}).
+ *
+ * @typedef {object} ReplaceBundle
+ * @property {Array<delta.InsertOp<any>|delta.TextOp>} inserts insert/text ops, in delta order
+ * @property {Array<delta.DeleteOp>} deletes delete ops, in delta order
+ */
+
+/**
  * @param {import('prosemirror-state').Transaction} tr
  * @param {ProsemirrorDelta} d
  * @param {Node} [pnode]
@@ -343,9 +370,48 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }, attribu
   let nOffset = 0
   const pchildren = pnode.children
   for (const attr of d.attrs) {
-    tr.setNodeAttribute(currPos.i - 1, attr.key, attr.value)
+    if (delta.$setAttrOp.check(attr)) {
+      // can be a delete attr op iff attribution node is transformed back to a normal node
+      tr.setNodeAttribute(currPos.i - 1, attr.key, attr.value)
+    }
   }
-  d.children.forEach(op => {
+  // Group ops into maximal runs bounded by retain/modify ops (the only ops that
+  // re-anchor position relative to `pchildren`; `delta.diff` never emits a retain
+  // inside a replace run, so every op within a run shares the same anchor). Each
+  // run of inserts/deletes is applied as a single atomic replace `bundle`
+  // (`{ inserts, deletes }`), so ProseMirror validates only the final state - a
+  // pure insert is a replace with no deletes, a pure delete a replace with no
+  // inserts. Applying delete and insert as separate steps would expose an
+  // intermediate that some content expressions reject - e.g. `attributed*
+  // (block|attributed) attributed*` (one non-attributed block flanked by
+  // attributed nodes) rejects both the delete-first (empty) and insert-first
+  // (two-block) intermediates.
+  /** @type {Array<ProsemirrorDeltaOp | ReplaceBundle>} */
+  const ordered = []
+  /** @type {Array<delta.InsertOp<any>|delta.TextOp>} */
+  let runInserts = []
+  /** @type {Array<delta.DeleteOp>} */
+  let runDeletes = []
+  const flushRun = () => {
+    if (runInserts.length > 0 || runDeletes.length > 0) {
+      ordered.push({ inserts: runInserts, deletes: runDeletes })
+    }
+    runInserts = []
+    runDeletes = []
+  }
+  for (const op of d.children) {
+    if (delta.$retainOp.check(op) || delta.$modifyOp.check(op)) {
+      flushRun()
+      ordered.push(op)
+    } else if (delta.$deleteOp.check(op)) {
+      runDeletes.push(op)
+    } else { // insert / text
+      runInserts.push(/** @type {any} */ (op))
+    }
+  }
+  flushRun()
+
+  ordered.forEach(op => {
     if (delta.$retainOp.check(op)) {
       // skip over i children
       let i = op.retain
@@ -400,36 +466,50 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }, attribu
       // any size delta from inserts/deletes inside the recursion.
       const netChange = tr.doc.content.size - sizeBefore
       currPos.i = childStart + child.nodeSize + netChange
-    } else if (delta.$insertOp.check(op)) {
-      const newPChildren = op.insert.map(ins => deltaToPNode(ins, schema, op.format, attributedNodes))
-      tr.step(new ReplaceStep(currPos.i, currPos.i, new Slice(Fragment.from(newPChildren), 0, 0)))
-      currPos.i += newPChildren.reduce((s, c) => c.nodeSize + s, 0)
-    } else if (delta.$textOp.check(op)) {
-      tr.step(new ReplaceStep(currPos.i, currPos.i, new Slice(Fragment.from(schema.text(op.insert, formattingAttributesToMarks(op.format, schema))), 0, 0)))
-      currPos.i += op.length
-    } else if (delta.$deleteOp.check(op)) {
-      for (let remainingDelLen = op.delete; remainingDelLen > 0;) {
-        const pc = pchildren[currParentIndex]
-        if (pc === undefined) {
-          throw new Error('[y/prosemirror]: delete operation is out of bounds')
-        }
-        if (pc.isText) {
-          const delLen = math.min(pc.nodeSize - nOffset, remainingDelLen)
-          tr.step(new ReplaceStep(currPos.i, currPos.i + delLen, Slice.empty))
-          nOffset += delLen
-          if (nOffset === pc.nodeSize) {
-            // TODO this can't actually "jump out" of the current node
-            // jump to next node
-            nOffset = 0
-            currParentIndex++
+    } else {
+      // Atomic replace bundle: build the inserted content, measure the deleted
+      // range (advancing currParentIndex/nOffset exactly like a delete would),
+      // and replace in one step. currPos.i ends past the inserted content,
+      // matching delete-then-insert (delete leaves currPos.i, insert advances
+      // it). Delete sizing reads the frozen `pchildren` snapshot, which is what
+      // makes the single combined range correct.
+      const bundle = /** @type {ReplaceBundle} */ (op)
+      const newPChildren = []
+      for (const ins of bundle.inserts) {
+        if (delta.$insertOp.check(ins)) {
+          for (const n of ins.insert) {
+            newPChildren.push(deltaToPNode(n, schema, ins.format, attributedNodes))
           }
-          remainingDelLen -= delLen
-        } else {
-          tr.step(new ReplaceStep(currPos.i, currPos.i + pc.nodeSize, Slice.empty))
-          currParentIndex++
-          remainingDelLen--
+        } else { // text op
+          newPChildren.push(schema.text(ins.insert, formattingAttributesToMarks(ins.format, schema)))
         }
       }
+      const insertedFrag = Fragment.from(newPChildren)
+      let deletedSize = 0
+      for (const del of bundle.deletes) {
+        for (let remainingDelLen = del.delete; remainingDelLen > 0;) {
+          const pc = pchildren[currParentIndex]
+          if (pc === undefined) {
+            throw new Error('[y/prosemirror]: delete operation is out of bounds')
+          }
+          if (pc.isText) {
+            const delLen = math.min(pc.nodeSize - nOffset, remainingDelLen)
+            deletedSize += delLen
+            nOffset += delLen
+            if (nOffset === pc.nodeSize) {
+              nOffset = 0
+              currParentIndex++
+            }
+            remainingDelLen -= delLen
+          } else {
+            deletedSize += pc.nodeSize
+            currParentIndex++
+            remainingDelLen--
+          }
+        }
+      }
+      tr.step(new ReplaceStep(currPos.i, currPos.i + deletedSize, new Slice(insertedFrag, 0, 0)))
+      currPos.i += insertedFrag.size
     }
   })
   return tr
