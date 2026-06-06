@@ -23,3 +23,19 @@ export const yUndoPluginKey = new PluginKey('y-undo')
  * @type {PluginKey<import('prosemirror-view').DecorationSet>}
  */
 export const yCursorPluginKey = new PluginKey('y-cursor')
+
+/**
+ * The unique prosemirror plugin key for {@link import('./suggestion-decoration-plugin.js').ySuggestionDecorationPlugin}
+ *
+ * @public
+ * @type {PluginKey<import('prosemirror-view').DecorationSet>}
+ */
+export const ySuggestionDecorationPluginKey = new PluginKey('y-suggestion-decorations')
+
+/**
+ * The unique prosemirror plugin key for {@link import('./diff-decorations.js').suggestionDiffPlugin}
+ *
+ * @public
+ * @type {PluginKey<import('prosemirror-view').DecorationSet>}
+ */
+export const suggestionDiffPluginKey = new PluginKey('suggestion-diff')

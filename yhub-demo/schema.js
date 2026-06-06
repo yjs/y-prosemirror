@@ -1,39 +1,9 @@
 import { Schema } from 'prosemirror-model'
-import { userColorForId } from './user-colors.js'
-
-/**
- * Pick the "primary" user id from a userIds array stored on an attribution mark.
- * @param {any} userIds
- * @returns {string | null}
- */
-const primaryUserId = (userIds) => {
-  if (Array.isArray(userIds) && userIds.length > 0) return String(userIds[0])
-  if (typeof userIds === 'string' || typeof userIds === 'number') return String(userIds)
-  return null
-}
-
-/**
- * Build the dom attrs that turn the per-user color into a CSS variable the
- * stylesheet can pick up. The mark's existing tooltip is preserved.
- * @param {any} mark
- * @param {string} title
- */
-const attributionMarkAttrs = (mark, title) => {
-  const uid = primaryUserId(mark.attrs.userIds)
-  if (!uid) return { title }
-  return {
-    title,
-    'data-userid': uid,
-    style: `--user-color: ${userColorForId(uid)}`
-  }
-}
 
 /**
  * @type {import('prosemirror-model').DOMOutputSpec}
  */
 const brDOM = ['br']
-
-const attributionMarkNames = 'y-attributed-insert y-attributed-delete y-attributed-format'
 
 // :: Object
 // [Specs](#model.NodeSpec) for the nodes defined in this schema.
@@ -43,8 +13,7 @@ const attributionMarkNames = 'y-attributed-insert y-attributed-delete y-attribut
 export const nodes = {
   // :: NodeSpec The top level document node.
   doc: {
-    content: 'block*',
-    marks: attributionMarkNames
+    content: 'block*'
   },
 
   // :: NodeSpec A plain paragraph textblock. Represented in the DOM
@@ -58,7 +27,6 @@ export const nodes = {
 
   // :: NodeSpec A blockquote (`<blockquote>`) wrapping one or more blocks.
   blockquote: {
-    marks: attributionMarkNames,
     content: 'block+',
     group: 'block',
     defining: true,
@@ -198,59 +166,7 @@ export const marks = {
   code: {
     parseDOM: [{ tag: 'code' }],
     toDOM () { return codeDOM }
-  },
-
-  'y-attributed-insert': {
-    attrs: { userIds: { default: null }, timestamp: { default: null } },
-    excludes: '',
-    parseDOM: [{ tag: 'y-ins' }],
-    toDOM (mark) {
-      const title = formatAttributionTitle('Inserted', mark.attrs.userIds, mark.attrs.timestamp)
-      return /** @type {const} */ (['y-ins', attributionMarkAttrs(mark, title), 0])
-    }
-  },
-
-  'y-attributed-delete': {
-    attrs: { userIds: { default: null }, timestamp: { default: null } },
-    excludes: '',
-    parseDOM: [{ tag: 'y-del' }],
-    toDOM (mark) {
-      const title = formatAttributionTitle('Deleted', mark.attrs.userIds, mark.attrs.timestamp)
-      return /** @type {const} */ (['y-del', attributionMarkAttrs(mark, title), 0])
-    }
-  },
-
-  'y-attributed-format': {
-    attrs: { userIdsByAttr: { default: null }, timestamp: { default: null } },
-    excludes: '',
-    parseDOM: [{ tag: 'y-fmt' }],
-    toDOM (mark) {
-      const byAttr = /** @type {Record<string, string[]>|null} */ (mark.attrs.userIdsByAttr)
-      const ids = byAttr ? [...new Set(Object.values(byAttr).flat())] : null
-      const title = formatAttributionTitle('Formatted', ids, mark.attrs.timestamp)
-      const uid = primaryUserId(ids)
-      const attrs = uid
-        ? { title, 'data-userid': uid, style: `--user-color: ${userColorForId(uid)}` }
-        : { title }
-      return /** @type {const} */ (['y-fmt', attrs, 0])
-    }
   }
-}
-
-/**
- * Build the `title` tooltip string shown on hover over an attribution mark.
- *
- * @param {string} action - 'Inserted' | 'Deleted' | 'Formatted'
- * @param {string[]|null} userIds
- * @param {number|null} timestamp
- * @returns {string}
- */
-function formatAttributionTitle (action, userIds, timestamp) {
-  const who = userIds && userIds.length > 0 ? userIds.join(', ') : 'unknown'
-  const when = timestamp != null
-    ? new Date(timestamp).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
-    : 'unknown time'
-  return `${action} by ${who} on ${when}`
 }
 
 export const schema = new Schema({ nodes, marks })

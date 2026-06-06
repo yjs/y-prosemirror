@@ -68,15 +68,17 @@ const PM_KEY = 'prosemirror'
  * @param {Y.AbstractAttributionManager} [attributionManager]
  * @param {Object} [opts]
  * @param {import('prosemirror-model').Schema} [opts.schema]
- * @param {typeof YPM.defaultMapAttributionToMark} [opts.mapAttributionToMark]
  * @returns {EditorView}
  */
 export const createPMView = (ytype, attributionManager = Y.noAttributionsManager, opts = {}) => {
   const s = opts.schema || defaultSchema
-  const plugin = YPM.syncPlugin(opts.mapAttributionToMark ? { mapAttributionToMark: opts.mapAttributionToMark } : {})
+  const plugins = [
+    YPM.syncPlugin(),
+    YPM.ySuggestionDecorationPlugin()
+  ]
   const view = new EditorView(
     { mount: document.createElement('div') },
-    { state: EditorState.create({ schema: s, plugins: [plugin] }) }
+    { state: EditorState.create({ schema: s, plugins }) }
   )
   YPM.configureYProsemirror({ ytype, attributionManager })(view.state, view.dispatch)
   return view
@@ -136,7 +138,6 @@ export class Cohort {
    * @param {Array<UserMode>} modes
    * @param {Object} [opts]
    * @param {import('prosemirror-model').Schema} [opts.schema]
-   * @param {typeof YPM.defaultMapAttributionToMark} [opts.mapAttributionToMark]
    */
   constructor (modes, opts = {}) {
     this.opts = opts

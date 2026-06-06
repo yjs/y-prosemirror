@@ -1,7 +1,7 @@
 /* eslint-env browser */
 
 import * as Y from '@y/y'
-import { syncPlugin, ySyncPluginKey, configureYProsemirror, defaultMapAttributionToMark, undoCommand, redoCommand } from '../src/index.js'
+import { syncPlugin, configureYProsemirror, undoCommand, redoCommand, ySuggestionDecorationPlugin, ySuggestionDecorationPluginKey, acceptChanges, rejectChanges } from '../src/index.js'
 import { yCursorPlugin } from '../src/cursor-plugin.js'
 import { EditorState } from 'prosemirror-state'
 import { schema } from './schema.js'
@@ -29,13 +29,6 @@ if (localStorage.getItem('should-connect') != null) {
   elemToggleConnect.checked = localStorage.getItem('should-connect') === 'true'
 }
 
-/*
- * # Init two Yjs documents.
- *
- * The suggestion document is a fork of the original document. By keeping them separate, we can
- * enforce different permissions on these documents.
- */
-
 const ydoc = new Y.Doc({ gc: false })
 const providerYdoc = new WebsocketProvider('wss://demos.yjs.dev/ws', roomName, ydoc, { connect: false })
 elemToggleConnect.checked && providerYdoc.connectBc()
@@ -46,8 +39,6 @@ const am = /** @type {any} */ (Y).createAttributionManagerFromDiff(ydoc, suggest
 
 const yxmlFragment = ydoc.get()
 
-// when in suggestion-mode, we should use a different clientId to reduce some overhead. This is not
-// strictly necessary.
 let otherClientID = random.uint53()
 let previousMode = 'off'
 
@@ -83,9 +74,9 @@ const currentView = new EditorView(editor, {
     schema,
     plugins: /** @type {any[]} */ ([]).concat(
       exampleSetup({ schema }),
-      syncPlugin({ mapAttributionToMark: defaultMapAttributionToMark }),
+      syncPlugin(),
+      ySuggestionDecorationPlugin(),
       yCursorPlugin(providerYdoc.awareness),
-      // yUndoPlugin(),
       keymap({
         'Mod-z': undoCommand,
         'Mod-y': redoCommand,
@@ -115,26 +106,23 @@ const initLiveEditor = () => {
 elemSelectSuggestionMode.addEventListener('change', () => {
   const mode = elemSelectSuggestionMode.value
 
-  // When entering edit mode, switch clientId and set user awareness
   if (mode === 'edit' && previousMode !== 'edit') {
     const nextClientId = otherClientID
     otherClientID = suggestionDoc.clientID
     suggestionDoc.clientID = nextClientId
 
-    // Define user name and user name
-    // Check the quill-cursors package on how to change the way cursors are rendered
     providerYdoc.awareness.setLocalStateField('user', {
       name: 'Typing Jimmy',
       color: 'blue'
     })
   }
 
-  if (mode === 'off') { // normal mode
+  if (mode === 'off') {
     configureYProsemirror({
       ytype: yxmlFragment,
       attributionManager: null
     })(currentView.state, currentView.dispatch)
-  } else { // suggestion mode - render suggestion doc with attributions
+  } else {
     am.suggestionMode = mode === 'edit'
     configureYProsemirror({
       ytype: suggestionDoc.get(),
@@ -156,73 +144,55 @@ elemToggleConnect.addEventListener('change', () => {
   localStorage.setItem('should-connect', elemToggleConnect.checked ? 'true' : 'false')
 })
 
-// Accept/Reject changes buttons
+/**
+ * Find the diff decoration covering the current selection head (or the
+ * narrowest one if multiple overlap). Returns the diff's from/to or null.
+ *
+ * @returns {{ from: number, to: number } | null}
+ */
+const getSelectedDiffRange = () => {
+  const { state } = currentView
+  const decoSet = ySuggestionDecorationPluginKey.getState(state)
+  if (!decoSet) return null
+  const { from, to } = state.selection
+  const decos = decoSet.find(from, to)
+  if (!decos.length) return null
+  const diff = decos[0].spec?.diff
+  if (!diff) return null
+  return { from: diff.from, to: diff.to }
+}
+
 if (btnAcceptChanges) {
   btnAcceptChanges.addEventListener('click', () => {
-    const pluginState = ySyncPluginKey.getState(currentView.state)
-    if (!pluginState) return
-
-    const selection = currentView.state.selection
-    const from = selection.from
-    const to = selection.to
-
-    try {
-      /** @type {any} */ (pluginState).acceptChanges(from, to)
-    } catch (/** @type {any} */ error) {
-      console.error('Error accepting changes:', error)
-      alert('Error accepting changes: ' + error.message)
+    const range = getSelectedDiffRange()
+    if (range) {
+      acceptChanges(range.from, range.to)(currentView.state, currentView.dispatch)
     }
   })
 }
 
 if (btnRejectChanges) {
   btnRejectChanges.addEventListener('click', () => {
-    const pluginState = ySyncPluginKey.getState(currentView.state)
-    if (!pluginState) return
-
-    const selection = currentView.state.selection
-    const from = selection.from
-    const to = selection.to
-
-    try {
-      /** @type {any} */ (pluginState).rejectChanges(from, to)
-    } catch (/** @type {any} */ error) {
-      console.error('Error rejecting changes:', error)
-      alert('Error rejecting changes: ' + error.message)
+    const range = getSelectedDiffRange()
+    if (range) {
+      rejectChanges(range.from, range.to)(currentView.state, currentView.dispatch)
     }
   })
 }
 
-// Accept/Reject all changes buttons
 if (btnAcceptAllChanges) {
   btnAcceptAllChanges.addEventListener('click', () => {
-    const pluginState = ySyncPluginKey.getState(currentView.state)
-    if (!pluginState) return
-
-    try {
-      /** @type {any} */ (pluginState).acceptAllChanges()
-    } catch (/** @type {any} */ error) {
-      console.error('Error accepting all changes:', error)
-      alert('Error accepting all changes: ' + error.message)
-    }
+    am.acceptAllChanges()
   })
 }
 
 if (btnRejectAllChanges) {
   btnRejectAllChanges.addEventListener('click', () => {
-    const pluginState = ySyncPluginKey.getState(currentView.state)
-    if (!pluginState) return
-
-    try {
-      /** @type {any} */ (pluginState).rejectAllChanges()
-    } catch (/** @type {any} */ error) {
-      console.error('Error rejecting all changes:', error)
-      alert('Error rejecting all changes: ' + error.message)
-    }
+    am.rejectAllChanges()
   })
 }
 
 initLiveEditor()
 
 // @ts-ignore
-window.example = { suggestionDoc, ydoc, type: yxmlFragment, currentView }
+window.example = { suggestionDoc, ydoc, type: yxmlFragment, currentView, am }

@@ -5,8 +5,6 @@ import { Schema } from 'prosemirror-model'
  */
 const brDOM = ['br']
 
-const attributionMarkNames = 'y-attributed-insert y-attributed-delete y-attributed-format'
-
 // :: Object
 // [Specs](#model.NodeSpec) for the nodes defined in this schema.
 /**
@@ -15,8 +13,7 @@ const attributionMarkNames = 'y-attributed-insert y-attributed-delete y-attribut
 export const nodes = {
   // :: NodeSpec The top level document node.
   doc: {
-    content: 'block*',
-    marks: attributionMarkNames
+    content: 'block*'
   },
 
   // :: NodeSpec A plain paragraph textblock. Represented in the DOM
@@ -30,7 +27,6 @@ export const nodes = {
 
   // :: NodeSpec A blockquote (`<blockquote>`) wrapping one or more blocks.
   blockquote: {
-    marks: attributionMarkNames,
     content: 'block+',
     group: 'block',
     defining: true,
@@ -170,33 +166,6 @@ export const marks = {
   code: {
     parseDOM: [{ tag: 'code' }],
     toDOM () { return codeDOM }
-  },
-
-  'y-attributed-insert': {
-    attrs: { userIds: { default: null }, timestamp: { default: null } },
-    excludes: '',
-    parseDOM: [{ tag: 'y-ins' }],
-    toDOM () {
-      return /** @type {const} */ (['y-ins', 0])
-    }
-  },
-
-  'y-attributed-delete': {
-    attrs: { userIds: { default: null }, timestamp: { default: null } },
-    excludes: '',
-    parseDOM: [{ tag: 'y-del' }],
-    toDOM () {
-      return /** @type {const} */ (['y-del', 0])
-    }
-  },
-
-  'y-attributed-format': {
-    attrs: { userIdsByAttr: { default: null }, timestamp: { default: null } },
-    excludes: '',
-    parseDOM: [{ tag: 'y-fmt' }],
-    toDOM () {
-      return /** @type {const} */ (['y-fmt', 0])
-    }
   }
 }
 

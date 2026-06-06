@@ -6,7 +6,7 @@ This document covers design tradeoffs, known limitations, and open problems in `
 
 A handful of goals and constraints inform everything below:
 
-- **Attributed rendering.** The binding must be able to render attributed content (suggestions, diffs of activity items, etc.) on top of the live document.
+- **Attributed rendering.** The binding must be able to render attributed content (suggestions, diffs of activity items, etc.) as decorations on top of the live document.
 - **Yjs v14 schemas.** Yjs v14 will add schema support that restricts what collaborators can read or insert. It is similar in spirit to a ProseMirror schema but intentionally less expressive. A major motivation is letting LLMs and other tools understand a Yjs document's structure and produce valid edits to it directly.
 - **Direct Yjs manipulation.** Nice to have: humans and LLMs should be able to edit the Yjs document directly (outside the editor) and have those edits reflected correctly in ProseMirror.
 - **Migration compatibility.** We want a migration path - ideally transparent - for existing `y-prosemirror` users.
@@ -83,57 +83,22 @@ This is inherent to ProseMirror schemas, not specific to Yjs. `prosemirror-colla
 
 **Status:** addressable through schema discipline and/or invalid-node variants. Integrators need to be aware of the failure mode.
 
-## Schema mismatches in suggestion mode
+## Attribution is decoration-based
 
-A suggestion is an ordinary node rendered with a mark, attribute, or decoration that indicates its suggestion status (insertion / deletion / modification). This composition breaks down against strict cardinality constraints.
+Attribution (suggestions, version diffs) is rendered as ProseMirror decorations, not marks. The PM document always contains clean content — no attribution marks, no deleted text inline. This means:
 
-**Example.** A schema like `image{2,4}` means "exactly 2-4 images". A suggestion that proposes "delete these 4 images and insert 4 others" requires transiently holding 8 images in the parent - violating the schema regardless of how the proposal is rendered.
+- **No special schema setup.** Consumers do not need to define `y-attributed-*` mark types or worry about mark exclusion/allowance rules.
+- **No reconcile stability concerns.** Since attribution data never enters the PM document, mismatched mark attrs cannot cause reconcile loops.
 
-**Mitigation.** The schema has to be suggestion-aware. Either:
-
-- Relax cardinality in the schema itself (e.g., `image*` with separate validation at commit time), or
-- Introduce suggestion-specific node types that relax the constraints while preserving the visual / semantic distinction.
-
-Without this, the binding has no choice but to drop invalid content, silently discarding part of the suggestion.
-
-**Status:** addressable; integrators need to be aware.
-
-## Attribution mark names are fixed
-
-Attributed content (insertions, deletions, format changes) is surfaced in ProseMirror as marks. The names of those marks are part of `y-prosemirror`'s contract and are **not user-configurable**:
-
-- `y-attributed-insert`
-- `y-attributed-delete`
-- `y-attributed-format`
-
-The default `defaultMapAttributionToMark` produces these names; custom `mapAttributionToMark` mappers must produce them too. Other internals (e.g. `_clearAttributionFormatting` in `sync-utils.js`) reference the names directly. Returning a different name from your mapper will cause `y-prosemirror` to fail to clear the attribution formatting on subsequent renders, and any code that relies on these names (decorations, accept/reject UI) will silently miss the marks.
-
-**Integrator requirements:**
-
-1. Define ProseMirror mark types with these exact names. Tiptap example:
-
-   ```js
-   Mark.create({
-     name: 'y-attributed-insert',
-     addAttributes () { return { userIds: { default: null }, timestamp: { default: null } } },
-     parseHTML () { return [{ tag: 'y-ins' }] },
-     renderHTML ({ HTMLAttributes }) { return ['y-ins', HTMLAttributes, 0] }
-   })
-   // ...similarly for y-attributed-delete and y-attributed-format
-   ```
-
-2. **Make sure the schema actually accepts these marks on every node where they may land.** This sounds trivial but is the most common integration pitfall, because ProseMirror's `gatherMarks` resolves a node's `marks` spec by mark name first and only falls back to mark-group matching when no mark by that name exists. If your schema has nodes that declare e.g. `marks: "insertion modification deletion"` and your editor *also* defines marks literally named `insertion`/`deletion`/`modification` (BlockNote's `SuggestionMarks` is a real-world example), the group-based fallback never fires and the `y-attributed-*` marks get silently shadowed - even if you put them in `group: "insertion"`. The runtime symptom is a `RangeError: Invalid content for node …` from `tr.addNodeMark` the moment a user makes the first edit in suggestion mode.
-
-   The safest fix is to extend the affected node types' `markSet` after editor construction so the `y-attributed-*` marks are explicitly listed.
+See [`ATTRIBUTION.md`](./ATTRIBUTION.md) for the full decoration-based pipeline documentation.
 
 ## Visualizing attributed content
 
-Attributed rendering - showing insertions, deletions, and modifications inline - is currently a coarse red / yellow / green background treatment. That works as a floor, but several cases need more:
+Attributed rendering uses ProseMirror decorations with `data-diff-type` attributes and `--author-color` CSS custom properties. The default rendering covers inline inserts/deletes/updates and block-level variants, with delete ghosts rendered as widget decorations. Several cases still need more:
 
 - How do we render a pure attribute change? For example, an image's `height` changes from `200` to `400` - there is no text to highlight.
 - For attribute changes more generally, do we visualize the change in place, or show both versions side-by-side for comparison?
-- Are insertions colored by author (per-user color) or by semantics (green-for-insertion)? The two schemes compete, and picking one loses information.
 
-Visualizing this well requires the editor, the ProseMirror schema, and `y-prosemirror` to cooperate - the binding can surface attribution metadata, but the rendering strategy has to be schema-aware.
+The `mapDiffToDecorations` option on `ySuggestionDecorationPlugin` allows custom decoration rendering for schema-specific cases.
 
-**Status:** the simple solution is good enough for now; optimal rendering will need schema-level collaboration.
+**Status:** the default decoration mapper is good enough for common cases; schema-specific rendering can be provided via the customization hook.

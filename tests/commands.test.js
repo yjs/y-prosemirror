@@ -6,10 +6,14 @@ import { createPMView, setupTwoWaySync } from './cohort.js'
 
 // === Helpers ===
 
-/** Insertion mark as it appears in PM doc JSON */
-const insertionMark = {
-  type: 'y-attributed-insert',
-  attrs: { userIds: [], timestamp: null }
+/**
+ * Get suggestion decorations from a PM view's state.
+ * @param {import('prosemirror-view').EditorView} view
+ * @returns {Array<import('prosemirror-view').Decoration>}
+ */
+const getDecorations = (view) => {
+  const decoSet = YPM.ySuggestionDecorationPluginKey.getState(view.state)
+  return decoSet ? decoSet.find() : []
 }
 
 /**
@@ -82,17 +86,20 @@ export const testAcceptAllChanges = () => {
 
   editor.dispatch(editor.state.tr.insertText(' world', 6))
 
-  // Suggestion view shows the insertion mark
+  // Suggestion view shows the insertion as a decoration (not a mark)
   assertDocJSON(viewer.state.doc, {
     type: 'doc',
     content: [{
       type: 'paragraph',
       content: [
-        { type: 'text', text: 'hello' },
-        { type: 'text', text: ' world', marks: [insertionMark] }
+        { type: 'text', text: 'hello world' }
       ]
     }]
-  }, 'insertion mark visible before accept')
+  }, 'clean doc with inserted text before accept')
+
+  const preDecos = getDecorations(viewer)
+  const insertDecos = preDecos.filter(d => d.spec?.diff?.type === 'inline-insert')
+  t.assert(insertDecos.length > 0, 'inline-insert decoration visible before accept')
 
   YPM.acceptAllChanges()(viewer.state, viewer.dispatch)
 
@@ -103,6 +110,10 @@ export const testAcceptAllChanges = () => {
   assertDocJSON(base.state.doc, expected, 'base doc merged')
   assertDocJSON(viewer.state.doc, expected, 'viewer: no marks')
   assertDocJSON(editor.state.doc, expected, 'editor: no marks')
+
+  // After accept, no decorations should remain
+  const postDecos = getDecorations(viewer)
+  t.assert(postDecos.length === 0, 'no decorations after accept')
 }
 
 /**

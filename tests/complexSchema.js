@@ -6,16 +6,13 @@ import { Schema } from 'prosemirror-model'
  */
 const brDOM = ['br']
 
-const attributionMarkNames = 'y-attributed-insert y-attributed-delete y-attributed-format'
-
 /**
  * @type {Object<string, import('prosemirror-model').NodeSpec>}
  */
 export const nodes = {
   // :: NodeSpec The top level document node.
   doc: {
-    content: 'block*',
-    marks: attributionMarkNames
+    content: 'block*'
   },
 
   custom: {
@@ -43,7 +40,6 @@ export const nodes = {
   blockquote: {
     content: 'block+',
     group: 'block',
-    marks: attributionMarkNames,
     defining: true,
     parseDOM: [{ tag: 'blockquote' }],
     toDOM () {
@@ -246,40 +242,6 @@ export const marks = {
     parseDOM: [{ tag: 'comment' }],
     toDOM (node) {
       return ['comment', { comment_id: node.attrs.id }]
-    }
-  },
-
-  // Default `excludes` (= self-exclusion) is intentional: when a span's
-  // attribution attrs change between renders (e.g. userIdsByAttr gains a
-  // format key), `tr.addMark` should *replace* the prior instance, not stack
-  // a second copy on top of it. Setting `excludes: ''` here would let
-  // multiple instances of the same attribution mark coexist on a single span
-  // and accumulate over the diff/reconcile loop.
-  'y-attributed-insert': {
-    attrs: { userIds: { default: null }, timestamp: { default: null } },
-    parseDOM: [{ tag: 'y-ins' }],
-    toDOM () {
-      return /** @type {const} */ (['y-ins', 0])
-    }
-  },
-
-  'y-attributed-delete': {
-    attrs: { userIds: { default: null }, timestamp: { default: null } },
-    parseDOM: [{ tag: 'y-del' }],
-    toDOM () {
-      return /** @type {const} */ (['y-del', 0])
-    }
-  },
-
-  'y-attributed-format': {
-    attrs: {
-      userIds: { default: null },
-      userIdsByAttr: { default: null },
-      timestamp: { default: null }
-    },
-    parseDOM: [{ tag: 'y-fmt' }],
-    toDOM () {
-      return /** @type {const} */ (['y-fmt', 0])
     }
   }
 }

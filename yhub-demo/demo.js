@@ -1,12 +1,12 @@
 /* eslint-env browser */
 import * as Y from '@y/y'
-import { syncPlugin, ySyncPluginKey, configureYProsemirror, defaultMapAttributionToMark, yCursorPlugin, acceptChanges, rejectChanges, acceptAllChanges, rejectAllChanges } from '../src/index.js'
+import { syncPlugin, ySuggestionDecorationPlugin, configureYProsemirror, yCursorPlugin, acceptChanges, rejectChanges, acceptAllChanges, rejectAllChanges } from '../src/index.js'
 import { WebsocketProvider } from '@y/websocket'
-import { EditorState, Plugin, PluginKey } from 'prosemirror-state'
-import { EditorView, Decoration, DecorationSet } from 'prosemirror-view'
+import { EditorState } from 'prosemirror-state'
+import { EditorView } from 'prosemirror-view'
 import { exampleSetup } from 'prosemirror-example-setup'
 import { schema } from './schema.js'
-import { userColorForId, initialsForName } from './user-colors.js'
+import { userColorForId } from './user-colors.js'
 import * as random from 'lib0/random'
 import * as buffer from 'lib0/buffer'
 
@@ -36,176 +36,6 @@ provider.awareness.setLocalStateField('user', {
 
 const editorParent = /** @type {HTMLElement} */ (document.querySelector('#editor'))
 
-// ── Block-level attribution decorations ──
-// Walks the doc and tags each block-level node with the users who edited it,
-// so CSS can render an avatar in the left gutter and (for wholly-inserted
-// blocks) a colored left bar.
-
-const INSERT_MARK = 'y-attributed-insert'
-const DELETE_MARK = 'y-attributed-delete'
-const FORMAT_MARK = 'y-attributed-format'
-
-/**
- * @param {import('prosemirror-model').Mark} mark
- * @returns {string | null}
- */
-const userIdFromMark = (mark) => {
-  const uids = mark.attrs.userIds
-  if (Array.isArray(uids) && uids.length > 0) return String(uids[0])
-  if (typeof uids === 'string' || typeof uids === 'number') return String(uids)
-  return null
-}
-
-/**
- * format marks track users per-attribute: { strong: ['u1'], em: ['u2'] }.
- * Pull the first id we find, in stable iteration order.
- * @param {import('prosemirror-model').Mark} mark
- * @returns {string | null}
- */
-const userIdFromFormatMark = (mark) => {
-  const byAttr = mark.attrs.userIdsByAttr
-  if (!byAttr || typeof byAttr !== 'object') return null
-  for (const key of Object.keys(byAttr)) {
-    const uids = byAttr[key]
-    if (Array.isArray(uids) && uids.length > 0) return String(uids[0])
-  }
-  return null
-}
-
-/**
- * Walks one block-level node and summarises the attribution found inside.
- * @param {import('prosemirror-model').Node} blockNode
- */
-const summariseBlockAttribution = (blockNode) => {
-  /** @type {string[]} */
-  const users = []
-  const seen = new Set()
-  let textChars = 0
-  let insertedChars = 0
-  let deletedChars = 0
-  let hasInsertMark = false
-  let hasDelMark = false
-  let hasFmtMark = false
-
-  /**
-   * Record a mark and return what kind of position it represents, so the
-   * caller can update its char counters.
-   * @param {import('prosemirror-model').Mark} m
-   * @returns {'ins' | 'del' | null}
-   */
-  const noteMark = (m) => {
-    const name = m.type.name
-    if (name === INSERT_MARK) {
-      hasInsertMark = true
-      const uid = userIdFromMark(m)
-      if (uid && !seen.has(uid)) { seen.add(uid); users.push(uid) }
-      return 'ins'
-    } else if (name === DELETE_MARK) {
-      hasDelMark = true
-      const uid = userIdFromMark(m)
-      if (uid && !seen.has(uid)) { seen.add(uid); users.push(uid) }
-      return 'del'
-    } else if (name === FORMAT_MARK) {
-      hasFmtMark = true
-      const uid = userIdFromFormatMark(m)
-      if (uid && !seen.has(uid)) { seen.add(uid); users.push(uid) }
-    }
-    return null
-  }
-
-  // Block-level marks on the node itself. The schema allows attribution marks
-  // on `doc` so a wholly-inserted (or wholly-deleted) paragraph — including an
-  // empty one — carries the mark here even when it has no text descendants.
-  let blockHasInsertMark = false
-  let blockHasDeleteMark = false
-  for (const m of blockNode.marks) {
-    const kind = noteMark(m)
-    if (kind === 'ins') blockHasInsertMark = true
-    else if (kind === 'del') blockHasDeleteMark = true
-  }
-
-  // Then inline marks on every text descendant.
-  blockNode.descendants((child) => {
-    if (!child.isText) return
-    const len = child.text ? child.text.length : 0
-    textChars += len
-    let inserted = false
-    let deleted = false
-    for (const m of child.marks) {
-      const kind = noteMark(m)
-      if (kind === 'ins') inserted = true
-      else if (kind === 'del') deleted = true
-    }
-    if (inserted) insertedChars += len
-    if (deleted) deletedChars += len
-  })
-
-  // A block-level attribution mark (PM emits these when a delete/insert
-  // wraps an entire paragraph — including non-empty ones; ProseMirror
-  // serialises consecutive wholly-marked blocks under a single <y-del>/<y-ins>
-  // wrapper, with the mark recorded on every paragraph node inside) is the
-  // authoritative signal that the whole block is in that state, regardless
-  // of inline marks. We don't need inline coverage to match.
-  //
-  // Without a block-level mark, we fall back to "every text run is inline-
-  // marked accordingly", which catches the typical select-then-delete case.
-  const whollyInserted = blockHasInsertMark ||
-    (hasInsertMark && textChars > 0 && insertedChars === textChars)
-  const whollyDeleted = blockHasDeleteMark ||
-    (hasDelMark && textChars > 0 && deletedChars === textChars)
-
-  return {
-    users,
-    edited: hasInsertMark || hasDelMark || hasFmtMark,
-    whollyInserted,
-    whollyDeleted
-  }
-}
-
-const blockAttributionPluginKey = new PluginKey('block-attribution-decorations')
-
-/** @param {import('prosemirror-state').EditorState} state */
-const buildBlockDecorations = (state) => {
-  /** @type {Decoration[]} */
-  const decos = []
-  state.doc.descendants((node, pos) => {
-    if (!node.isBlock || !node.isTextblock) return true
-    const { users, edited, whollyInserted, whollyDeleted } = summariseBlockAttribution(node)
-    if (!edited) return false
-    const primary = users[0] || null
-    const secondary = users[1] || null
-    let cls = 'y-block-edited'
-    if (whollyInserted) cls += ' y-block-inserted'
-    if (whollyDeleted) cls += ' y-block-deleted'
-    const attrs = /** @type {Record<string, string>} */ ({
-      class: cls,
-      'data-initials': primary ? initialsForName(primary) : '··',
-      style: `--block-user-color: ${userColorForId(primary)}`
-    })
-    if (secondary) {
-      attrs['data-initials-2'] = initialsForName(secondary)
-      attrs.style += `; --block-user-color-2: ${userColorForId(secondary)}`
-    }
-    decos.push(Decoration.node(pos, pos + node.nodeSize, attrs))
-    return false
-  })
-  return DecorationSet.create(state.doc, decos)
-}
-
-const blockAttributionPlugin = new Plugin({
-  key: blockAttributionPluginKey,
-  state: {
-    init: (_, state) => buildBlockDecorations(state),
-    apply: (tr, oldSet, _oldState, newState) => {
-      if (!tr.docChanged && tr.getMeta(ySyncPluginKey) == null) return oldSet
-      return buildBlockDecorations(newState)
-    }
-  },
-  props: {
-    decorations (state) { return /** @type {DecorationSet} */ (blockAttributionPluginKey.getState(state)) }
-  }
-})
-
 /** When true, the editor is showing a historical diff and must be read-only. */
 let isVersionView = false
 
@@ -217,9 +47,9 @@ const currentView = new EditorView(editorParent, {
     schema,
     plugins: /** @type {any[]} */ ([]).concat(
       exampleSetup({ schema, history: false }),
-      syncPlugin({ mapAttributionToMark: defaultMapAttributionToMark }),
-      yCursorPlugin(provider.awareness),
-      blockAttributionPlugin
+      syncPlugin(),
+      ySuggestionDecorationPlugin(),
+      yCursorPlugin(provider.awareness)
     )
   }),
   editable: () => !isVersionView,

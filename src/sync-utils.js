@@ -1,5 +1,4 @@
 import * as Y from '@y/y'
-import * as array from 'lib0/array'
 import * as delta from 'lib0/delta'
 import * as error from 'lib0/error'
 import * as math from 'lib0/math'
@@ -18,157 +17,6 @@ import {
 } from 'prosemirror-transform'
 
 export const $prosemirrorDelta = delta.$delta({ name: s.$string, attrs: s.$record(s.$string, s.$any), text: true, recursiveChildren: true })
-
-/**
- * Suffix appended to a node name when it is rendered as its "attributed
- * variant" (see `attributedNodes` on {@link syncPlugin}). The suffix is fixed
- * so that canonicalizing back (PM -> Y) is a pure string operation and can
- * never drift from the forward mapping. `--attributed` is a *reserved* suffix:
- * a real node type literally ending in it would be canonicalized away on the
- * way to Y.
- */
-export const ATTRIBUTED_SUFFIX = '--attributed'
-
-/**
- * Default `attributedNodes` predicate - the feature is off, so every node keeps
- * its canonical name.
- *
- * @type {AttributedNodesPredicate}
- */
-export const defaultAttributedNodes = () => false
-
-/**
- * Strip the {@link ATTRIBUTED_SUFFIX} so a PM node name maps back to the
- * canonical name stored in the Y document. Identity for canonical names.
- *
- * @param {string} name
- * @return {string}
- */
-export const canonicalNodeName = (name) =>
-  name.endsWith(ATTRIBUTED_SUFFIX)
-    ? name.slice(0, -ATTRIBUTED_SUFFIX.length)
-    : name
-
-/**
- * Resolve the PM node name to render for `canonicalName` given the attribution
- * carried in `format`. Returns `canonicalName + ATTRIBUTED_SUFFIX` when the
- * `attributedNodes` predicate opts in *and* the variant exists in the schema;
- * otherwise returns `canonicalName` unchanged.
- *
- * @param {string} canonicalName
- * @param {Record<string, unknown> | null | undefined} format
- * @param {AttributedNodesPredicate} attributedNodes
- * @param {import('prosemirror-model').Schema} schema
- * @return {string}
- */
-export const attributedVariant = (canonicalName, format, attributedNodes, schema) => {
-  const kinds = {
-    insert: format?.['y-attributed-insert'] != null,
-    delete: format?.['y-attributed-delete'] != null,
-    format: format?.['y-attributed-format'] != null
-  }
-  if ((kinds.insert || kinds.delete || kinds.format) && attributedNodes(canonicalName, kinds)) {
-    const variant = canonicalName + ATTRIBUTED_SUFFIX
-    if (schema.nodes[variant] != null) return variant
-  }
-  return canonicalName
-}
-
-/**
- * Default attribution-to-mark mapper.
- *
- * **The mark names are part of `y-prosemirror`'s public contract and cannot be
- * changed.** A custom `mapAttributionToMark` may return a different *value*
- * (different attrs, omit some attribution kinds, etc.), but it must use the
- * exact mark names below - other internals reference them by name and will not
- * find marks named anything else:
- *
- * - `y-attributed-insert`
- * - `y-attributed-delete`
- * - `y-attributed-format`
- *
- * The integrator's ProseMirror schema must (a) define mark types with exactly
- * these names and (b) ensure they are allowed on every node where attribution
- * marks may land. See `CAVEATS.md` ("Attribution mark names are fixed") for the
- * full rationale and the schema gotcha around mark-group resolution.
- *
- * Note: a single op may carry multiple attribution kinds simultaneously
- * (e.g. inserted text whose format was also suggested), so the mapper sets
- * each applicable mark independently rather than picking one. Absent kinds
- * are not added to the format object - the diff layer naturally produces a
- * format-remove when comparing PM content (where a stale mark is present)
- * against the freshly-rendered AM delta (where the key is absent).
- *
- * @template {import('lib0/delta').Attribution} T
- * @param {Record<string, unknown> | null} format
- * @param {T} attribution
- * @returns {Record<string, unknown> | null}
- */
-export const defaultMapAttributionToMark = (format, attribution) => {
-  const out = /** @type {Record<string, unknown>} */ (object.assign({}, format))
-  // Set each attribution kind that is present. Do NOT explicitly null out
-  // the absent kinds: lib0/delta's diff naturally produces a format-remove
-  // when comparing pcontent (where the mark is present) with desiredPM
-  // (where the key is absent). Including explicit `null` here would change
-  // the delta op's fingerprint and prevent the diff from matching ops by
-  // content, causing spurious text-node splits.
-  if (attribution.insert) {
-    out['y-attributed-insert'] = {
-      userIds: attribution.insert,
-      timestamp: attribution.insertAt ?? null
-    }
-  }
-  if (attribution.delete) {
-    out['y-attributed-delete'] = {
-      userIds: attribution.delete,
-      timestamp: attribution.deleteAt ?? null
-    }
-  }
-  if (attribution.format) {
-    // `userIdsByAttr` keeps the per-format-key authorship for callers that
-    // need it; `userIds` is the deduped union across all format keys for
-    // callers that just want "who suggested any format on this span".
-    out['y-attributed-format'] = {
-      userIds: array.unique(object.map(attribution.format, v => v).flat()),
-      userIdsByAttr: attribution.format,
-      timestamp: attribution.formatAt ?? null
-    }
-  }
-  return out
-}
-
-/**
- * Transform delta with attributions to delta with formats (marks).
- * @param {delta.DeltaAny} d
- * @param {function} attributionsToFormat
- */
-export const deltaAttributionToFormat = (d, attributionsToFormat) => {
-  const r = delta.create(d.name, $prosemirrorDelta)
-  for (const attr of d.attrs) {
-    // @ts-ignore
-    r.attrs[attr.key] = attr.clone()
-  }
-  for (const child of d.children) {
-    if (delta.$deleteOp.check(child)) {
-      r.delete(child.delete)
-    } else {
-      const format = child.attribution ? attributionsToFormat(child.format, child.attribution) : child.format
-      if (delta.$insertOp.check(child)) {
-        r.insert(child.insert.map(c => delta.$deltaAny.check(c) ? deltaAttributionToFormat(c, attributionsToFormat) : c), format)
-      } else if (delta.$textOp.check(child)) {
-        r.insert(child.insert, format)
-      } else if (delta.$retainOp.check(child)) {
-        r.retain(child.retain, format)
-      } else if (delta.$modifyOp.check(child)) {
-        // @ts-ignore
-        r.modify(/** @type {any} */ (deltaAttributionToFormat(child.value, attributionsToFormat)), format)
-      } else {
-        error.unexpectedCase()
-      }
-    }
-  }
-  return /** @type {ProsemirrorDelta} */ (r.done(false))
-}
 
 /**
  * @param {readonly import('prosemirror-model').Mark[]} marks
@@ -221,75 +69,22 @@ export const nodesToDelta = ns => {
  * @returns {Y.Type}
  */
 export function pmToFragment (node, fragment, { attributionManager = Y.noAttributionsManager } = {}) {
-  // Canonicalize so the Y document never stores an attributed-variant name
-  // (`--attributed` is a reserved suffix - identity when no variant is present).
-  const initialPDelta = nodeToDelta(node, undefined, true).done()
+  const initialPDelta = nodeToDelta(node).done()
   fragment.applyDelta(initialPDelta, attributionManager)
 
   return fragment
 }
 
 /**
- * Applies a {@link Y.XmlFragment}'s content as a ProseMirror {@link Transaction}
- * @param {Y.Type} fragment
- * @param {import('prosemirror-state').Transaction} tr
- * @param {object} ctx
- * @param {Y.AbstractAttributionManager} [ctx.attributionManager]
- * @param {typeof defaultMapAttributionToMark} [ctx.mapAttributionToMark]
- * @param {AttributedNodesPredicate} [ctx.attributedNodes]
- * @returns {import('prosemirror-state').Transaction}
- */
-export function fragmentToTr (fragment, tr, {
-  attributionManager = Y.noAttributionsManager,
-  mapAttributionToMark = defaultMapAttributionToMark,
-  attributedNodes = defaultAttributedNodes
-} = {}) {
-  const fragmentContent = deltaAttributionToFormat(
-    fragment.toDelta(attributionManager, { deep: true }),
-    mapAttributionToMark
-  )
-  const initialPDelta = nodeToDelta(tr.doc, undefined, true).done()
-  const deltaBetweenPmAndFragment = delta.diff(initialPDelta, fragmentContent).done()
-
-  return deltaToPSteps(tr, deltaBetweenPmAndFragment, undefined, undefined, attributedNodes).setMeta('y-sync-hydration', {
-    delta: deltaBetweenPmAndFragment
-  })
-}
-
-/**
- * Transforms a {@link Y.XmlFragment} into a {@link Node}
- * @param {Y.Type} fragment
- * @param {import('prosemirror-state').Transaction} tr
- * @return {Node}
- */
-export function fragmentToPm (fragment, tr) {
-  return fragmentToTr(fragment, tr).doc
-}
-
-/**
  * @param {Node} n
  * @param {string?} nodeName
- * @param {boolean} [canonicalize] When `true`, the emitted name has the
- *   {@link ATTRIBUTED_SUFFIX} stripped (PM -> Y direction). The flag propagates
- *   through the child recursion.
  * @return {ProsemirrorDelta}
  */
-export const nodeToDelta = (n, nodeName = n.type.name, canonicalize = false) => {
-  const d = delta.create(canonicalize && nodeName != null ? canonicalNodeName(nodeName) : nodeName, $prosemirrorDelta)
-  // `y-attributed` is a render-only marker injected when a node is rendered
-  // under its `--attributed` variant (see the injections in `applyNodeFormat`
-  // and `deltaToPNode`). It must never persist in Y - strip it on the PM->Y
-  // (canonicalize) path, symmetric to the variant-name canonicalization above.
-  // Otherwise Y stores a canonical node carrying `y-attributed`, which the
-  // canonical PM type cannot round-trip, and the reconcile loop never converges.
-  if (canonicalize && n.attrs['y-attributed'] !== undefined) {
-    const { 'y-attributed': _omit, ...rest } = n.attrs
-    d.setAttrs(rest)
-  } else {
-    d.setAttrs(n.attrs)
-  }
+export const nodeToDelta = (n, nodeName = n.type.name) => {
+  const d = delta.create(nodeName, $prosemirrorDelta)
+  d.setAttrs(n.attrs)
   n.content.content.forEach(c => {
-    d.insert(c.isText ? (c.text ?? []) : [nodeToDelta(c, undefined, canonicalize)], marksToFormattingAttributes(c.marks))
+    d.insert(c.isText ? (c.text ?? []) : [nodeToDelta(c)], marksToFormattingAttributes(c.marks))
   })
   return d.done(false)
 }
@@ -300,44 +95,21 @@ export const nodeToDelta = (n, nodeName = n.type.name, canonicalize = false) => 
 export const docToDelta = doc => nodeToDelta(doc, null)
 
 /**
- * Apply node-level format (node marks) at `pos`. When the resulting attribution
- * marks change the node's {@link attributedVariant}, flip the node type with a
- * single size-preserving `setNodeMarkup` (which also sets the resulting mark
- * set atomically - this avoids an intermediate state where the canonical type
- * would carry a mark it does not declare). Otherwise this is byte-identical to
- * the previous per-key `addNodeMark`/`removeNodeMark` loop.
+ * Apply node-level format (node marks) at `pos`.
  *
  * @param {import('prosemirror-state').Transaction} tr
  * @param {number} pos
  * @param {Record<string, any> | null | undefined} format
- * @param {AttributedNodesPredicate} attributedNodes
  */
-const applyNodeFormat = (tr, pos, format, attributedNodes) => {
+const applyNodeFormat = (tr, pos, format) => {
   const schema = tr.doc.type.schema
-  const node = tr.doc.nodeAt(pos)
-  if (node == null) return
-  let resultingMarks = node.marks
   object.forEach(format ?? {}, (v, k) => {
-    const markType = schema.marks[k]
-    if (markType == null) return
-    resultingMarks = v == null
-      ? markType.removeFromSet(resultingMarks)
-      : schema.mark(k, v).addToSet(resultingMarks)
+    if (v == null) {
+      tr.removeNodeMark(pos, schema.marks[k])
+    } else {
+      tr.addNodeMark(pos, schema.mark(k, v))
+    }
   })
-  const targetType = schema.nodes[
-    attributedVariant(canonicalNodeName(node.type.name), marksToFormattingAttributes(resultingMarks), attributedNodes, schema)
-  ]
-  if (targetType !== node.type) {
-    tr.setNodeMarkup(pos, targetType, object.assign({ 'y-attributed': true }, node.attrs), resultingMarks)
-  } else {
-    object.forEach(format ?? {}, (v, k) => {
-      if (v == null) {
-        tr.removeNodeMark(pos, schema.marks[k])
-      } else {
-        tr.addNodeMark(pos, schema.mark(k, v))
-      }
-    })
-  }
 }
 
 /**
@@ -361,10 +133,9 @@ const applyNodeFormat = (tr, pos, format, attributedNodes) => {
  * @param {ProsemirrorDelta} d
  * @param {Node} [pnode]
  * @param {{ i: number }} [currPos]
- * @param {AttributedNodesPredicate} [attributedNodes]
  * @return {import('prosemirror-state').Transaction}
  */
-export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }, attributedNodes = defaultAttributedNodes) => {
+export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }) => {
   const schema = tr.doc.type.schema
   let currParentIndex = 0
   let nOffset = 0
@@ -399,6 +170,9 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }, attribu
     runInserts = []
     runDeletes = []
   }
+  // @ts-ignore TS2589: tsc hits "excessively deep" expanding the recursive
+  // `$prosemirrorDelta` op type while iterating; the `delta.$*Op.check` guards
+  // below re-narrow each op precisely.
   for (const op of d.children) {
     if (delta.$retainOp.check(op) || delta.$modifyOp.check(op)) {
       flushRun()
@@ -444,21 +218,21 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }, attribu
           }
         } else {
           // TODO see schema.js for more info on marking nodes
-          applyNodeFormat(tr, currPos.i, op.format, attributedNodes)
+          applyNodeFormat(tr, currPos.i, op.format)
           currParentIndex++
           currPos.i += pc.nodeSize
           i--
         }
       }
     } else if (delta.$modifyOp.check(op)) {
-      applyNodeFormat(tr, currPos.i, op.format, attributedNodes)
+      applyNodeFormat(tr, currPos.i, op.format)
       const child = pchildren[currParentIndex++]
       const childStart = currPos.i
       // Snapshot `tr.doc.content.size` so we can detect inserts/deletes
       // appended inside the recursion below.
       const sizeBefore = tr.doc.content.size
       currPos.i = childStart + 1
-      deltaToPSteps(tr, op.value, child, currPos, attributedNodes)
+      deltaToPSteps(tr, op.value, child, currPos)
       // `lib0/delta.diff` produces short deltas that omit trailing
       // retains, so the recursive call may exit before `currPos.i`
       // reaches the child's close tag. Snap forward to the position right
@@ -478,7 +252,7 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }, attribu
       for (const ins of bundle.inserts) {
         if (delta.$insertOp.check(ins)) {
           for (const n of ins.insert) {
-            newPChildren.push(deltaToPNode(n, schema, ins.format, attributedNodes))
+            newPChildren.push(deltaToPNode(n, schema, ins.format))
           }
         } else { // text op
           newPChildren.push(schema.text(ins.insert, formattingAttributesToMarks(ins.format, schema)))
@@ -519,10 +293,9 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }, attribu
  * @param {ProsemirrorDelta} d
  * @param {import('prosemirror-model').Schema} schema
  * @param {delta.FormattingAttributes|null} dformat
- * @param {AttributedNodesPredicate} [attributedNodes]
  * @return {Node}
  */
-export const deltaToPNode = (d, schema, dformat, attributedNodes = defaultAttributedNodes) => {
+export const deltaToPNode = (d, schema, dformat) => {
   /**
    * @type {Object<string,any>}
    */
@@ -530,9 +303,9 @@ export const deltaToPNode = (d, schema, dformat, attributedNodes = defaultAttrib
   for (const attr of d.attrs) {
     attrs[attr.key] = attr.value
   }
-  const dc = d.children.map(c => delta.$insertOp.check(c) ? c.insert.map(cn => deltaToPNode(cn, schema, c.format, attributedNodes)) : (delta.$textOp.check(c) ? [schema.text(c.insert, formattingAttributesToMarks(c.format, schema))] : []))
-  const canonical = d.name == null ? 'doc' : canonicalNodeName(d.name)
-  const nodeType = schema.nodes[attributedVariant(canonical, dformat, attributedNodes, schema)]
+  const dc = d.children.map(c => delta.$insertOp.check(c) ? c.insert.map(cn => deltaToPNode(cn, schema, c.format)) : (delta.$textOp.check(c) ? [schema.text(c.insert, formattingAttributesToMarks(c.format, schema))] : []))
+  const nodeName = d.name == null ? 'doc' : d.name
+  const nodeType = schema.nodes[nodeName]
   if (!nodeType) {
     throw new Error(
       '[y/prosemirror]: node type does not exist in the schema: ' + d.name
@@ -540,13 +313,8 @@ export const deltaToPNode = (d, schema, dformat, attributedNodes = defaultAttrib
   }
   const inputChildren = dc.flat(1)
   const inputMarks = formattingAttributesToMarks(dformat, schema)
-  const finalAttrs = canonical !== nodeType.name
-    ? object.assign({
-      'y-attributed': true
-    }, attrs)
-    : attrs
   const pNode = nodeType.createAndFill(
-    finalAttrs,
+    attrs,
     inputChildren,
     inputMarks
   )

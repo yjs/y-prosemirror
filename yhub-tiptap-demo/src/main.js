@@ -6,8 +6,7 @@ import { Editor } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { Image } from '@tiptap/extension-image'
 import { TableKit } from '@tiptap/extension-table'
-import { AttributedInsert, AttributedDelete, AttributedFormat } from './attribution-marks.js'
-import { createYSyncExtension, createYCursorExtension, BlockAttributionExtension } from './extensions.js'
+import { createYSyncExtension, createYCursorExtension, YSuggestionDecorationExtension } from './extensions.js'
 import { setupToolbar } from './toolbar.js'
 import { userColorForId } from './user-colors.js'
 import * as random from 'lib0/random'
@@ -60,39 +59,15 @@ const editor = new Editor({
     // table that the binding must reshape. Fine for a demo; structural ops
     // (split/merge cells) are best-effort under suggestion mode.
     TableKit.configure({ table: { resizable: true } }),
-    AttributedInsert,
-    AttributedDelete,
-    AttributedFormat,
     createYSyncExtension(),
     createYCursorExtension(provider.awareness),
-    BlockAttributionExtension
+    YSuggestionDecorationExtension
   ],
   content: '',
   editable: true
 })
 
 const view = editor.view
-
-// ── Allow y-attributed-* marks on every node (esp. block containers) ──────────
-// When a *whole block* is inserted/deleted in suggestion mode, the binding puts
-// the y-attributed-* mark on the block NODE itself (e.g. a paragraph), and
-// ProseMirror validates that mark against the PARENT node's allowed marks.
-// Non-textblock containers (doc, blockquote, listItem, tableCell/Header, …)
-// default to allowing NO marks, so the binding throws
-// `RangeError: Invalid content for node …` and block-level attribution silently
-// never renders — which is why a wholly inserted/deleted block shows nothing.
-// ATTRIBUTION.md §2 calls this the most common integration pitfall and
-// recommends extending the affected node types' markSet after construction.
-// Textblocks already allow all marks (markSet === null); for every other node
-// type we add the three attribution marks.
-const attributionMarkTypes = ['y-attributed-insert', 'y-attributed-delete', 'y-attributed-format']
-  .map(name => editor.schema.marks[name])
-for (const nodeName in editor.schema.nodes) {
-  const nodeType = editor.schema.nodes[nodeName]
-  if (nodeType.markSet == null) continue // null = all marks already allowed
-  const missing = attributionMarkTypes.filter(markType => !nodeType.markSet.includes(markType))
-  if (missing.length > 0) nodeType.markSet = [...nodeType.markSet, ...missing]
-}
 
 // Tiptap owns `dispatchTransaction`, so the plain-PM demo's try/catch around
 // updateState can't be set via the constructor. Override it on the view after
