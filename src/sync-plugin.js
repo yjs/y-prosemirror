@@ -145,8 +145,28 @@ export function syncPlugin (opts = {}) {
           const pcontent = nodeToDelta(view.state.doc).done()
           const pmToYDiff = d.diff(ycontent, pcontent)
           if (!pmToYDiff.isEmpty()) {
+            const navAM = am === Y.noAttributionsManager ? am : new Proxy(am, {
+              // The diff is in "clean" coordinates where AM-deleted items are
+              // invisible. But applyDelta navigates Y items via
+              // am.contentLength(), and a DiffAttributionManager counts
+              // AM-deleted items at full length — so retain counts land at
+              // wrong positions. This proxy overrides contentLength and
+              // readContent to use clean counting (deleted items = 0) while
+              // passing everything else through to the real AM.
+              //
+              // The proxy's distinct identity (≠ noAttributionsManager) keeps
+              // applyDelta's attribution-aware code paths active. Attribution
+              // recording is unaffected: the DiffAttributionManager's listener
+              // on the Y.Doc fires based on the transaction, not the AM passed
+              // to applyDelta.
+              get (target, prop, receiver) {
+                if (prop === 'contentLength') return Y.noAttributionsManager.contentLength
+                if (prop === 'readContent') return Y.noAttributionsManager.readContent
+                return Reflect.get(target, prop, receiver)
+              }
+            });
             /** @type {Y.Doc} */ (ytype.doc).transact(() => {
-              ytype.applyDelta(pmToYDiff, am)
+              ytype.applyDelta(pmToYDiff, navAM)
             }, ySyncPluginKey.get(view.state))
           }
           // Reconcile: ensure PM matches the clean Y render after the write.

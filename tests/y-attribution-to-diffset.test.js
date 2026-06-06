@@ -562,6 +562,122 @@ const randomlyEditDoc = (gen, doc, s) => {
   return trf.doc
 }
 
+// ---------------------------------------------------------------------------
+// Position mapping: insert/delete after prior suggested deletions
+// ---------------------------------------------------------------------------
+
+/**
+ * Inline: insert after a suggested deletion in the same paragraph.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testInsertAfterInlineDeletion = _tc => {
+  const { editor } = setup('ABC123DEF')
+  editor.dispatch(editor.state.tr.delete(4, 7))
+  t.compare(editor.state.doc.textContent, 'ABCDEF', 'clean after delete')
+  editor.dispatch(editor.state.tr.insertText('X', 5))
+  t.compare(editor.state.doc.textContent, 'ABCDXEF', 'X lands after D')
+}
+
+/**
+ * Inline: insert at the exact deletion boundary (right after deleted span).
+ * Base "ABCDEF", delete "CD" (positions 3-5), clean = "ABEF",
+ * then insert "X" at position 3 (after "B", before "E").
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testInsertAtDeletionBoundary = _tc => {
+  const { editor } = setup('ABCDEF')
+  editor.dispatch(editor.state.tr.delete(3, 5)) // delete "CD"
+  t.compare(editor.state.doc.textContent, 'ABEF', 'clean after delete')
+  editor.dispatch(editor.state.tr.insertText('X', 3)) // insert after "B"
+  t.compare(editor.state.doc.textContent, 'ABXEF', 'X lands after B at deletion boundary')
+}
+
+/**
+ * Inline: delete after a prior suggested deletion in the same paragraph.
+ * Base "ABCDEFGH", delete "DE" (positions 4-6), clean = "ABCFGH",
+ * then delete "G" (position 5-6 in clean), clean = "ABCFH".
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testDeleteAfterInlineDeletion = _tc => {
+  const { editor, suggestionDoc, am } = setup('ABCDEFGH')
+  editor.dispatch(editor.state.tr.delete(4, 6)) // delete "DE"
+  t.compare(editor.state.doc.textContent, 'ABCFGH', 'clean after first delete')
+  editor.dispatch(editor.state.tr.delete(5, 6)) // delete "G" in clean doc
+  t.compare(editor.state.doc.textContent, 'ABCFH', 'second delete lands correctly')
+  const diffs = getDiffs({ suggestionDoc, am })
+  const deletes = diffs.filter(d => d.type === 'inline-delete')
+  const allDeleted = deletes.map(d => d.content?.textBetween(0, d.content?.size ?? 0) ?? '').join('')
+  t.assert(allDeleted.includes('DE'), 'first deletion present')
+  t.assert(allDeleted.includes('G'), 'second deletion present')
+}
+
+/**
+ * Multi-paragraph: insert into a paragraph that follows a deleted paragraph.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testInsertAfterDeletedParagraph = _tc => {
+  const { editor } = setup('first', 'second', 'third')
+  // delete the second paragraph
+  const p1size = editor.state.doc.child(0).nodeSize
+  const p2size = editor.state.doc.child(1).nodeSize
+  editor.dispatch(editor.state.tr.delete(p1size, p1size + p2size))
+  t.compare(editor.state.doc.textContent, 'firstthird', 'second paragraph deleted')
+  // insert text into "third" paragraph — "third" starts at p1size + 1 now
+  editor.dispatch(editor.state.tr.insertText('X', p1size + 1))
+  t.compare(editor.state.doc.textContent, 'firstXthird', 'X inserted into third paragraph')
+}
+
+/**
+ * Multi-paragraph: insert a new paragraph after a deleted paragraph.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testInsertParagraphAfterDeletedParagraph = _tc => {
+  const { editor } = setup('first', 'second', 'third')
+  const p1size = editor.state.doc.child(0).nodeSize
+  const p2size = editor.state.doc.child(1).nodeSize
+  editor.dispatch(editor.state.tr.delete(p1size, p1size + p2size))
+  t.compare(editor.state.doc.textContent, 'firstthird', 'second paragraph deleted')
+  // split "third" paragraph to insert a new paragraph between first and third
+  editor.dispatch(editor.state.tr.split(p1size + 1))
+  t.compare(editor.state.doc.childCount, 3, 'three paragraphs after split')
+  t.compare(editor.state.doc.child(0).textContent, 'first', 'first preserved')
+  t.compare(editor.state.doc.child(2).textContent, 'third', 'third preserved')
+}
+
+/**
+ * Two back-to-back single-char deletions in suggestion mode must both
+ * appear in the diff set. Regression: the second deletion was silently
+ * swallowed, showing only the first deleted character as a ghost.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testBackToBackInlineDeletions = _tc => {
+  const { editor, suggestionDoc, am } = setup('hello world')
+
+  // Delete 'd' (last char) — simulates one Backspace
+  const endPos = editor.state.doc.content.size - 1
+  editor.dispatch(editor.state.tr.delete(endPos - 1, endPos))
+
+  // Delete 'l' — simulates a second Backspace immediately after
+  const endPos2 = editor.state.doc.content.size - 1
+  editor.dispatch(editor.state.tr.delete(endPos2 - 1, endPos2))
+
+  const diffs = getDiffs({ suggestionDoc, am })
+  const deletes = diffs.filter(d => d.type === 'inline-delete')
+  t.assert(deletes.length > 0, 'at least one inline-delete diff exists')
+
+  // Collect all deleted text across all inline-delete diffs
+  const deletedText = deletes.map(d => d.content?.textBetween(0, d.content?.size ?? 0) ?? '').join('')
+  t.assert(deletedText.includes('l'), 'deleted text includes "l" from second deletion')
+  t.assert(deletedText.includes('d'), 'deleted text includes "d" from first deletion')
+  t.compare(deletedText.length, 2, 'exactly two characters deleted total')
+}
+
 /**
  * Invariant: for any random document and random edits, all diffs have
  * valid positions and decorations build without throwing.

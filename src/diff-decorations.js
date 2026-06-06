@@ -197,7 +197,7 @@ export const defaultMapDiffToDecorations = ({ diff, doc, schema, index, color, a
       return Decoration.widget(
         diff.from,
         () => renderDeletedContent(diff.content ?? Fragment.empty, schema, { authorIds, color, title: hoverTitle(diff) }),
-        { side: -1, key: `diff-del-${index}`, diff }
+        { side: 1, key: `diff-del-${index}-${diff.content?.size ?? 0}`, diff }
       )
 
     default:

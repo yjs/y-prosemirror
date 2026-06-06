@@ -187,6 +187,40 @@ export const testDecorationModeRejectAll = _tc => {
 }
 
 /**
+ * Two back-to-back single-char deletions must both produce delete-ghost
+ * decorations. Regression: the second deletion was silently swallowed —
+ * the character disappeared from the doc without a ghost widget.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testDecorationModeBackToBackInlineDeletions = _tc => {
+  const { editor } = setup('hello world')
+
+  // First backspace: delete 'd' (last char of "world")
+  const end1 = editor.state.doc.content.size - 1
+  editor.dispatch(editor.state.tr.delete(end1 - 1, end1))
+
+  // Second backspace: delete 'l'
+  const end2 = editor.state.doc.content.size - 1
+  editor.dispatch(editor.state.tr.delete(end2 - 1, end2))
+
+  // The clean doc should have "hello wor" (both chars removed)
+  t.assert(!editor.state.doc.textContent.includes('d'), '"d" not in doc text')
+  t.assert(editor.state.doc.textContent === 'hello wor', 'clean doc is "hello wor"')
+
+  const decos = getDecorations(editor)
+  const deleteDecos = decos.filter(d => d.spec?.diff?.type === 'inline-delete')
+  t.assert(deleteDecos.length > 0, 'has inline-delete decoration(s)')
+
+  // Collect all deleted text from ghost widgets
+  const deletedText = deleteDecos
+    .map(d => d.spec?.diff?.content?.textBetween(0, d.spec?.diff?.content?.size ?? 0) ?? '')
+    .join('')
+  t.assert(deletedText.includes('l'), 'ghost includes "l" from second deletion')
+  t.assert(deletedText.includes('d'), 'ghost includes "d" from first deletion')
+}
+
+/**
  * Positions stay within bounds after mixed inserts and deletes.
  *
  * @param {t.TestCase} _tc

@@ -19,7 +19,8 @@
 
 import * as YPM from '@y/prosemirror'
 import * as prng from 'lib0/prng'
-import { Cohort, applyTracedOp, assertCohortConsistency } from './cohort.js'
+import * as t from 'lib0/testing'
+import { Cohort, applyTracedOp, assertCohortConsistency, findDivergences } from './cohort.js'
 
 /** @typedef {import('lib0/testing').TestCase} TestCase */
 
@@ -273,5 +274,176 @@ export const testSimLongRunningFuzz = (tc) => {
   cohort.seed('lorem ipsum dolor sit amet')
   runSim(cohort, tc.prng, 100)
   assertCohortConsistency(cohort, `long seed=${tc.seed}`)
+  cohort.destroy()
+}
+
+// === Position mapping stress tests ===
+//
+// The sync-plugin's write path maps clean-coordinate diffs to attributed
+// coordinates via `embedDeletedContent`. These fuzz tests bias toward the
+// delete-then-edit-nearby pattern that exercises that mapping.
+
+/**
+ * Ops biased toward delete-then-insert/delete sequences within a single
+ * suggestion-mode user. This stresses the inline position mapping path
+ * where retains must skip over AM-deleted items.
+ */
+const DELETE_THEN_EDIT_OPS = [opDeleteRange, opDeleteRange, opInsertText, opInsertText, opInsertPlainText, opSplitBlock]
+
+/**
+ * Drive ops that bias toward delete-then-edit-nearby: each round picks a
+ * suggestion-mode user, deletes a range, then immediately performs another
+ * edit (insert/delete/split) on the same user's view.
+ *
+ * @param {Cohort} cohort
+ * @param {prng.PRNG} gen
+ * @param {number} rounds
+ */
+const runDeleteThenEditSim = (cohort, gen, rounds) => {
+  const suggestionUsers = cohort.users.filter(u => u.mode === 'suggestion-mode')
+  if (!suggestionUsers.length) return
+  for (let i = 0; i < rounds; i++) {
+    const user = prng.oneOf(gen, suggestionUsers)
+    opDeleteRange(cohort, user, gen)
+    const followUp = prng.oneOf(gen, DELETE_THEN_EDIT_OPS)
+    followUp(cohort, user, gen)
+    if (prng.bool(gen)) {
+      const other = prng.oneOf(gen, cohort.users)
+      const otherOp = prng.oneOf(gen, ALL_OPS)
+      otherOp(cohort, other, gen)
+    }
+  }
+}
+
+/**
+ * Fuzz: suggestion-mode user deletes then edits nearby, repeated with
+ * varying seeds. Stresses the inline position mapping in the sync-plugin
+ * write path.
+ *
+ * @param {TestCase} tc
+ */
+export const testRepeatDeleteThenEditNearby = (tc) => {
+  const cohort = new Cohort(STANDARD_COHORT)
+  cohort.seed('the quick brown fox jumps over the lazy dog')
+  runDeleteThenEditSim(cohort, tc.prng, 15)
+  assertCohortConsistency(cohort, `delete-then-edit seed=${tc.seed}`)
+  cohort.destroy()
+}
+
+/**
+ * Extended delete-then-edit fuzz with multi-paragraph content and more
+ * rounds to stress block-level position mapping (paragraph deletions
+ * followed by edits in neighboring paragraphs).
+ *
+ * @param {TestCase} tc
+ */
+export const testRepeatDeleteThenEditMultiParagraph = (tc) => {
+  const cohort = new Cohort(STANDARD_COHORT)
+  cohort.seed('first paragraph here')
+  cohort.seed('second paragraph here')
+  cohort.seed('third paragraph here')
+  runDeleteThenEditSim(cohort, tc.prng, 20)
+  assertCohortConsistency(cohort, `multi-para seed=${tc.seed}`)
+  cohort.destroy()
+}
+
+// === Nested block and whole-block deletion fuzz ===
+
+/**
+ * Delete an entire top-level block by index.
+ *
+ * @param {Cohort} cohort
+ * @param {import('./cohort.js').CohortUser} user
+ * @param {prng.PRNG} gen
+ */
+const opDeleteBlock = (cohort, user, gen) => {
+  const doc = user.view.state.doc
+  if (doc.childCount === 0) return
+  const blockIndex = prng.int32(gen, 0, doc.childCount - 1)
+  applyTracedOp(cohort, { user: user.idx, op: 'deleteBlock', args: { blockIndex } })
+}
+
+/**
+ * Wrap a random block range in a blockquote.
+ *
+ * @param {Cohort} cohort
+ * @param {import('./cohort.js').CohortUser} user
+ * @param {prng.PRNG} gen
+ */
+const opWrapInBlockquote = (cohort, user, gen) => {
+  const doc = user.view.state.doc
+  if (doc.childCount === 0) return
+  const range = randomRange(doc, gen)
+  if (!range) return
+  applyTracedOp(cohort, { user: user.idx, op: 'wrapInBlockquote', args: range })
+}
+
+/**
+ * Ops biased toward whole-block deletions mixed with text edits and
+ * block structure changes (wraps, splits, paragraph inserts).
+ */
+const BLOCK_DELETE_OPS = [opDeleteBlock, opDeleteBlock, opInsertText, opDeleteRange, opSplitBlock, opInsertParagraph, opWrapInBlockquote]
+
+/**
+ * Drive ops that mix whole-block deletion with text edits and structural
+ * changes. Each round picks a suggestion-mode user and performs a
+ * block-level or text-level operation, optionally followed by a second
+ * operation from any user.
+ *
+ * @param {Cohort} cohort
+ * @param {prng.PRNG} gen
+ * @param {number} rounds
+ */
+const runBlockDeleteSim = (cohort, gen, rounds) => {
+  const suggestionUsers = cohort.users.filter(u => u.mode === 'suggestion-mode')
+  if (!suggestionUsers.length) return
+  for (let i = 0; i < rounds; i++) {
+    const user = prng.oneOf(gen, suggestionUsers)
+    const op = prng.oneOf(gen, BLOCK_DELETE_OPS)
+    op(cohort, user, gen)
+    if (prng.bool(gen)) {
+      const other = prng.oneOf(gen, cohort.users)
+      prng.oneOf(gen, ALL_OPS)(cohort, other, gen)
+    }
+  }
+}
+
+/**
+ * Fuzz: mix of whole-paragraph deletions, text deletions, inserts, and
+ * blockquote wrapping. Stresses both inline and block-level position
+ * mapping in the sync-plugin write path.
+ *
+ * @param {TestCase} tc
+ */
+export const testRepeatBlockDeleteAndEditNearby = (tc) => {
+  const cohort = new Cohort(STANDARD_COHORT)
+  cohort.seed('alpha bravo charlie')
+  cohort.seed('delta echo foxtrot')
+  cohort.seed('golf hotel india')
+  cohort.seed('juliet kilo lima')
+  runBlockDeleteSim(cohort, tc.prng, 20)
+  assertCohortConsistency(cohort, `block-delete seed=${tc.seed}`)
+  cohort.destroy()
+}
+
+/**
+ * Fuzz: nested block structures (blockquotes wrapping paragraphs) with
+ * deletions and edits at multiple nesting levels.
+ *
+ * @param {TestCase} tc
+ */
+export const testRepeatNestedBlockDeleteAndEdit = (tc) => {
+  const cohort = new Cohort(STANDARD_COHORT)
+  cohort.seed('outer paragraph one')
+  cohort.seed('outer paragraph two')
+  cohort.seed('outer paragraph three')
+  // Wrap the first two paragraphs in a blockquote using a no-suggestions user
+  // so the structure is in the base doc
+  const baseUser = cohort.users.find(u => u.mode === 'no-suggestions')
+  if (baseUser) {
+    opWrapInBlockquote(cohort, baseUser, tc.prng)
+  }
+  runBlockDeleteSim(cohort, tc.prng, 20)
+  assertCohortConsistency(cohort, `nested-block seed=${tc.seed}`)
   cohort.destroy()
 }

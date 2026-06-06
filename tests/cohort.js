@@ -292,6 +292,23 @@ export const applyTracedOp = (cohort, step, schemaOverride) => {
       case 'insertParagraph':
         dispatch(state.tr.insert(a.pos, s.nodes.paragraph.create(null, s.text(a.text))))
         break
+      case 'wrapInBlockquote': {
+        if (!s.nodes.blockquote) break
+        const $from = state.doc.resolve(a.from)
+        const $to = state.doc.resolve(a.to)
+        const range = $from.blockRange($to)
+        if (!range) break
+        dispatch(state.tr.wrap(range, [{ type: s.nodes.blockquote }]))
+        break
+      }
+      case 'deleteBlock': {
+        const child = state.doc.maybeChild(a.blockIndex)
+        if (!child) break
+        let pos = 0
+        for (let i = 0; i < a.blockIndex; i++) pos += state.doc.child(i).nodeSize
+        dispatch(state.tr.delete(pos, pos + child.nodeSize))
+        break
+      }
     }
   } catch (_) { /* schema-invalid edits skip */ }
 }
