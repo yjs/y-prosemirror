@@ -20,7 +20,7 @@
 import * as YPM from '@y/prosemirror'
 import * as prng from 'lib0/prng'
 import * as t from 'lib0/testing'
-import { Cohort, applyTracedOp, assertCohortConsistency, findDivergences } from './cohort.js'
+import { Cohort, applyTracedOp, assertCohortConsistency } from './cohort.js'
 
 /** @typedef {import('lib0/testing').TestCase} TestCase */
 
@@ -436,6 +436,9 @@ export const testRepeatBlockDeleteAndEditNearby = (tc) => {
  * Deterministic reproduction of step-based sync divergence:
  * blockquote-wrapped paragraphs + suggestion-mode insertText.
  */
+/**
+ * @param {TestCase} _tc
+ */
 export const testStepSyncDivergenceInBlockquote = (_tc) => {
   // Deterministic reproduction: blockquote wrapping + suggestion-mode insert
   // causes step-based sync to diverge between two suggestion-mode peers.
@@ -445,8 +448,7 @@ export const testStepSyncDivergenceInBlockquote = (_tc) => {
   cohort.seed('outer paragraph three')
   // doc is now: [p("outer paragraph three"), p("outer paragraph two"), p("outer paragraph one")]
   // Wrap all paragraphs in a blockquote via a no-suggestions user
-  const baseUser = cohort.users.find(u => u.mode === 'no-suggestions')
-  t.assert(baseUser != null)
+  const baseUser = /** @type {import('./cohort.js').CohortUser} */ (cohort.users.find(u => u.mode === 'no-suggestions'))
   applyTracedOp(cohort, { user: baseUser.idx, op: 'wrapInBlockquote', args: { from: 1, to: baseUser.view.state.doc.content.size - 1 } })
   // doc is: blockquote([p("outer paragraph three"), p("outer paragraph two"), p("outer paragraph one")])
   // User 5 (suggestion-mode) inserts "d" into the third paragraph's text
@@ -459,6 +461,9 @@ export const testStepSyncDivergenceInBlockquote = (_tc) => {
   cohort.destroy()
 }
 
+/**
+ * @param {TestCase} tc
+ */
 export const testRepeatNestedBlockDeleteAndEdit = (tc) => {
   const cohort = new Cohort(STANDARD_COHORT)
   cohort.seed('outer paragraph one')

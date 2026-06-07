@@ -360,7 +360,6 @@ export const testAppendTransactionMultipleRounds = () => {
   const ytype = ydoc.get('prosemirror')
   ytype.applyDelta(delta.create().insert([delta.create('paragraph', {}, 'start')]).done())
 
-  let callCount = 0
   const appendPlugin = new Plugin({
     appendTransaction: (trs, _oldState, newState) => {
       const isUserTr = trs.some(tr =>
@@ -371,7 +370,6 @@ export const testAppendTransactionMultipleRounds = () => {
       )
       if (!isUserTr) return null
       if (newState.doc.textContent.includes('FOOTER')) return null
-      callCount++
       const tr = newState.tr
       tr.insert(tr.doc.content.size, schema.node('paragraph', undefined, schema.text('FOOTER')))
       tr.setMeta('append-marker', true)

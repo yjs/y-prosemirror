@@ -153,17 +153,19 @@ export function syncPlugin (opts = {}) {
           // recording is unaffected: the DiffAttributionManager's listener
           // on the Y.Doc fires based on the transaction, not the AM passed
           // to applyDelta.
-          const navAM = am === Y.noAttributionsManager ? am : new Proxy(am, {
-            get (target, prop, receiver) {
-              if (prop === 'contentLength') return Y.noAttributionsManager.contentLength
-              if (prop === 'readContent') return Y.noAttributionsManager.readContent
-              return Reflect.get(target, prop, receiver)
-            }
-          })
-          const docChangedTrs = pendingTrs.filter(ptr => ptr.docChanged)
-          if (am === Y.noAttributionsManager
-            && docChangedTrs.length > 0
-            && docChangedTrs[0].before === prevState.doc) {
+          const navAM = am === Y.noAttributionsManager
+            ? am
+            : new Proxy(am, {
+              get (target, prop, receiver) {
+                if (prop === 'contentLength') return Y.noAttributionsManager.contentLength
+                if (prop === 'readContent') return Y.noAttributionsManager.readContent
+                return Reflect.get(target, prop, receiver)
+              }
+            })
+          const docChangedTrs = pendingTrs.filter(/** @param {any} ptr */ ptr => ptr.docChanged)
+          if (am === Y.noAttributionsManager &&
+            docChangedTrs.length > 0 &&
+            docChangedTrs[0].before === prevState.doc) {
             /** @type {Y.Doc} */ (ytype.doc).transact(() => {
               for (const ptr of docChangedTrs) {
                 if (ptr.steps.length === 1) {

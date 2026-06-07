@@ -237,7 +237,7 @@ export class Cohort {
  *
  * @typedef {Object} TracedOp
  * @property {number} user — index into `cohort.users`
- * @property {('insertText'|'insertPlainText'|'deleteRange'|'addMark'|'removeMark'|'splitBlock'|'insertParagraph')} op
+ * @property {('insertText'|'insertPlainText'|'deleteRange'|'addMark'|'removeMark'|'splitBlock'|'insertParagraph'|'wrapInBlockquote'|'deleteBlock')} op
  * @property {Record<string, any>} args
  */
 

@@ -1,6 +1,5 @@
 import * as Y from '@y/y'
 import * as delta from 'lib0/delta'
-import * as error from 'lib0/error'
 import * as math from 'lib0/math'
 import * as object from 'lib0/object'
 import * as s from 'lib0/schema'
@@ -373,24 +372,26 @@ const _stepToDelta = s.match({ beforeDoc: Node, afterDoc: Node })
     const stepDelta = deltaModifyNodeAt(beforeDoc, oldBlockRange?.start || newBlockRange?.start || 0, d => { d.append(diffD) })
     return stepDelta
   })
-  .if([AddMarkStep, RemoveMarkStep], (step, { beforeDoc, afterDoc }) => {
+  .if(AddMarkStep, (step, { beforeDoc, afterDoc }) => {
     const fromResolved = beforeDoc.resolve(step.from)
     const toResolved = beforeDoc.resolve(step.to)
     if (fromResolved.sameParent(toResolved)) {
-      const format = step instanceof AddMarkStep
-        ? marksToFormattingAttributes([step.mark])
-        : { [step.mark.type.name]: null }
-      return deltaModifyNodeAt(beforeDoc, step.from, d => { d.retain(step.to - step.from, format) })
+      return deltaModifyNodeAt(beforeDoc, step.from, d => { d.retain(step.to - step.from, marksToFormattingAttributes([step.mark])) })
     }
-    const oldStart = beforeDoc.resolve(step.from)
-    const newStart = afterDoc.resolve(step.from)
-    const oldEnd = beforeDoc.resolve(step.to)
-    const newEnd = afterDoc.resolve(step.to)
-    const oldBlockRange = oldStart.blockRange(oldEnd)
-    const newBlockRange = newStart.blockRange(newEnd)
-    const oldDelta = deltaForBlockRange(oldBlockRange)
-    const newDelta = deltaForBlockRange(newBlockRange)
-    const diffD = delta.diff(oldDelta, newDelta)
+    const oldBlockRange = fromResolved.blockRange(toResolved)
+    const newBlockRange = afterDoc.resolve(step.from).blockRange(afterDoc.resolve(step.to))
+    const diffD = delta.diff(deltaForBlockRange(oldBlockRange), deltaForBlockRange(newBlockRange))
+    return deltaModifyNodeAt(beforeDoc, oldBlockRange?.start || newBlockRange?.start || 0, d => { d.append(diffD) })
+  })
+  .if(RemoveMarkStep, (step, { beforeDoc, afterDoc }) => {
+    const fromResolved = beforeDoc.resolve(step.from)
+    const toResolved = beforeDoc.resolve(step.to)
+    if (fromResolved.sameParent(toResolved)) {
+      return deltaModifyNodeAt(beforeDoc, step.from, d => { d.retain(step.to - step.from, { [step.mark.type.name]: null }) })
+    }
+    const oldBlockRange = fromResolved.blockRange(toResolved)
+    const newBlockRange = afterDoc.resolve(step.from).blockRange(afterDoc.resolve(step.to))
+    const diffD = delta.diff(deltaForBlockRange(oldBlockRange), deltaForBlockRange(newBlockRange))
     return deltaModifyNodeAt(beforeDoc, oldBlockRange?.start || newBlockRange?.start || 0, d => { d.append(diffD) })
   })
   .if(AddNodeMarkStep, (step, { beforeDoc }) =>
@@ -405,12 +406,12 @@ const _stepToDelta = s.match({ beforeDoc: Node, afterDoc: Node })
   .if(DocAttrStep, step =>
     delta.create().setAttr(step.attr, step.value)
   )
+  // @ts-ignore TS2589: tsc hits "excessively deep" expanding the recursive matcher
   .else((step, { beforeDoc, afterDoc }) => {
-    // Custom/unknown step — fall back to diffing the affected block range
     const map = step.getMap()
     let oldFrom = Infinity
     let oldTo = 0
-    map.forEach((from, to, _newSize) => {
+    map.forEach(/** @param {number} from @param {number} to @param {number} _newSize */ (from, to, _newSize) => {
       oldFrom = math.min(oldFrom, from)
       oldTo = math.max(oldTo, to)
     })
