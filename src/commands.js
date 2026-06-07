@@ -1,13 +1,14 @@
-import { ySyncPluginKey, yUndoPluginKey } from './keys.js'
-import { deltaToPSteps, nodeToDelta, deltaToPNode } from './sync-utils.js'
 import * as d from 'lib0/delta'
+import { ySyncPluginKey, yUndoPluginKey } from './keys.js'
+import { deltaToPSteps, deltaAttributionToFormat, nodeToDelta, deltaToPNode } from './sync-utils.js'
 import * as Y from '@y/y'
 import { absolutePositionToRelativePosition } from './positions.js'
 
 /**
- * Switch to pause mode (stop synchronization between prosemirror and ytype).
- *
- * @type {import('prosemirror-state').Command}
+ * Switch to pause mode (stop synchronization between prosemirror and ytype)
+ * @param {import('prosemirror-state').EditorState} state
+ * @param {CommandDispatch?} dispatch
+ * @returns {boolean}
  */
 export function pauseSync (state, dispatch) {
   const pluginState = ySyncPluginKey.getState(state)
@@ -22,14 +23,17 @@ export function pauseSync (state, dispatch) {
   return true
 }
 
+const debugging = false
+
 /**
  * Reconfigure y-prosemirror.
  * - enable syncing to (different) ytype
+ * - render attributions
  * - pause sync (by setting ytype=null)
  *
  * @param {object} [opts]
- * @param {Y.Type | null} [opts.ytype] Sync different ytype. Set to null to pause sync.
- * @param {Y.AbstractAttributionManager | null} [opts.attributionManager] Optional attribution manager to switch to.
+ * @param {YType?} [opts.ytype] Sync different ytype. Set to null to pause sync
+ * @param {AttributionManager?} [opts.attributionManager] Optional attribution manager to switch to
  * @returns {import('prosemirror-state').Command}
  */
 export const configureYProsemirror = (opts = {}) => (state, dispatch) => {
@@ -43,13 +47,29 @@ export const configureYProsemirror = (opts = {}) => (state, dispatch) => {
     const tr = state.tr.setMeta(ySyncPluginKey, opts)
     tr.setMeta('addToHistory', false)
     if (ytype) {
-      const ycontent = ytype.toDeltaDeep()
-      try {
-        const pcontent = nodeToDelta(tr.doc)
-        const diff = d.diff(pcontent.done(), ycontent.done())
-        deltaToPSteps(tr, diff)
-      } catch {
-        tr.replaceWith(0, tr.doc.content.size, deltaToPNode(ycontent, tr.doc.type.schema, null))
+      if (pluginState.decorationMode) {
+        const ycontent = ytype.toDeltaDeep()
+        try {
+          const pcontent = nodeToDelta(tr.doc)
+          const diff = d.diff(pcontent.done(), ycontent.done())
+          deltaToPSteps(tr, diff)
+        } catch {
+          tr.replaceWith(0, tr.doc.content.size, deltaToPNode(ycontent, tr.doc.type.schema, null))
+        }
+      } else {
+        /**
+         * @type {ProsemirrorDelta}
+         */
+        const ycontent = deltaAttributionToFormat(ytype.toDeltaDeep(attributionManager || Y.noAttributionsManager), pluginState.attributionMapper)
+        // @todo it is preferred to apply the minimal diff - at least for debugging purposes. the
+        // document replacal is more reliable though
+        if (debugging) {
+          const pcontent = nodeToDelta(tr.doc, undefined, true)
+          const diff = d.diff(pcontent.done(), ycontent.done())
+          deltaToPSteps(tr, diff, undefined, undefined, pluginState.attributedNodes)
+        } else {
+          tr.replaceWith(0, tr.doc.content.size, deltaToPNode(ycontent, tr.doc.type.schema, null, pluginState.attributedNodes))
+        }
       }
     }
     dispatch(tr)

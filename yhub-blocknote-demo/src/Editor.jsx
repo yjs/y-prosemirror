@@ -8,7 +8,7 @@ import { yhub } from './yhub.js'
 
 const YSyncExtension = createExtension(() => ({
   key: 'ySync',
-  prosemirrorPlugins: [syncPlugin()]
+  prosemirrorPlugins: [syncPlugin({ decorationMode: true })]
 }))
 
 const YSuggestionDecorationExtension = createExtension(() => ({

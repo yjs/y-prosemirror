@@ -88,7 +88,7 @@ const setup = (baseContent, seedDelta = delta.create().insert([delta.create('par
   const mkView = (ytype, am = Y.noAttributionsManager) => {
     const view = new EditorView(
       { mount: document.createElement('div') },
-      { state: EditorState.create({ schema, plugins: [YPM.syncPlugin(), YPM.ySuggestionDecorationPlugin()] }) }
+      { state: EditorState.create({ schema, plugins: [YPM.syncPlugin({ decorationMode: true }), YPM.ySuggestionDecorationPlugin()] }) }
     )
     YPM.configureYProsemirror({ ytype, attributionManager: am })(view.state, view.dispatch)
     return view

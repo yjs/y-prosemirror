@@ -73,7 +73,7 @@ const PM_KEY = 'prosemirror'
 export const createPMView = (ytype, attributionManager = Y.noAttributionsManager, opts = {}) => {
   const s = opts.schema || defaultSchema
   const plugins = [
-    YPM.syncPlugin(),
+    YPM.syncPlugin({ decorationMode: true }),
     YPM.ySuggestionDecorationPlugin()
   ]
   const view = new EditorView(

@@ -38,7 +38,7 @@ const createDecorationView = (ytype, attributionManager = Y.noAttributionsManage
       state: EditorState.create({
         schema,
         plugins: [
-          YPM.syncPlugin(),
+          YPM.syncPlugin({ decorationMode: true }),
           YPM.ySuggestionDecorationPlugin()
         ]
       })
