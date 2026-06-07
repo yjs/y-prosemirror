@@ -57,11 +57,10 @@ const assertDocJSON = (doc, expected, message) => {
  * @param {object} [opts]
  * @param {string} [opts.baseContent] - initial paragraph text content
  * @param {import('prosemirror-model').Schema} [opts.schema] - custom schema (defaults to complexSchema)
- * @param {AttributionMapper} [opts.mapAttributionToMark] - custom attribution mapper
  */
 const createSuggestionSetup = (opts = {}) => {
   const { baseContent } = opts
-  const viewOpts = opts.schema ? { schema: opts.schema, mapAttributionToMark: opts.mapAttributionToMark } : {}
+  const viewOpts = opts.schema ? { schema: opts.schema } : {}
 
   const doc = new Y.Doc({ gc: false, guid: 'base' })
 
