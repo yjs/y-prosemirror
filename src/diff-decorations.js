@@ -11,8 +11,8 @@
  * node-views / attribute-change extraction can read it back. Decorations
  * also expose `data-diff-type` and `data-diff-user-id` attributes for CSS.
  */
-import { Decoration, DecorationSet } from 'prosemirror-view'
-import { Plugin } from 'prosemirror-state'
+import { Decoration, DecorationSet, EditorView } from 'prosemirror-view'
+import { Plugin, EditorState } from 'prosemirror-state'
 import { DOMSerializer, Fragment } from 'prosemirror-model'
 import { suggestionDiffPluginKey } from './keys.js'
 
@@ -153,6 +153,23 @@ const decorationAttrs = (diff, { authorIds, color }) => {
 }
 
 /**
+ * Check whether any node in a fragment has a registered node view.
+ *
+ * @param {Fragment} fragment
+ * @param {Record<string, any>} nodeViews
+ * @returns {boolean}
+ */
+const fragmentHasNodeView = (fragment, nodeViews) => {
+  let found = false
+  fragment.forEach(node => {
+    if (found) return
+    if (nodeViews[node.type.name]) { found = true; return }
+    if (node.content.size > 0 && fragmentHasNodeView(node.content, nodeViews)) found = true
+  })
+  return found
+}
+
+/**
  * Default mapping from a single `Diff` to decoration(s). Returns a `Decoration`,
  * an array of them, or `null` to skip.
  *
@@ -193,12 +210,51 @@ export const defaultMapDiffToDecorations = ({ diff, doc, schema, index, color, a
     }
 
     case 'inline-delete':
-    case 'block-delete':
       return Decoration.widget(
         diff.from,
         () => renderDeletedContent(diff.content ?? Fragment.empty, schema, { authorIds, color, title: hoverTitle(diff) }),
         { side: 1, key: `diff-del-${index}-${diff.content?.size ?? 0}`, diff }
       )
+
+    case 'block-delete': {
+      const fragment = diff.content ?? Fragment.empty
+      /** @type {EditorView | null} */
+      let ghostView = null
+      return Decoration.widget(
+        diff.from,
+        (view) => {
+          const container = document.createElement('div')
+          container.className = 'pm-suggest pm-suggest--delete'
+          container.setAttribute('data-diff-type', 'block-delete')
+          if (authorIds.length) container.setAttribute('data-diff-user-id', authorIds.join(','))
+          if (color) container.style.setProperty('--author-color', color)
+          container.setAttribute('title', hoverTitle(diff))
+          container.contentEditable = 'false'
+          if (fragment.size > 0 && view.props.nodeViews && fragmentHasNodeView(fragment, view.props.nodeViews)) {
+            const ghostDoc = schema.nodes.doc.create(null, fragment)
+            const mountEl = document.createElement('div')
+            container.appendChild(mountEl)
+            ghostView = new EditorView(
+              { mount: mountEl },
+              {
+                state: EditorState.create({ doc: ghostDoc, schema }),
+                editable: () => false
+              }
+            )
+          } else if (fragment.size > 0) {
+            const serializer = DOMSerializer.fromSchema(schema)
+            container.appendChild(serializer.serializeFragment(fragment, { document }))
+          }
+          return container
+        },
+        {
+          side: 1,
+          key: `diff-del-${index}-${fragment.size}`,
+          diff,
+          destroy: () => { ghostView?.destroy(); ghostView = null }
+        }
+      )
+    }
 
     default:
       return null

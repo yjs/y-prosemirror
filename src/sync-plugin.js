@@ -101,6 +101,44 @@ const stripAttributionFormattingFromDelta = (input) => {
 }
 
 /**
+ * Strip delete-attributed content from an attributed delta and drop all
+ * attribution metadata. Used in decoration mode: the PM doc should contain
+ * normal content + suggestion-inserts, but NOT suggestion-deletes (those
+ * become ghost decorations). Similar to `deltaAttributionToFormat` but
+ * instead of converting attributions to marks, we skip deletes entirely
+ * and emit clean content.
+ *
+ * @param {d.DeltaAny} input - attributed delta from `toDeltaDeep(am)`
+ * @returns {d.DeltaAny}
+ */
+const stripDeletesFromAttributedDelta = (input) => {
+  const out = /** @type {any} */ (d.create(input.name, $prosemirrorDelta))
+  for (const attr of input.attrs) {
+    // @ts-ignore
+    out.attrs[attr.key] = attr.clone()
+  }
+  for (const child of input.children) {
+    if (child.attribution?.delete) continue
+    const format = child.format
+    if (d.$retainOp.check(child)) {
+      out.retain(child.retain, format)
+    } else if (d.$textOp.check(child)) {
+      out.insert(child.insert, format)
+    } else if (d.$insertOp.check(child)) {
+      const newInsert = child.insert.map(/** @param {any} ins */ ins =>
+        d.$deltaAny.check(ins) ? stripDeletesFromAttributedDelta(ins) : ins
+      )
+      out.insert(newInsert, format)
+    } else if (d.$deleteOp.check(child)) {
+      out.delete(child.delete)
+    } else if (d.$modifyOp.check(child)) {
+      out.modify(stripDeletesFromAttributedDelta(child.value), format)
+    }
+  }
+  return out.done(false)
+}
+
+/**
  * Create a proxy AM that uses clean counting for navigation while
  * preserving attribution recording. Needed in decoration mode because
  * the diff is in clean coordinates (AM-deleted items invisible), but a
@@ -196,7 +234,8 @@ export function syncPlugin (opts = {}) {
             if (/** @type {any} */ (tr).origin === ySyncPluginKey.get(view.state)) return
             let desiredPM, pcontent, diff, ptr
             if (decorationMode) {
-              desiredPM = ytype.toDeltaDeep().done()
+              const am = attributionManager || Y.noAttributionsManager
+              desiredPM = stripDeletesFromAttributedDelta(ytype.toDeltaDeep(am)).done()
               pcontent = nodeToDelta(view.state.doc).done()
               diff = d.diff(pcontent, desiredPM)
               ptr = diff.isEmpty() ? view.state.tr : deltaToPSteps(view.state.tr, diff)
@@ -227,7 +266,8 @@ export function syncPlugin (opts = {}) {
             }
             let desiredPM, pcontent, diff, ptr
             if (decorationMode) {
-              desiredPM = ytype.toDeltaDeep().done()
+              const am = attributionManager || Y.noAttributionsManager
+              desiredPM = stripDeletesFromAttributedDelta(ytype.toDeltaDeep(am)).done()
               pcontent = nodeToDelta(view.state.doc).done()
               diff = d.diff(pcontent, desiredPM)
               ptr = diff.isEmpty() ? view.state.tr : deltaToPSteps(view.state.tr, diff)
@@ -285,7 +325,8 @@ export function syncPlugin (opts = {}) {
           const attributedNodes = pluginState.attributedNodes
           if (decorationMode) {
             const navAM = createNavAM(am)
-            const ycontent = ytype.toDeltaDeep().done()
+            const cleanDelta = stripDeletesFromAttributedDelta(ytype.toDeltaDeep(am))
+            const ycontent = cleanDelta.done()
             const pcontent = nodeToDelta(view.state.doc).done()
             const pmToYDiff = d.diff(ycontent, pcontent)
             if (!pmToYDiff.isEmpty()) {
@@ -293,8 +334,9 @@ export function syncPlugin (opts = {}) {
                 ytype.applyDelta(pmToYDiff, navAM)
               }, ySyncPluginKey.get(view.state))
             }
-            // Always dispatch so the decoration plugin can rebuild.
-            const desiredPM = ytype.toDeltaDeep().done()
+            // Reconcile: re-read after write and always dispatch so the
+            // decoration plugin can rebuild.
+            const desiredPM = stripDeletesFromAttributedDelta(ytype.toDeltaDeep(am)).done()
             const pcontentAfter = nodeToDelta(view.state.doc).done()
             const pmReconcileDiff = d.diff(pcontentAfter, desiredPM)
             const tr = view.state.tr
