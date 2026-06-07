@@ -14,7 +14,7 @@ import * as undo from './undo.test.js'
 import * as commands from './commands.test.js'
 import * as yAttributionToDiffSet from './y-attribution-to-diffset.test.js'
 import * as suggestionDecorationPlugin from './suggestion-decoration-plugin.test.js'
-// import * as tr from './tr.test.js'
+import * as tr from './tr.test.js'
 
 import { runTests } from 'lib0/testing'
 import { isBrowser, isNode } from 'lib0/environment'
@@ -65,9 +65,9 @@ runTests({
   undo,
   commands,
   yAttributionToDiffSet,
-  suggestionDecorationPlugin
+  suggestionDecorationPlugin,
   // prosemirror,
-  // tr
+  tr
 }).then(success => {
   /* istanbul ignore next */
   if (isNode) {

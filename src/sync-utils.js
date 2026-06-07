@@ -373,14 +373,28 @@ const _stepToDelta = s.match({ beforeDoc: Node, afterDoc: Node })
     const stepDelta = deltaModifyNodeAt(beforeDoc, oldBlockRange?.start || newBlockRange?.start || 0, d => { d.append(diffD) })
     return stepDelta
   })
-  .if(AddMarkStep, (step, { beforeDoc }) =>
-    deltaModifyNodeAt(beforeDoc, step.from, d => { d.retain(step.to - step.from, marksToFormattingAttributes([step.mark])) })
-  )
+  .if([AddMarkStep, RemoveMarkStep], (step, { beforeDoc, afterDoc }) => {
+    const fromResolved = beforeDoc.resolve(step.from)
+    const toResolved = beforeDoc.resolve(step.to)
+    if (fromResolved.sameParent(toResolved)) {
+      const format = step instanceof AddMarkStep
+        ? marksToFormattingAttributes([step.mark])
+        : { [step.mark.type.name]: null }
+      return deltaModifyNodeAt(beforeDoc, step.from, d => { d.retain(step.to - step.from, format) })
+    }
+    const oldStart = beforeDoc.resolve(step.from)
+    const newStart = afterDoc.resolve(step.from)
+    const oldEnd = beforeDoc.resolve(step.to)
+    const newEnd = afterDoc.resolve(step.to)
+    const oldBlockRange = oldStart.blockRange(oldEnd)
+    const newBlockRange = newStart.blockRange(newEnd)
+    const oldDelta = deltaForBlockRange(oldBlockRange)
+    const newDelta = deltaForBlockRange(newBlockRange)
+    const diffD = delta.diff(oldDelta, newDelta)
+    return deltaModifyNodeAt(beforeDoc, oldBlockRange?.start || newBlockRange?.start || 0, d => { d.append(diffD) })
+  })
   .if(AddNodeMarkStep, (step, { beforeDoc }) =>
     deltaModifyNodeAt(beforeDoc, step.pos, d => { d.retain(1, marksToFormattingAttributes([step.mark])) })
-  )
-  .if(RemoveMarkStep, (step, { beforeDoc }) =>
-    deltaModifyNodeAt(beforeDoc, step.from, d => { d.retain(step.to - step.from, { [step.mark.type.name]: null }) })
   )
   .if(RemoveNodeMarkStep, (step, { beforeDoc }) =>
     deltaModifyNodeAt(beforeDoc, step.pos, d => { d.retain(1, { [step.mark.type.name]: null }) })
@@ -391,9 +405,29 @@ const _stepToDelta = s.match({ beforeDoc: Node, afterDoc: Node })
   .if(DocAttrStep, step =>
     delta.create().setAttr(step.attr, step.value)
   )
-  .else(_step => {
-    // unknown step kind
-    error.unexpectedCase()
+  .else((step, { beforeDoc, afterDoc }) => {
+    // Custom/unknown step — fall back to diffing the affected block range
+    const map = step.getMap()
+    let oldFrom = Infinity
+    let oldTo = 0
+    map.forEach((from, to, _newSize) => {
+      oldFrom = math.min(oldFrom, from)
+      oldTo = math.max(oldTo, to)
+    })
+    if (oldFrom === Infinity) {
+      return delta.create($prosemirrorDelta)
+    }
+    const mappedTo = map.map(oldTo)
+    const oldStart = beforeDoc.resolve(oldFrom)
+    const oldEnd = beforeDoc.resolve(oldTo)
+    const newStart = afterDoc.resolve(oldFrom)
+    const newEnd = afterDoc.resolve(mappedTo)
+    const oldBlockRange = oldStart.blockRange(oldEnd)
+    const newBlockRange = newStart.blockRange(newEnd)
+    const oldDelta = deltaForBlockRange(oldBlockRange)
+    const newDelta = deltaForBlockRange(newBlockRange)
+    const diffD = delta.diff(oldDelta, newDelta)
+    return deltaModifyNodeAt(beforeDoc, oldBlockRange?.start || newBlockRange?.start || 0, d => { d.append(diffD) })
   })
   .done()
 
@@ -458,8 +492,11 @@ export function pmToDeltaPath (node, searchPmOffset = 0) {
     path.push(resolvedOffset.index(d))
   }
 
-  // add any offset into the parent node to the path
-  path.push(resolvedOffset.parentOffset)
+  if (resolvedOffset.parent.inlineContent) {
+    path.push(resolvedOffset.parentOffset)
+  } else {
+    path.push(resolvedOffset.index(depth))
+  }
 
   return path
 }
@@ -496,8 +533,14 @@ export function deltaPathToPm (deltaPath, node) {
     curNode = curNode.children[childIndex]
   }
 
-  // Last element is an offset within the current node
-  pmOffset += deltaPath[deltaPath.length - 1]
+  const lastEl = deltaPath[deltaPath.length - 1]
+  if (curNode.inlineContent) {
+    pmOffset += lastEl
+  } else {
+    for (let j = 0; j < lastEl; j++) {
+      pmOffset += curNode.children[j].nodeSize
+    }
+  }
 
   return pmOffset
 }

@@ -2,7 +2,9 @@ import * as Y from '@y/y'
 import { Plugin } from 'prosemirror-state'
 import {
   deltaToPSteps,
-  nodeToDelta
+  docDiffToDelta,
+  nodeToDelta,
+  stepToDelta
 } from './sync-utils.js'
 import * as d from 'lib0/delta'
 import { ySyncPluginKey } from './keys.js'
@@ -58,10 +60,13 @@ export function syncPlugin (opts = {}) {
       },
       apply: (tr, prevPluginState) => {
         const stateUpdate = $maybeSyncPluginStateUpdate.expect(tr.getMeta(ySyncPluginKey) || null)
+        const prev = /** @type {any} */ (prevPluginState)
+        const isSyncTr = tr.getMeta('y-sync-transaction') != null || tr.getMeta(ySyncPluginKey) != null
+        const pendingTrs = isSyncTr ? [] : [...(prev.pendingTrs || []), tr]
         if (!stateUpdate) {
-          return prevPluginState
+          return /** @type {any} */ ({ ...prev, pendingTrs })
         }
-        return object.assign({}, prevPluginState, stateUpdate, stateUpdate.attributionManager == null ? { attributionManager: Y.noAttributionsManager } : {})
+        return /** @type {any} */ (object.assign({}, prev, stateUpdate, stateUpdate.attributionManager == null ? { attributionManager: Y.noAttributionsManager } : {}, { pendingTrs }))
       }
     },
     view () {
@@ -100,8 +105,6 @@ export function syncPlugin (opts = {}) {
             if (!view || view.isDestroyed) {
               return unsubscribeFn?.()
             }
-            // AM changes (accept/reject) may alter the clean content.
-            // Re-render the clean Y delta and reconcile.
             const desiredPM = ytype.toDeltaDeep().done()
             const pcontent = nodeToDelta(view.state.doc).done()
             const diff = d.diff(pcontent, desiredPM)
@@ -136,35 +139,49 @@ export function syncPlugin (opts = {}) {
           if (ytype == null) return
           if (view.state.doc === prevState.doc) return
           const am = attributionManager || Y.noAttributionsManager
-          // Read clean Y content (no AM in the read path).
-          // Write path uses the AM so edits are tagged as suggestions.
-          const ycontent = ytype.toDeltaDeep().done()
-          const pcontent = nodeToDelta(view.state.doc).done()
-          const pmToYDiff = d.diff(ycontent, pcontent)
-          if (!pmToYDiff.isEmpty()) {
-            const navAM = am === Y.noAttributionsManager ? am : new Proxy(am, {
-              // The diff is in "clean" coordinates where AM-deleted items are
-              // invisible. But applyDelta navigates Y items via
-              // am.contentLength(), and a DiffAttributionManager counts
-              // AM-deleted items at full length — so retain counts land at
-              // wrong positions. This proxy overrides contentLength and
-              // readContent to use clean counting (deleted items = 0) while
-              // passing everything else through to the real AM.
-              //
-              // The proxy's distinct identity (≠ noAttributionsManager) keeps
-              // applyDelta's attribution-aware code paths active. Attribution
-              // recording is unaffected: the DiffAttributionManager's listener
-              // on the Y.Doc fires based on the transaction, not the AM passed
-              // to applyDelta.
-              get (target, prop, receiver) {
-                if (prop === 'contentLength') return Y.noAttributionsManager.contentLength
-                if (prop === 'readContent') return Y.noAttributionsManager.readContent
-                return Reflect.get(target, prop, receiver)
-              }
-            });
+          const pendingTrs = /** @type {any} */ (pluginState).pendingTrs || []
+          // The diff is in "clean" coordinates where AM-deleted items are
+          // invisible. But applyDelta navigates Y items via
+          // am.contentLength(), and a DiffAttributionManager counts
+          // AM-deleted items at full length — so retain counts land at
+          // wrong positions. This proxy overrides contentLength and
+          // readContent to use clean counting (deleted items = 0) while
+          // passing everything else through to the real AM.
+          //
+          // The proxy's distinct identity (≠ noAttributionsManager) keeps
+          // applyDelta's attribution-aware code paths active. Attribution
+          // recording is unaffected: the DiffAttributionManager's listener
+          // on the Y.Doc fires based on the transaction, not the AM passed
+          // to applyDelta.
+          const navAM = am === Y.noAttributionsManager ? am : new Proxy(am, {
+            get (target, prop, receiver) {
+              if (prop === 'contentLength') return Y.noAttributionsManager.contentLength
+              if (prop === 'readContent') return Y.noAttributionsManager.readContent
+              return Reflect.get(target, prop, receiver)
+            }
+          })
+          const docChangedTrs = pendingTrs.filter(ptr => ptr.docChanged)
+          if (am === Y.noAttributionsManager
+            && docChangedTrs.length > 0
+            && docChangedTrs[0].before === prevState.doc) {
             /** @type {Y.Doc} */ (ytype.doc).transact(() => {
-              ytype.applyDelta(pmToYDiff, navAM)
+              for (const ptr of docChangedTrs) {
+                if (ptr.steps.length === 1) {
+                  ytype.applyDelta(stepToDelta(ptr.steps[0], ptr.docs[0]), navAM)
+                } else {
+                  ytype.applyDelta(docDiffToDelta(ptr.before, ptr.doc), navAM)
+                }
+              }
             }, ySyncPluginKey.get(view.state))
+          } else {
+            const ycontent = ytype.toDeltaDeep().done()
+            const pcontent = nodeToDelta(view.state.doc).done()
+            const pmToYDiff = d.diff(ycontent, pcontent)
+            if (!pmToYDiff.isEmpty()) {
+              /** @type {Y.Doc} */ (ytype.doc).transact(() => {
+                ytype.applyDelta(pmToYDiff, navAM)
+              }, ySyncPluginKey.get(view.state))
+            }
           }
           // Reconcile: ensure PM matches the clean Y render after the write.
           // Always dispatch y-sync-transaction meta so the decoration plugin

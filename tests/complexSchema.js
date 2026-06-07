@@ -1,5 +1,5 @@
 import { Schema } from 'prosemirror-model'
-// import { builders } from 'prosemirror-test-builder'
+import { builders } from 'prosemirror-test-builder'
 
 /**
  * @type {import('prosemirror-model').DOMOutputSpec}
@@ -255,3 +255,5 @@ export const marks = {
 // To reuse elements from this schema, extend or read from its
 // `spec.nodes` and `spec.marks` [properties](#model.Schema.spec).
 export const schema = new Schema({ nodes, marks })
+
+export const testBuilders = builders(schema)

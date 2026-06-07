@@ -432,6 +432,33 @@ export const testRepeatBlockDeleteAndEditNearby = (tc) => {
  *
  * @param {TestCase} tc
  */
+/**
+ * Deterministic reproduction of step-based sync divergence:
+ * blockquote-wrapped paragraphs + suggestion-mode insertText.
+ */
+export const testStepSyncDivergenceInBlockquote = (_tc) => {
+  // Deterministic reproduction: blockquote wrapping + suggestion-mode insert
+  // causes step-based sync to diverge between two suggestion-mode peers.
+  const cohort = new Cohort(STANDARD_COHORT)
+  cohort.seed('outer paragraph one')
+  cohort.seed('outer paragraph two')
+  cohort.seed('outer paragraph three')
+  // doc is now: [p("outer paragraph three"), p("outer paragraph two"), p("outer paragraph one")]
+  // Wrap all paragraphs in a blockquote via a no-suggestions user
+  const baseUser = cohort.users.find(u => u.mode === 'no-suggestions')
+  t.assert(baseUser != null)
+  applyTracedOp(cohort, { user: baseUser.idx, op: 'wrapInBlockquote', args: { from: 1, to: baseUser.view.state.doc.content.size - 1 } })
+  // doc is: blockquote([p("outer paragraph three"), p("outer paragraph two"), p("outer paragraph one")])
+  // User 5 (suggestion-mode) inserts "d" into the third paragraph's text
+  const user5 = cohort.users[5]
+  t.assert(user5.mode === 'suggestion-mode')
+  // p("outer paragraph three") = nodeSize 23, p("outer paragraph two") = nodeSize 21
+  // pos 1 (bq open) + 23 (p1) + 21 (p2) + 1 (p3 open) + 1 (after "o") = 47
+  applyTracedOp(cohort, { user: 5, op: 'insertText', args: { pos: 47, text: 'd' } })
+  assertCohortConsistency(cohort, 'step-sync blockquote divergence')
+  cohort.destroy()
+}
+
 export const testRepeatNestedBlockDeleteAndEdit = (tc) => {
   const cohort = new Cohort(STANDARD_COHORT)
   cohort.seed('outer paragraph one')
