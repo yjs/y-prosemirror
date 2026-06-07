@@ -1,5 +1,7 @@
 import { PluginKey } from 'prosemirror-state' // eslint-disable-line
 
+/** @typedef {import('lib0/schema').Unwrap<typeof import('./sync-plugin.js').$syncPluginState>} SyncPluginState */
+
 /**
  * The unique prosemirror plugin key for {@link import('./sync-plugin.js').syncPlugin}
  *

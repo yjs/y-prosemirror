@@ -18,7 +18,6 @@
       "@y/prosemirror": ["./src/index.js"]
     }
   },
-  "files": ["./global.d.ts"],
   "include": ["./src", "./tests", "./demo/*.js"],
   "exclude": ["node_modules", "dist", "./demo/dist/"]
 }

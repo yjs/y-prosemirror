@@ -30,7 +30,7 @@ const $maybeSyncPluginStateUpdate = $syncPluginStateUpdate.nullable
 
 /**
  * This Prosemirror {@link Plugin} is responsible for synchronizing the prosemirror
- * {@link EditorState} with a {@link Y.XmlFragment}.
+ * {@link import('prosemirror-state').EditorState} with a {@link Y.XmlFragment}.
  *
  * The PM->Y diff/apply pipeline runs in the plugin's `view().update`
  * hook (i.e. after the dispatch has been committed to the view), not

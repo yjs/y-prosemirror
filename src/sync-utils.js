@@ -18,6 +18,8 @@ import {
 
 export const $prosemirrorDelta = delta.$delta({ name: s.$string, attrs: s.$record(s.$string, s.$any), text: true, recursiveChildren: true })
 
+/** @typedef {import('lib0/schema').Unwrap<typeof $prosemirrorDelta>} ProsemirrorDelta */
+
 /**
  * @param {readonly import('prosemirror-model').Mark[]} marks
  */
@@ -335,7 +337,7 @@ export const docDiffToDelta = (beforeDoc, afterDoc) => {
 }
 
 /**
- * @param {Transaction} tr
+ * @param {import('prosemirror-state').Transaction} tr
  */
 export const trToDelta = (tr) => {
   // const d = delta.create($prosemirrorDelta)
