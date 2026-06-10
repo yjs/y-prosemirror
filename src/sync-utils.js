@@ -16,6 +16,7 @@ import {
   ReplaceAroundStep,
   ReplaceStep
 } from 'prosemirror-transform'
+import { hashOfJSON } from './utils.js'
 
 export const $prosemirrorDelta = delta.$delta({ name: s.$string, attrs: s.$record(s.$string, s.$any), text: true, recursiveChildren: true })
 
@@ -171,6 +172,38 @@ export const deltaAttributionToFormat = (d, attributionsToFormat) => {
 }
 
 /**
+ * Marks are stored as a flat `format` object keyed by mark name. Marks whose
+ * type does *not* exclude itself (declared with `excludes: ''`, e.g. a comment
+ * mark) may overlap on the same text span - several distinct instances coexist.
+ * Keying them all by the bare mark name would collide, so each overlapping mark
+ * gets a stable content-hash suffix (`name--<hash>`), keeping every instance on
+ * its own key. Self-excluding marks (strong/em/code/attribution marks) keep the
+ * bare name. `--<8 base64 chars>` is therefore a reserved suffix, symmetric to
+ * {@link ATTRIBUTED_SUFFIX} above.
+ */
+const hashedMarkNameRegex = /(.*)(--[a-zA-Z0-9+/=]{8})$/
+
+/**
+ * Strip a hashed overlapping-mark suffix to recover the PM mark name. Identity
+ * for bare (non-hashed) names.
+ *
+ * @param {string} attrName
+ * @return {string}
+ */
+export const yattr2markname = attrName => hashedMarkNameRegex.exec(attrName)?.[1] ?? attrName
+
+/**
+ * Inverse of {@link yattr2markname}: the delta format key for a PM mark.
+ *
+ * @param {import('prosemirror-model').Mark} mark
+ * @return {string}
+ */
+const markToYattrName = mark =>
+  mark.type.excludes(mark.type)
+    ? mark.type.name
+    : `${mark.type.name}--${hashOfJSON(mark.toJSON())}`
+
+/**
  * @param {readonly import('prosemirror-model').Mark[]} marks
  */
 const marksToFormattingAttributes = marks => {
@@ -180,7 +213,7 @@ const marksToFormattingAttributes = marks => {
    */
   const formatting = {}
   marks.forEach(mark => {
-    formatting[mark.type.name] = mark.attrs
+    formatting[markToYattrName(mark)] = mark.attrs
   })
   return formatting
 }
@@ -189,13 +222,14 @@ const marksToFormattingAttributes = marks => {
  * Convert a delta `format` object to PM marks. `null` entries (which mean
  * "this mark is absent / cleared") are filtered out - a custom attribution
  * mapper may emit `null` for absent attribution kinds, and a fresh insert
- * should not materialize a mark for them.
+ * should not materialize a mark for them. Hashed overlapping-mark keys are
+ * mapped back to their mark name via {@link yattr2markname}.
  *
  * @param {{[key:string]:any}|null} formatting
  * @param {import('prosemirror-model').Schema} schema
  */
 export const formattingAttributesToMarks = (formatting, schema) =>
-  object.map(formatting ?? {}, (v, k) => v != null ? schema.mark(k, v) : null).filter(m => m != null)
+  object.map(formatting ?? {}, (v, k) => v != null ? schema.mark(yattr2markname(k), v) : null).filter(m => m != null)
 
 /**
  * @param {Array<Node>} ns
@@ -318,11 +352,15 @@ const applyNodeFormat = (tr, pos, format, attributedNodes) => {
   if (node == null) return
   let resultingMarks = node.marks
   object.forEach(format ?? {}, (v, k) => {
-    const markType = schema.marks[k]
+    const markName = yattr2markname(k)
+    const markType = schema.marks[markName]
     if (markType == null) return
+    // For overlapping marks, remove the specific instance carried by this
+    // (hashed) key rather than every mark of the type.
+    const mark = node.marks.find(m => markToYattrName(m) === k)
     resultingMarks = v == null
-      ? markType.removeFromSet(resultingMarks)
-      : schema.mark(k, v).addToSet(resultingMarks)
+      ? (mark ?? markType).removeFromSet(resultingMarks)
+      : schema.mark(markName, v).addToSet(resultingMarks)
   })
   const targetType = schema.nodes[
     attributedVariant(canonicalNodeName(node.type.name), marksToFormattingAttributes(resultingMarks), attributedNodes, schema)
@@ -331,10 +369,12 @@ const applyNodeFormat = (tr, pos, format, attributedNodes) => {
     tr.setNodeMarkup(pos, targetType, object.assign({ 'y-attributed': true }, node.attrs), resultingMarks)
   } else {
     object.forEach(format ?? {}, (v, k) => {
+      const markName = yattr2markname(k)
       if (v == null) {
-        tr.removeNodeMark(pos, schema.marks[k])
+        const mark = node.marks.find(m => markToYattrName(m) === k)
+        tr.removeNodeMark(pos, mark ?? schema.marks[markName])
       } else {
-        tr.addNodeMark(pos, schema.mark(k, v))
+        tr.addNodeMark(pos, schema.mark(markName, v))
       }
     })
   }
@@ -425,10 +465,16 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }, attribu
             const from = currPos.i
             const to = currPos.i + math.min(pc.nodeSize - nOffset, i)
             object.forEach(op.format, (v, k) => {
+              const markName = yattr2markname(k)
               if (v == null) {
-                tr.removeMark(from, to, schema.marks[k])
+                // A format-remove carries no attrs, so match the specific
+                // instance on the current text node - sibling overlaps of the
+                // same type (e.g. another comment) must not be removed with it.
+                // Their relative array order is not significant (see CAVEATS).
+                const mark = pc.marks.find(m => markToYattrName(m) === k)
+                tr.removeMark(from, to, mark ?? schema.marks[markName])
               } else {
-                tr.addMark(from, to, schema.mark(k, v))
+                tr.addMark(from, to, schema.mark(markName, v))
               }
             })
           }
@@ -610,10 +656,10 @@ const _stepToDelta = s.match({ beforeDoc: Node, afterDoc: Node })
     deltaModifyNodeAt(beforeDoc, step.pos, d => { d.retain(1, marksToFormattingAttributes([step.mark])) })
   )
   .if(RemoveMarkStep, (step, { beforeDoc }) =>
-    deltaModifyNodeAt(beforeDoc, step.from, d => { d.retain(step.to - step.from, { [step.mark.type.name]: null }) })
+    deltaModifyNodeAt(beforeDoc, step.from, d => { d.retain(step.to - step.from, { [markToYattrName(step.mark)]: null }) })
   )
   .if(RemoveNodeMarkStep, (step, { beforeDoc }) =>
-    deltaModifyNodeAt(beforeDoc, step.pos, d => { d.retain(1, { [step.mark.type.name]: null }) })
+    deltaModifyNodeAt(beforeDoc, step.pos, d => { d.retain(1, { [markToYattrName(step.mark)]: null }) })
   )
   .if(AttrStep, (step, { beforeDoc }) =>
     deltaModifyNodeAt(beforeDoc, step.pos, d => { d.modify(delta.create().setAttr(step.attr, step.value)) })

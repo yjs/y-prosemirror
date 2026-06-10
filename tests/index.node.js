@@ -12,6 +12,7 @@ import * as suggestionSimulation from './suggestion-simulation.test.js'
 import * as attributedNodes from './attributed-nodes.test.js'
 import * as undo from './undo.test.js'
 import * as commands from './commands.test.js'
+import * as overlappingMarks from './overlapping-marks.test.js'
 // import * as tr from './tr.test.js'
 
 import { runTests } from 'lib0/testing'
@@ -61,7 +62,8 @@ runTests({
   suggestionSimulation,
   attributedNodes,
   undo,
-  commands
+  commands,
+  overlappingMarks
   // prosemirror,
   // tr
 }).then(success => {

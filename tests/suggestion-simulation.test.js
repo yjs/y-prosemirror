@@ -66,7 +66,23 @@ const randomRange = (doc, gen) => {
   return { from, to }
 }
 
-const MARK_NAMES = ['em', 'strong', 'code']
+const MARK_NAMES = ['em', 'strong', 'code', 'comment']
+
+/**
+ * Pick a random mark for a traced op. `comment` excludes nothing, so several can
+ * overlap on one span - we give it a small random id so runs exercise both
+ * genuine overlaps (distinct ids) and exact-duplicate merges (same id). The
+ * other marks self-exclude and carry no attrs.
+ *
+ * @param {prng.PRNG} gen
+ * @return {{ markName: string, markAttrs?: Record<string, any> }}
+ */
+const randomMark = gen => {
+  const markName = prng.oneOf(gen, MARK_NAMES)
+  return markName === 'comment'
+    ? { markName, markAttrs: { id: prng.int32(gen, 0, 5) } }
+    : { markName }
+}
 
 // === Op pickers ===
 //
@@ -123,7 +139,7 @@ const opDeleteRange = (cohort, user, gen) => {
 const opAddMark = (cohort, user, gen) => {
   const range = randomRange(user.view.state.doc, gen)
   if (range == null) return
-  applyTracedOp(cohort, { user: user.idx, op: 'addMark', args: { ...range, markName: prng.oneOf(gen, MARK_NAMES) } })
+  applyTracedOp(cohort, { user: user.idx, op: 'addMark', args: { ...range, ...randomMark(gen) } })
 }
 
 /**
@@ -134,7 +150,7 @@ const opAddMark = (cohort, user, gen) => {
 const opRemoveMark = (cohort, user, gen) => {
   const range = randomRange(user.view.state.doc, gen)
   if (range == null) return
-  applyTracedOp(cohort, { user: user.idx, op: 'removeMark', args: { ...range, markName: prng.oneOf(gen, MARK_NAMES) } })
+  applyTracedOp(cohort, { user: user.idx, op: 'removeMark', args: { ...range, ...randomMark(gen) } })
 }
 
 /**

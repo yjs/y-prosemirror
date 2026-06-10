@@ -119,6 +119,49 @@ export const stableStringify = (v) => {
 }
 
 /**
+ * Canonicalize a ProseMirror doc JSON for cross-peer comparison: sort every
+ * text node's marks and merge adjacent text nodes that carry the same (sorted)
+ * mark set.
+ *
+ * Overlapping marks of one type (e.g. several comments on a span) have no
+ * significant array order - see CAVEATS.md ("Overlapping marks and mark
+ * order"). PM stores same-type marks in an order-sensitive array and
+ * `Mark.sameSet` compares positionally, so two peers may legitimately differ
+ * only in mark-array order and, consequently, in where adjacent text nodes are
+ * split. Normalizing collapses exactly that noise while still surfacing real
+ * divergences (different mark *sets*, text, or block structure).
+ *
+ * @param {any} node
+ * @returns {any}
+ */
+export const normalizeDoc = (node) => {
+  if (node === null || typeof node !== 'object') return node
+  const out = { ...node }
+  if (Array.isArray(node.marks)) {
+    out.marks = node.marks.slice().sort((/** @type {any} */ a, /** @type {any} */ b) => {
+      const ka = stableStringify(a)
+      const kb = stableStringify(b)
+      return ka < kb ? -1 : ka > kb ? 1 : 0
+    })
+  }
+  if (Array.isArray(node.content)) {
+    /** @type {any[]} */
+    const merged = []
+    for (const child of node.content.map(normalizeDoc)) {
+      const last = merged[merged.length - 1]
+      if (last != null && last.type === 'text' && child.type === 'text' &&
+          stableStringify(last.marks ?? []) === stableStringify(child.marks ?? [])) {
+        merged[merged.length - 1] = { ...last, text: (last.text ?? '') + (child.text ?? '') }
+      } else {
+        merged.push(child)
+      }
+    }
+    out.content = merged
+  }
+  return out
+}
+
+/**
  * A multi-user collaborative session backed by one shared `baseDoc` plus a
  * chain-synced suggestion Y.Doc per suggestion-aware user.
  *
@@ -277,10 +320,13 @@ export const applyTracedOp = (cohort, step, schemaOverride) => {
         dispatch(state.tr.delete(a.from, a.to))
         break
       case 'addMark':
-        dispatch(state.tr.addMark(a.from, a.to, s.marks[a.markName].create()))
+        // consumes: from, to, markName, markAttrs? (e.g. comment `{ id }`)
+        dispatch(state.tr.addMark(a.from, a.to, s.marks[a.markName].create(a.markAttrs)))
         break
       case 'removeMark':
-        dispatch(state.tr.removeMark(a.from, a.to, s.marks[a.markName]))
+        // consumes: from, to, markName, markAttrs?. With markAttrs, removes only
+        // the specific (overlapping) instance; otherwise removes the whole type.
+        dispatch(state.tr.removeMark(a.from, a.to, a.markAttrs != null ? s.marks[a.markName].create(a.markAttrs) : s.marks[a.markName]))
         break
       case 'splitBlock': {
         const $pos = state.doc.resolve(a.pos)
@@ -317,10 +363,12 @@ export const findDivergences = (cohort) => {
   const out = []
   for (const [mode, users] of cohort.byMode()) {
     if (users.length < 2) continue
-    const baseJSON = users[0].view.state.doc.toJSON()
+    // Normalize before comparing: overlapping marks have no significant order
+    // (see `normalizeDoc` / CAVEATS.md), so we compare canonical forms.
+    const baseJSON = normalizeDoc(users[0].view.state.doc.toJSON())
     const baseStr = stableStringify(baseJSON)
     for (let i = 1; i < users.length; i++) {
-      const otherJSON = users[i].view.state.doc.toJSON()
+      const otherJSON = normalizeDoc(users[i].view.state.doc.toJSON())
       if (stableStringify(otherJSON) !== baseStr) {
         out.push({
           mode,

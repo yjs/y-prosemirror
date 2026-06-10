@@ -126,6 +126,14 @@ The default `defaultMapAttributionToMark` produces these names; custom `mapAttri
 
    The safest fix is to extend the affected node types' `markSet` after editor construction so the `y-attributed-*` marks are explicitly listed.
 
+## Overlapping marks and mark order
+
+ProseMirror marks of a type that does not exclude itself (declared with `excludes: ''`, e.g. a `comment` mark) may overlap on the same span - several distinct instances coexist. The Y document stores marks as a flat per-span `format` map keyed by mark name, so two instances of the same type would collide on one key. `y-prosemirror` therefore gives each overlapping mark a stable content-hash suffix - `` `${markName}--${hash}` `` (8 base64 chars, see `hashOfJSON`/`yattr2markname` in `utils.js`/`sync-utils.js`) - so each instance keeps its own key. The suffix is stripped again on the way back to ProseMirror. Two consequences:
+
+- **`--<8 base64 chars>` is a reserved suffix.** A real mark whose name literally ends in `--` followed by exactly 8 base64 characters would be mis-parsed as a hashed overlapping mark. This is the same class of reserved-suffix limitation as `--attributed` (see "Node splitting, merging, and lifting"). Don't name marks that way.
+
+- **The *relative order* of overlapping marks of the same type is not significant and is not guaranteed to be identical across peers.** ProseMirror keeps same-type marks in an order-sensitive array (`Mark.sameSet` compares positionally), but the `format` map is unordered, so a peer that adds overlapping marks locally keeps them in the order the user applied them, while a peer that renders the same span from Y may order them differently. The rendered result is identical (both marks wrap the text); only the marks-array order - and, consequently, where ProseMirror happens to split adjacent text nodes - can differ. Treat overlapping marks of a single type as an unordered set; do not rely on their array order matching on every peer or on `doc.toJSON()` being byte-identical across peers when overlapping marks are present.
+
 ## Visualizing attributed content
 
 Attributed rendering - showing insertions, deletions, and modifications inline - is currently a coarse red / yellow / green background treatment. That works as a floor, but several cases need more:
