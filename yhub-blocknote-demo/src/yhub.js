@@ -1,41 +1,9 @@
 /* eslint-env browser */
 import * as Y from '@y/y'
-import { configureYProsemirror, ySyncPluginKey } from '@y/prosemirror'
-import { deltaAttributionToFormat, deltaToPNode } from '../../src/sync-utils.js'
-import * as delta from 'lib0/delta'
+import { configureYProsemirror, acceptChanges, rejectChanges, acceptAllChanges, rejectAllChanges } from '@y/prosemirror'
 import { WebsocketProvider } from '@y/websocket'
 import * as random from 'lib0/random'
 import * as buffer from 'lib0/buffer'
-
-/**
- * Walk a delta and log its shape. Helps detect cases where iteration
- * via `.children.map` differs from what the toJSON output suggests.
- * @param {any} d
- * @param {string} indent
- */
-function debugWalk (d, indent = '') {
-  console.log(indent + 'delta name=' + (d.name ?? '<no-name>') + ' children.len=' + (d.children?.len ?? '?'))
-  let i = 0
-  d.children?.forEach((c) => {
-    const isInsert = delta.$insertOp.check(c)
-    const isText = delta.$textOp.check(c)
-    const insertLen = isInsert ? (Array.isArray(c.insert) ? c.insert.length : 'NOT-ARRAY:' + typeof c.insert) : null
-    console.log(indent + '  child[' + i + '] type=' + (c.type ?? '?') +
-      ' $insertOp=' + isInsert + ' $textOp=' + isText +
-      (isInsert ? ' insert.length=' + insertLen : '') +
-      (isText ? ' text=' + JSON.stringify(c.insert) : ''))
-    if (isInsert && Array.isArray(c.insert)) {
-      c.insert.forEach((cn, j) => {
-        if (cn && cn.children) {
-          debugWalk(cn, indent + '    [' + j + '] ')
-        } else {
-          console.log(indent + '    [' + j + '] non-delta:', cn)
-        }
-      })
-    }
-    i++
-  })
-}
 
 const usercolors = [
   { color: '#30bced', light: '#30bced33' },
@@ -46,72 +14,6 @@ const usercolors = [
   { color: '#8acb88', light: '#8acb8833' },
   { color: '#1be7ff', light: '#1be7ff33' }
 ]
-
-const palette = usercolors.map(c => c.color)
-
-/**
- * @param {string} s
- * @return {number}
- */
-const hashStr = (s) => {
-  let h = 0
-  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0
-  return h >>> 0
-}
-
-/**
- * @param {readonly string[] | undefined | null} userIds
- * @return {string}
- */
-const colorForUserIds = (userIds) => {
-  if (!userIds || userIds.length === 0) return palette[0]
-  return palette[hashStr(String(userIds[0])) % palette.length]
-}
-
-/**
- * Map a Y attribution to BlockNote's `y-attributed-*` mark attrs.
- *
- * BlockNote ships its own definitions of these marks (see
- * `@blocknote/core/src/extensions/tiptap-extensions/Suggestions/SuggestionMarks.ts`)
- * with attrs that differ from what y-prosemirror's `defaultMapAttributionToMark`
- * emits, so we have to hand-roll the translation here. The mapper must be
- * deterministic in `(format, attribution)`: any non-determinism makes the
- * PM <-> Y reconcile diff non-empty on every transaction and the sync plugin
- * fires phantom reconcile dispatches in a loop. See ATTRIBUTION.md.
- *
- * Note: ideally this mapper would be maintained by the BlockNote authors
- * alongside the mark schema in the same repo, because any change to the
- * declared attrs (rename, added required field, dropped attr) will silently
- * break sync from y-prosemirror's side and we have no shared types to catch
- * it at build time.
- *
- * @param {Record<string, unknown> | null} format
- * @param {import('lib0/delta').Attribution} attribution
- * @return {Record<string, unknown>}
- */
-export const mapAttributionToMark = (format, attribution) => {
-  const out = /** @type {Record<string, unknown>} */ ({ ...format })
-  if (attribution.insert) {
-    out['y-attributed-insert'] = {
-      id: attribution.insert[0] ?? null,
-      'user-color': colorForUserIds(attribution.insert)
-    }
-  }
-  if (attribution.delete) {
-    out['y-attributed-delete'] = {
-      id: attribution.delete[0] ?? null,
-      'user-color': colorForUserIds(attribution.delete)
-    }
-  }
-  if (attribution.format) {
-    const userIds = [...(new Set(Object.values(attribution.format).flat()))]
-    out['y-attributed-format'] = {
-      id: userIds[0] ?? null,
-      'user-color': colorForUserIds(userIds)
-    }
-  }
-  return out
-}
 
 const userColor = usercolors[random.uint32() % usercolors.length]
 const org = 'yhub-blocknote-demo'
@@ -189,21 +91,8 @@ elemSelectSuggestionMode.addEventListener('change', () => {
     })(currentView.state, currentView.dispatch)
   } else {
     am.suggestionMode = mode === 'edit'
-    const ytype = suggestionDoc.get('blocknote')
-    try {
-      const rawDelta = ytype.toDeltaDeep(am)
-      console.log('[debug] === walking RAW delta ===')
-      debugWalk(rawDelta)
-      const ycontent = deltaAttributionToFormat(rawDelta, mapAttributionToMark)
-      console.log('[debug] === walking FORMATTED delta ===')
-      debugWalk(ycontent)
-      const node = deltaToPNode(ycontent, currentView.state.schema, null)
-      console.log('[debug] deltaToPNode produced:\n' + JSON.stringify(node.toJSON(), null, 2))
-    } catch (e) {
-      console.error('[debug] error preparing diagnostic node:', e)
-    }
     configureYProsemirror({
-      ytype,
+      ytype: suggestionDoc.get('blocknote'),
       attributionManager: am
     })(currentView.state, currentView.dispatch)
   }
@@ -213,48 +102,24 @@ elemSelectSuggestionMode.addEventListener('change', () => {
 
 btnAcceptChanges.addEventListener('click', () => {
   if (!currentView) return
-  const pluginState = ySyncPluginKey.getState(currentView.state)
-  if (!pluginState) return
   const { from, to } = currentView.state.selection
-  try {
-    /** @type {any} */ (pluginState).acceptChanges(from, to)
-  } catch (e) {
-    console.error('Error accepting changes:', e)
-  }
+  acceptChanges(from, to)(currentView.state, currentView.dispatch)
 })
 
 btnRejectChanges.addEventListener('click', () => {
   if (!currentView) return
-  const pluginState = ySyncPluginKey.getState(currentView.state)
-  if (!pluginState) return
   const { from, to } = currentView.state.selection
-  try {
-    /** @type {any} */ (pluginState).rejectChanges(from, to)
-  } catch (e) {
-    console.error('Error rejecting changes:', e)
-  }
+  rejectChanges(from, to)(currentView.state, currentView.dispatch)
 })
 
 btnAcceptAll.addEventListener('click', () => {
   if (!currentView) return
-  const pluginState = ySyncPluginKey.getState(currentView.state)
-  if (!pluginState) return
-  try {
-    /** @type {any} */ (pluginState).acceptAllChanges()
-  } catch (e) {
-    console.error('Error accepting all changes:', e)
-  }
+  acceptAllChanges()(currentView.state, currentView.dispatch)
 })
 
 btnRejectAll.addEventListener('click', () => {
   if (!currentView) return
-  const pluginState = ySyncPluginKey.getState(currentView.state)
-  if (!pluginState) return
-  try {
-    /** @type {any} */ (pluginState).rejectAllChanges()
-  } catch (e) {
-    console.error('Error rejecting all changes:', e)
-  }
+  rejectAllChanges()(currentView.state, currentView.dispatch)
 })
 
 const initLiveEditor = () => {

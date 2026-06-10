@@ -28,7 +28,13 @@ export const $syncPluginState = s.$object({
    * Predicate deciding which attributed nodes render under their
    * `{nodeName}--attributed` variant. See {@link syncPlugin}.
    */
-  attributedNodes: /** @type {s.Schema<AttributedNodesPredicate>} */ (s.$function)
+  attributedNodes: /** @type {s.Schema<AttributedNodesPredicate>} */ (s.$function),
+  /**
+   * When `true`, the PM document contains clean content (no attribution
+   * marks, no deleted text). Attribution is rendered as decorations by
+   * {@link import('./suggestion-decoration-plugin.js').ySuggestionDecorationPlugin}.
+   */
+  decorationMode: s.$boolean
 })
 
 export const $syncPluginStateUpdate = s.$object({
@@ -95,6 +101,64 @@ const stripAttributionFormattingFromDelta = (input) => {
 }
 
 /**
+ * Strip delete-attributed content from an attributed delta and drop all
+ * attribution metadata. Used in decoration mode: the PM doc should contain
+ * normal content + suggestion-inserts, but NOT suggestion-deletes (those
+ * become ghost decorations). Similar to `deltaAttributionToFormat` but
+ * instead of converting attributions to marks, we skip deletes entirely
+ * and emit clean content.
+ *
+ * @param {d.DeltaAny} input - attributed delta from `toDeltaDeep(am)`
+ * @returns {d.DeltaAny}
+ */
+const stripDeletesFromAttributedDelta = (input) => {
+  const out = /** @type {any} */ (d.create(input.name, $prosemirrorDelta))
+  for (const attr of input.attrs) {
+    // @ts-ignore
+    out.attrs[attr.key] = attr.clone()
+  }
+  for (const child of input.children) {
+    if (child.attribution?.delete) continue
+    const format = child.format
+    if (d.$retainOp.check(child)) {
+      out.retain(child.retain, format)
+    } else if (d.$textOp.check(child)) {
+      out.insert(child.insert, format)
+    } else if (d.$insertOp.check(child)) {
+      const newInsert = child.insert.map(/** @param {any} ins */ ins =>
+        d.$deltaAny.check(ins) ? stripDeletesFromAttributedDelta(ins) : ins
+      )
+      out.insert(newInsert, format)
+    } else if (d.$deleteOp.check(child)) {
+      out.delete(child.delete)
+    } else if (d.$modifyOp.check(child)) {
+      out.modify(stripDeletesFromAttributedDelta(child.value), format)
+    }
+  }
+  return out.done(false)
+}
+
+/**
+ * Create a proxy AM that uses clean counting for navigation while
+ * preserving attribution recording. Needed in decoration mode because
+ * the diff is in clean coordinates (AM-deleted items invisible), but a
+ * real AM's contentLength includes deleted items at full length.
+ *
+ * @param {Y.AbstractAttributionManager} am
+ * @returns {Y.AbstractAttributionManager}
+ */
+const createNavAM = (am) =>
+  am === Y.noAttributionsManager
+    ? am
+    : new Proxy(am, {
+      get (target, prop, receiver) {
+        if (prop === 'contentLength') return Y.noAttributionsManager.contentLength
+        if (prop === 'readContent') return Y.noAttributionsManager.readContent
+        return Reflect.get(target, prop, receiver)
+      }
+    })
+
+/**
  * This Prosemirror {@link Plugin} is responsible for synchronizing the prosemirror {@link EditorState} with a {@link Y.XmlFragment}
  *
  * The PM->Y diff/apply pipeline runs in the plugin's `view().update`
@@ -103,13 +167,15 @@ const stripAttributionFormattingFromDelta = (input) => {
  * cause speculative `state.apply` callers to write to Y as a side
  * effect.
  *
- * @param {object} opts
+ * @param {object} [opts]
  * @param {Y.Doc} [opts.suggestionDoc] A {@link Y.Doc} to use for suggestion tracking
  * @param {AttributionMapper} [opts.mapAttributionToMark] A function to map the {@link Y.Attribution} to a {@link import('prosemirror-model').Mark} - the mark names *must* be one of: `y-attributed-insert`, `y-attributed-delete`, `y-attributed-format`. No other mark names are permitted
  * @param {AttributedNodesPredicate} [opts.attributedNodes] Optional predicate `(nodeName, kinds) => boolean`. When it returns `true` for an attributed node *and* a `{nodeName}--attributed` type exists in the schema, that node is rendered under the variant type (the `y-attributed-*` marks are still applied). `kinds` is `{ insert?, delete?, format? }`. The variant is a pure rendering concern - the canonical name is what is stored in the Y document. The predicate must be deterministic in `(nodeName, kinds)`.
+ * @param {boolean} [opts.decorationMode] When `true`, the PM document contains **clean** content (no attribution marks, no deleted text). Attribution is rendered as decorations by {@link import('./suggestion-decoration-plugin.js').ySuggestionDecorationPlugin}. Default `false` (mark-based rendering).
  * @returns {Plugin}
  */
 export function syncPlugin (opts = {}) {
+  const decorationMode = opts.decorationMode || false
   return new Plugin({
     key: ySyncPluginKey,
     state: {
@@ -118,7 +184,8 @@ export function syncPlugin (opts = {}) {
           ytype: null,
           attributionManager: null,
           attributionMapper: opts.mapAttributionToMark || defaultMapAttributionToMark,
-          attributedNodes: opts.attributedNodes || defaultAttributedNodes
+          attributedNodes: opts.attributedNodes || defaultAttributedNodes,
+          decorationMode
         })
       },
       apply: (tr, prevPluginState) => {
@@ -165,24 +232,24 @@ export function syncPlugin (opts = {}) {
             // - the PM->Y commit there already handled the reconcile
             // dispatch in the same call.
             if (/** @type {any} */ (tr).origin === ySyncPluginKey.get(view.state)) return
-            // Same pipeline as the PM->Y sync in `view().update`:
-            // render ytype through the AM, diff against the current PM doc,
-            // apply only the difference. Using `change.getDelta` here
-            // produced wrong/asymmetric output for some interleavings
-            // (notably commits-to-base from one peer that touched suggestion
-            // overlays from another), causing PM views to diverge from each
-            // other and from the canonical AM render. The full re-render is
-            // more expensive per update but is the only diff target all
-            // peers agree on.
-            const am = attributionManager || Y.noAttributionsManager
-            const desiredPM = deltaAttributionToFormat(
-              ytype.toDeltaDeep(am),
-              attributionMapper
-            ).done()
-            const pcontent = nodeToDelta(view.state.doc, undefined, true).done()
-            const diff = d.diff(pcontent, desiredPM)
-            if (diff.isEmpty()) return
-            const ptr = deltaToPSteps(view.state.tr, diff, undefined, undefined, attributedNodes)
+            let desiredPM, pcontent, diff, ptr
+            if (decorationMode) {
+              const am = attributionManager || Y.noAttributionsManager
+              desiredPM = stripDeletesFromAttributedDelta(ytype.toDeltaDeep(am)).done()
+              pcontent = nodeToDelta(view.state.doc).done()
+              diff = d.diff(pcontent, desiredPM)
+              ptr = diff.isEmpty() ? view.state.tr : deltaToPSteps(view.state.tr, diff)
+            } else {
+              const am = attributionManager || Y.noAttributionsManager
+              desiredPM = deltaAttributionToFormat(
+                ytype.toDeltaDeep(am),
+                attributionMapper
+              ).done()
+              pcontent = nodeToDelta(view.state.doc, undefined, true).done()
+              diff = d.diff(pcontent, desiredPM)
+              if (diff.isEmpty()) return
+              ptr = deltaToPSteps(view.state.tr, diff, undefined, undefined, attributedNodes)
+            }
             ptr.setMeta('addToHistory', false)
             ptr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
               change: null,
@@ -197,24 +264,26 @@ export function syncPlugin (opts = {}) {
             if (!view || view.isDestroyed) {
               return unsubscribeFn?.()
             }
-            // Same pipeline as the PM->Y sync in `view().update`:
-            // render ytype through the AM, diff against the current PM doc,
-            // apply only the difference. We give up the `itemsToRender`
-            // targeted-rerender optimization in exchange for going through
-            // the same path that the rest of the plugin uses, which keeps
-            // the deltas shallow (only what actually changed).
-            const desiredPM = deltaAttributionToFormat(
-              ytype.toDeltaDeep(attributionManager || Y.noAttributionsManager),
-              attributionMapper
-            ).done()
-            const pcontent = nodeToDelta(view.state.doc, undefined, true).done()
-            const diff = d.diff(pcontent, desiredPM)
-            if (diff.isEmpty()) return
-            const ptr = deltaToPSteps(view.state.tr, diff, undefined, undefined, attributedNodes)
+            let desiredPM, pcontent, diff, ptr
+            if (decorationMode) {
+              const am = attributionManager || Y.noAttributionsManager
+              desiredPM = stripDeletesFromAttributedDelta(ytype.toDeltaDeep(am)).done()
+              pcontent = nodeToDelta(view.state.doc).done()
+              diff = d.diff(pcontent, desiredPM)
+              ptr = diff.isEmpty() ? view.state.tr : deltaToPSteps(view.state.tr, diff)
+            } else {
+              desiredPM = deltaAttributionToFormat(
+                ytype.toDeltaDeep(attributionManager || Y.noAttributionsManager),
+                attributionMapper
+              ).done()
+              pcontent = nodeToDelta(view.state.doc, undefined, true).done()
+              diff = d.diff(pcontent, desiredPM)
+              if (diff.isEmpty()) return
+              ptr = deltaToPSteps(view.state.tr, diff, undefined, undefined, attributedNodes)
+            }
             ptr.setMeta('addToHistory', false)
-            // @todo stop updating meta on every transaction
             ptr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
-              change: null, // @todo - remove this property
+              change: null,
               attributionManager,
               attributionMapper,
               ytype
@@ -251,46 +320,67 @@ export function syncPlugin (opts = {}) {
           }
           if (ytype == null) return
           if (view.state.doc === prevState.doc) return
-          // PM->Y diff/apply pipeline. Runs after the dispatch is
-          // committed to the view, so speculative `state.apply` calls
-          // do not write to Y. The Y `afterTransaction` observer
-          // skips the write we make here via the origin check. The
-          // AM `change` handler may, however, dispatch its own
-          // reconcile synchronously during `transact` - so we
-          // re-read `pcontent` from `view.state.doc` after the write
-          // before computing our own reconcile, otherwise we'd
-          // apply the same insert twice.
           const am = attributionManager || Y.noAttributionsManager
           const mapper = pluginState.attributionMapper
           const attributedNodes = pluginState.attributedNodes
-          const ycontent = deltaAttributionToFormat(
-            ytype.toDeltaDeep(am),
-            mapper
-          ).done()
-          const pcontent = nodeToDelta(view.state.doc, undefined, true).done()
-          const pmToYDiff = stripAttributionFormattingFromDelta(d.diff(ycontent, pcontent))
-          if (!pmToYDiff.isEmpty()) {
-            /** @type {Y.Doc} */ (ytype.doc).transact(() => {
-              ytype.applyDelta(pmToYDiff, am)
-            }, ySyncPluginKey.get(view.state))
+          if (decorationMode) {
+            const navAM = createNavAM(am)
+            const cleanDelta = stripDeletesFromAttributedDelta(ytype.toDeltaDeep(am))
+            const ycontent = cleanDelta.done()
+            const pcontent = nodeToDelta(view.state.doc).done()
+            const pmToYDiff = d.diff(ycontent, pcontent)
+            if (!pmToYDiff.isEmpty()) {
+              /** @type {Y.Doc} */ (ytype.doc).transact(() => {
+                ytype.applyDelta(pmToYDiff, navAM)
+              }, ySyncPluginKey.get(view.state))
+            }
+            // Reconcile: re-read after write and always dispatch so the
+            // decoration plugin can rebuild.
+            const desiredPM = stripDeletesFromAttributedDelta(ytype.toDeltaDeep(am)).done()
+            const pcontentAfter = nodeToDelta(view.state.doc).done()
+            const pmReconcileDiff = d.diff(pcontentAfter, desiredPM)
+            const tr = view.state.tr
+            if (!pmReconcileDiff.isEmpty()) {
+              deltaToPSteps(tr, pmReconcileDiff)
+            }
+            tr.setMeta('addToHistory', false)
+            tr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
+              change: null,
+              attributionManager,
+              attributionMapper: mapper,
+              ytype
+            }))
+            view.dispatch(tr)
+          } else {
+            const ycontent = deltaAttributionToFormat(
+              ytype.toDeltaDeep(am),
+              mapper
+            ).done()
+            const pcontent = nodeToDelta(view.state.doc, undefined, true).done()
+            const pmToYDiff = stripAttributionFormattingFromDelta(d.diff(ycontent, pcontent))
+            if (!pmToYDiff.isEmpty()) {
+              /** @type {Y.Doc} */ (ytype.doc).transact(() => {
+                ytype.applyDelta(pmToYDiff, am)
+              }, ySyncPluginKey.get(view.state))
+            }
+            const desiredPM = deltaAttributionToFormat(
+              ytype.toDeltaDeep(am),
+              mapper
+            ).done()
+            const pcontentAfter = nodeToDelta(view.state.doc, undefined, true).done()
+            const pmReconcileDiff = d.diff(pcontentAfter, desiredPM)
+            if (pmReconcileDiff.isEmpty()) return
+            const tr = view.state.tr
+            deltaToPSteps(tr, pmReconcileDiff, undefined, undefined, attributedNodes)
+            tr.setMeta('addToHistory', false)
+            tr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
+              change: null,
+              attributionManager,
+              attributionMapper: mapper,
+              ytype
+            }))
+            view.dispatch(tr)
           }
-          const desiredPM = deltaAttributionToFormat(
-            ytype.toDeltaDeep(am),
-            mapper
-          ).done()
-          const pcontentAfter = nodeToDelta(view.state.doc, undefined, true).done()
-          const pmReconcileDiff = d.diff(pcontentAfter, desiredPM)
-          if (pmReconcileDiff.isEmpty()) return
-          const tr = view.state.tr
-          deltaToPSteps(tr, pmReconcileDiff, undefined, undefined, attributedNodes)
-          tr.setMeta('addToHistory', false)
-          tr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
-            change: null,
-            attributionManager,
-            attributionMapper: mapper,
-            ytype
-          }))
-          view.dispatch(tr)
         },
         destroy () {
           unsubscribeFn?.()

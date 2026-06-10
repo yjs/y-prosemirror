@@ -68,15 +68,17 @@ const PM_KEY = 'prosemirror'
  * @param {Y.AbstractAttributionManager} [attributionManager]
  * @param {Object} [opts]
  * @param {import('prosemirror-model').Schema} [opts.schema]
- * @param {typeof YPM.defaultMapAttributionToMark} [opts.mapAttributionToMark]
  * @returns {EditorView}
  */
 export const createPMView = (ytype, attributionManager = Y.noAttributionsManager, opts = {}) => {
   const s = opts.schema || defaultSchema
-  const plugin = YPM.syncPlugin(opts.mapAttributionToMark ? { mapAttributionToMark: opts.mapAttributionToMark } : {})
+  const plugins = [
+    YPM.syncPlugin({ decorationMode: true }),
+    YPM.ySuggestionDecorationPlugin()
+  ]
   const view = new EditorView(
     { mount: document.createElement('div') },
-    { state: EditorState.create({ schema: s, plugins: [plugin] }) }
+    { state: EditorState.create({ schema: s, plugins }) }
   )
   YPM.configureYProsemirror({ ytype, attributionManager })(view.state, view.dispatch)
   return view
@@ -136,7 +138,6 @@ export class Cohort {
    * @param {Array<UserMode>} modes
    * @param {Object} [opts]
    * @param {import('prosemirror-model').Schema} [opts.schema]
-   * @param {typeof YPM.defaultMapAttributionToMark} [opts.mapAttributionToMark]
    */
   constructor (modes, opts = {}) {
     this.opts = opts
@@ -236,7 +237,7 @@ export class Cohort {
  *
  * @typedef {Object} TracedOp
  * @property {number} user — index into `cohort.users`
- * @property {('insertText'|'insertPlainText'|'deleteRange'|'addMark'|'removeMark'|'splitBlock'|'insertParagraph')} op
+ * @property {('insertText'|'insertPlainText'|'deleteRange'|'addMark'|'removeMark'|'splitBlock'|'insertParagraph'|'wrapInBlockquote'|'deleteBlock')} op
  * @property {Record<string, any>} args
  */
 
@@ -291,6 +292,23 @@ export const applyTracedOp = (cohort, step, schemaOverride) => {
       case 'insertParagraph':
         dispatch(state.tr.insert(a.pos, s.nodes.paragraph.create(null, s.text(a.text))))
         break
+      case 'wrapInBlockquote': {
+        if (!s.nodes.blockquote) break
+        const $from = state.doc.resolve(a.from)
+        const $to = state.doc.resolve(a.to)
+        const range = $from.blockRange($to)
+        if (!range) break
+        dispatch(state.tr.wrap(range, [{ type: s.nodes.blockquote }]))
+        break
+      }
+      case 'deleteBlock': {
+        const child = state.doc.maybeChild(a.blockIndex)
+        if (!child) break
+        let pos = 0
+        for (let i = 0; i < a.blockIndex; i++) pos += state.doc.child(i).nodeSize
+        dispatch(state.tr.delete(pos, pos + child.nodeSize))
+        break
+      }
     }
   } catch (_) { /* schema-invalid edits skip */ }
 }

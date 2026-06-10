@@ -2,7 +2,7 @@ import * as t from 'lib0/testing'
 import * as YPM from '@y/prosemirror'
 import * as basicSchema from 'prosemirror-schema-basic'
 import * as Y from '@y/y'
-import { EditorState } from 'prosemirror-state'
+import { EditorState, Plugin } from 'prosemirror-state'
 import { Fragment, Schema, Slice } from 'prosemirror-model'
 import * as delta from 'lib0/delta'
 import { findWrapping, ReplaceAroundStep } from 'prosemirror-transform'
@@ -220,4 +220,227 @@ export const testEphemeralStateDoesNotAffectSync = () => {
   // The view should only contain the dispatched text, not the ephemeral text
   t.assert(view1.state.doc.textContent === 'Hello', 'ephemeral apply should not leak into view1')
   t.assert(view2.state.doc.textContent === 'Hello', 'ephemeral apply should not leak into view2')
+}
+
+/**
+ * Create a view with an appendTransaction plugin and two-way Y sync.
+ * @param {Y.Type} ytype
+ * @param {Y.Type} ytype2
+ * @param {Plugin} appendPlugin
+ */
+const createSyncedViewWithAppend = (ytype, ytype2, appendPlugin) => {
+  const view = new EditorView({ mount: document.createElement('div') }, {
+    state: EditorState.create({
+      schema,
+      plugins: [YPM.syncPlugin(), appendPlugin]
+    })
+  })
+  YPM.configureYProsemirror({ ytype })(view.state, view.dispatch)
+  const view2 = createProsemirrorView(ytype2)
+  return { view, view2, ytype, ytype2 }
+}
+
+/**
+ * Validate that both views and both Y types are in sync.
+ * @param {EditorView} view
+ * @param {EditorView} view2
+ * @param {Y.Type} ytype
+ * @param {Y.Type} ytype2
+ */
+const validateAll = (view, view2, ytype, ytype2) => {
+  validate(view)
+  validate(view2)
+  t.compare(ytype.toDeltaDeep(), ytype2.toDeltaDeep(), 'Y types diverged')
+}
+
+export const testAppendTransactionInsertContent = () => {
+  const ydoc = new Y.Doc()
+  const ydoc2 = new Y.Doc()
+  setupTwoWaySync(ydoc, ydoc2)
+  const ytype = ydoc.get('prosemirror')
+  ytype.applyDelta(delta.create().insert([delta.create('paragraph', {}, 'start')]).done())
+
+  const appendPlugin = new Plugin({
+    appendTransaction: (trs, _oldState, newState) => {
+      const isUserTr = trs.some(tr =>
+        !tr.getMeta('y-sync-transaction') &&
+        !tr.getMeta(YPM.ySyncPluginKey) &&
+        !tr.getMeta('append-marker') &&
+        tr.docChanged
+      )
+      if (!isUserTr) return null
+      if (newState.doc.textContent.includes('APPENDED')) return null
+      const tr = newState.tr
+      tr.insert(tr.doc.content.size, schema.node('paragraph', undefined, schema.text('APPENDED')))
+      tr.setMeta('append-marker', true)
+      return tr
+    }
+  })
+
+  const { view, view2, ytype2 } = createSyncedViewWithAppend(ytype, ydoc2.get('prosemirror'), appendPlugin)
+
+  view.dispatch(view.state.tr.insertText('Hello', 1))
+  t.assert(view.state.doc.textContent.includes('Hello'), 'user content present')
+  t.assert(view.state.doc.textContent.includes('APPENDED'), 'appended content present')
+  validateAll(view, view2, ytype, ytype2)
+}
+
+export const testAppendTransactionDeleteContent = () => {
+  const ydoc = new Y.Doc()
+  const ydoc2 = new Y.Doc()
+  setupTwoWaySync(ydoc, ydoc2)
+  const ytype = ydoc.get('prosemirror')
+  ytype.applyDelta(delta.create().insert([
+    delta.create('paragraph', {}, 'keep'),
+    delta.create('paragraph', {}, 'REMOVE_ME')
+  ]).done())
+
+  const appendPlugin = new Plugin({
+    appendTransaction: (trs, _oldState, newState) => {
+      const isUserTr = trs.some(tr =>
+        !tr.getMeta('y-sync-transaction') &&
+        !tr.getMeta(YPM.ySyncPluginKey) &&
+        !tr.getMeta('append-marker') &&
+        tr.docChanged
+      )
+      if (!isUserTr) return null
+      if (!newState.doc.textContent.includes('REMOVE_ME')) return null
+      const tr = newState.tr
+      const lastChild = tr.doc.lastChild
+      if (lastChild) {
+        const start = tr.doc.content.size - lastChild.nodeSize
+        tr.delete(start, tr.doc.content.size)
+      }
+      tr.setMeta('append-marker', true)
+      return tr
+    }
+  })
+
+  const { view, view2, ytype2 } = createSyncedViewWithAppend(ytype, ydoc2.get('prosemirror'), appendPlugin)
+
+  view.dispatch(view.state.tr.insertText('X', 1))
+  t.assert(view.state.doc.textContent.includes('Xkeep'), 'user content present')
+  t.assert(!view.state.doc.textContent.includes('REMOVE_ME'), 'appended delete removed content')
+  validateAll(view, view2, ytype, ytype2)
+}
+
+export const testAppendTransactionAddMark = () => {
+  const ydoc = new Y.Doc()
+  const ydoc2 = new Y.Doc()
+  setupTwoWaySync(ydoc, ydoc2)
+  const ytype = ydoc.get('prosemirror')
+  ytype.applyDelta(delta.create().insert([delta.create('paragraph', {}, 'bold me')]).done())
+
+  const appendPlugin = new Plugin({
+    appendTransaction: (trs, _oldState, newState) => {
+      const isUserTr = trs.some(tr =>
+        !tr.getMeta('y-sync-transaction') &&
+        !tr.getMeta(YPM.ySyncPluginKey) &&
+        !tr.getMeta('append-marker') &&
+        tr.docChanged
+      )
+      if (!isUserTr) return null
+      const tr = newState.tr
+      tr.addMark(1, 5, schema.marks.strong.create())
+      tr.setMeta('append-marker', true)
+      return tr
+    }
+  })
+
+  const { view, view2, ytype2 } = createSyncedViewWithAppend(ytype, ydoc2.get('prosemirror'), appendPlugin)
+
+  view.dispatch(view.state.tr.insertText('X', 1))
+  validateAll(view, view2, ytype, ytype2)
+}
+
+export const testAppendTransactionMultipleRounds = () => {
+  const ydoc = new Y.Doc()
+  const ydoc2 = new Y.Doc()
+  setupTwoWaySync(ydoc, ydoc2)
+  const ytype = ydoc.get('prosemirror')
+  ytype.applyDelta(delta.create().insert([delta.create('paragraph', {}, 'start')]).done())
+
+  const appendPlugin = new Plugin({
+    appendTransaction: (trs, _oldState, newState) => {
+      const isUserTr = trs.some(tr =>
+        !tr.getMeta('y-sync-transaction') &&
+        !tr.getMeta(YPM.ySyncPluginKey) &&
+        !tr.getMeta('append-marker') &&
+        tr.docChanged
+      )
+      if (!isUserTr) return null
+      if (newState.doc.textContent.includes('FOOTER')) return null
+      const tr = newState.tr
+      tr.insert(tr.doc.content.size, schema.node('paragraph', undefined, schema.text('FOOTER')))
+      tr.setMeta('append-marker', true)
+      return tr
+    }
+  })
+
+  const { view, view2, ytype2 } = createSyncedViewWithAppend(ytype, ydoc2.get('prosemirror'), appendPlugin)
+
+  // Multiple edits, each triggers appendTransaction
+  view.dispatch(view.state.tr.insertText('A', 1))
+  validateAll(view, view2, ytype, ytype2)
+
+  view.dispatch(view.state.tr.insertText('B', 2))
+  validateAll(view, view2, ytype, ytype2)
+
+  view.dispatch(view.state.tr.insertText('C', 3))
+  validateAll(view, view2, ytype, ytype2)
+
+  t.assert(view.state.doc.textContent.includes('ABC'), 'all user edits present')
+}
+
+export const testAppendTransactionChainedAppends = () => {
+  const ydoc = new Y.Doc()
+  const ydoc2 = new Y.Doc()
+  setupTwoWaySync(ydoc, ydoc2)
+  const ytype = ydoc.get('prosemirror')
+  ytype.applyDelta(delta.create().insert([delta.create('paragraph', {}, 'hello')]).done())
+
+  // Two separate plugins that each append content
+  const appendPlugin1 = new Plugin({
+    appendTransaction: (trs, _oldState, newState) => {
+      const isUserTr = trs.some(tr =>
+        !tr.getMeta('y-sync-transaction') &&
+        !tr.getMeta(YPM.ySyncPluginKey) &&
+        !tr.getMeta('append-1') &&
+        !tr.getMeta('append-2') &&
+        tr.docChanged
+      )
+      if (!isUserTr) return null
+      if (newState.doc.textContent.includes('TAG1')) return null
+      const tr = newState.tr
+      tr.insert(tr.doc.content.size, schema.node('paragraph', undefined, schema.text('TAG1')))
+      tr.setMeta('append-1', true)
+      return tr
+    }
+  })
+  const appendPlugin2 = new Plugin({
+    appendTransaction: (trs, _oldState, newState) => {
+      const isRelevant = trs.some(tr => tr.getMeta('append-1'))
+      if (!isRelevant) return null
+      if (newState.doc.textContent.includes('TAG2')) return null
+      const tr = newState.tr
+      tr.insert(tr.doc.content.size, schema.node('paragraph', undefined, schema.text('TAG2')))
+      tr.setMeta('append-2', true)
+      return tr
+    }
+  })
+
+  const view = new EditorView({ mount: document.createElement('div') }, {
+    state: EditorState.create({
+      schema,
+      plugins: [YPM.syncPlugin(), appendPlugin1, appendPlugin2]
+    })
+  })
+  YPM.configureYProsemirror({ ytype })(view.state, view.dispatch)
+  const view2 = createProsemirrorView(ydoc2.get('prosemirror'))
+
+  view.dispatch(view.state.tr.insertText('!', 6))
+  t.assert(view.state.doc.textContent.includes('hello!'), 'user content present')
+  t.assert(view.state.doc.textContent.includes('TAG1'), 'first append present')
+  t.assert(view.state.doc.textContent.includes('TAG2'), 'second chained append present')
+  validateAll(view, view2, ytype, ydoc2.get('prosemirror'))
 }

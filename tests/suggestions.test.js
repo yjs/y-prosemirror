@@ -1,9 +1,24 @@
+/**
+ * END-TO-END tests for the suggestion binding across multiple synced views.
+ *
+ * Layer: the full stack — base doc + "view suggestions" + "suggestion mode"
+ * views, two-way Yjs sync, and the decoration plugin — wired together. These
+ * tests own what only emerges from the whole system: base/suggestion
+ * ISOLATION, document JSON correctness across views, decorations PROPAGATING to
+ * every suggestion view, suggestion-mode editing behaviors (enter/backspace/
+ * join), multi-peer cohort CONVERGENCE, and reconfigure / out-of-bounds cases.
+ *
+ * Deliberately NOT here: the diff shape for a given edit (unit-tested in
+ * y-attribution-to-diffset.test.js) and decoration-kind/clean-doc/accept-reject
+ * mechanics (suggestion-decoration-plugin.test.js). Where these tests touch
+ * decorations they only confirm the right kind reaches BOTH suggestion views —
+ * a sync concern — rather than re-deriving the diffs themselves.
+ */
 import * as YPM from '@y/prosemirror'
 import * as Y from '@y/y'
 import * as delta from 'lib0/delta'
 import * as t from 'lib0/testing'
 import { Schema } from 'prosemirror-model'
-import { EditorState } from 'prosemirror-state'
 import { schema } from './complexSchema.js'
 import { Cohort, applyTracedOp, assertCohortConsistency, createPMView, setupTwoWaySync } from './cohort.js'
 
@@ -42,11 +57,10 @@ const assertDocJSON = (doc, expected, message) => {
  * @param {object} [opts]
  * @param {string} [opts.baseContent] - initial paragraph text content
  * @param {import('prosemirror-model').Schema} [opts.schema] - custom schema (defaults to complexSchema)
- * @param {AttributionMapper} [opts.mapAttributionToMark] - custom attribution mapper
  */
 const createSuggestionSetup = (opts = {}) => {
   const { baseContent } = opts
-  const viewOpts = opts.schema ? { schema: opts.schema, mapAttributionToMark: opts.mapAttributionToMark } : {}
+  const viewOpts = opts.schema ? { schema: opts.schema } : {}
 
   const doc = new Y.Doc({ gc: false, guid: 'base' })
 
@@ -105,15 +119,28 @@ const createSuggestionSetup = (opts = {}) => {
   }
 }
 
-/** Insertion mark as it appears in PM doc JSON */
-const insertionMark = {
-  type: 'y-attributed-insert',
-  attrs: { userIds: [], timestamp: null }
+/**
+ * Get suggestion decorations from a PM view's state.
+ * @param {import('prosemirror-view').EditorView} view
+ * @returns {Array<import('prosemirror-view').Decoration>}
+ */
+const getDecorations = (view) => {
+  const decoSet = YPM.ySuggestionDecorationPluginKey.getState(view.state)
+  return decoSet ? decoSet.find() : []
 }
-/** Deletion mark as it appears in PM doc JSON */
-const deletionMark = {
-  type: 'y-attributed-delete',
-  attrs: { userIds: [], timestamp: null }
+
+/**
+ * Assert that no attribution marks exist on any node in the document.
+ * @param {import('prosemirror-model').Node} doc
+ * @param {string} msg
+ */
+const assertNoAttributionMarks = (doc, msg) => {
+  const markNames = ['y-attributed-insert', 'y-attributed-delete', 'y-attributed-format']
+  doc.descendants((node) => {
+    for (const mark of node.marks) {
+      t.assert(!markNames.includes(mark.type.name), `${msg}: found ${mark.type.name} mark on "${node.textContent}"`)
+    }
+  })
 }
 
 // === Tests ===
@@ -144,7 +171,7 @@ export const testSuggestionSyncAndMarks = () => {
     'Suggestion Mode has hello, no marks'
   )
 
-  // Type in Suggestion Mode → isolated from base, marks in View Suggestions
+  // Type in Suggestion Mode → isolated from base, decorations in suggestion views
   safeDispatch(
     viewSuggestionMode,
     viewSuggestionMode.state.tr.insertText(' world', 6)
@@ -157,8 +184,7 @@ export const testSuggestionSyncAndMarks = () => {
       {
         type: 'paragraph',
         content: [
-          { type: 'text', text: 'hello' },
-          { type: 'text', text: ' world', marks: [insertionMark] }
+          { type: 'text', text: 'hello world' }
         ]
       }
     ]
@@ -166,14 +192,25 @@ export const testSuggestionSyncAndMarks = () => {
   assertDocJSON(
     viewSuggestion.state.doc,
     helloWorldDoc,
-    "View Suggestions: ' world' has insertion mark"
+    "View Suggestions: clean doc with 'hello world'"
   )
+  assertNoAttributionMarks(viewSuggestion.state.doc, 'View Suggestions')
 
   assertDocJSON(
     viewSuggestionMode.state.doc,
     helloWorldDoc,
-    "Suggestion Mode: ' world' has insertion mark"
+    "Suggestion Mode: clean doc with 'hello world'"
   )
+  assertNoAttributionMarks(viewSuggestionMode.state.doc, 'Suggestion Mode')
+
+  // Check decorations for insertion
+  const decosSugg = getDecorations(viewSuggestion)
+  const insertDecosSugg = decosSugg.filter(d => d.spec?.diff?.type === 'inline-insert')
+  t.assert(insertDecosSugg.length > 0, "View Suggestions: ' world' has inline-insert decoration")
+
+  const decosMode = getDecorations(viewSuggestionMode)
+  const insertDecosMode = decosMode.filter(d => d.spec?.diff?.type === 'inline-insert')
+  t.assert(insertDecosMode.length > 0, "Suggestion Mode: ' world' has inline-insert decoration")
 }
 
 /**
@@ -193,23 +230,33 @@ export const testSequentialTypingMarks = () => {
       {
         type: 'paragraph',
         content: [
-          { type: 'text', text: 'hello' },
-          { type: 'text', text: 'ab', marks: [insertionMark] }
+          { type: 'text', text: 'helloab' }
         ]
       }
     ]
   }
-  // BOTH 'a' and 'b' should have insertion marks
+  // Doc content is clean (no marks)
   assertDocJSON(
     viewSuggestion.state.doc,
     abDoc,
-    "View Suggestions: both 'a' and 'b' have insertion marks"
+    "View Suggestions: clean doc with 'helloab'"
   )
+  assertNoAttributionMarks(viewSuggestion.state.doc, 'View Suggestions')
   assertDocJSON(
     viewSuggestionMode.state.doc,
     abDoc,
-    "Suggestion Mode: both 'a' and 'b' have insertion marks"
+    "Suggestion Mode: clean doc with 'helloab'"
   )
+  assertNoAttributionMarks(viewSuggestionMode.state.doc, 'Suggestion Mode')
+
+  // BOTH 'a' and 'b' should have inline-insert decorations
+  const decosSugg = getDecorations(viewSuggestion)
+  const insertDecosSugg = decosSugg.filter(d => d.spec?.diff?.type === 'inline-insert')
+  t.assert(insertDecosSugg.length > 0, "View Suggestions: both 'a' and 'b' have inline-insert decorations")
+
+  const decosMode = getDecorations(viewSuggestionMode)
+  const insertDecosMode = decosMode.filter(d => d.spec?.diff?.type === 'inline-insert')
+  t.assert(insertDecosMode.length > 0, "Suggestion Mode: both 'a' and 'b' have inline-insert decorations")
 }
 
 /**
@@ -249,8 +296,7 @@ export const testBlockInsertionMarks = () => {
       { type: 'paragraph', content: [{ type: 'text', text: 'hello' }] },
       {
         type: 'paragraph',
-        marks: [insertionMark],
-        content: [{ type: 'text', text: 'new block', marks: [insertionMark] }]
+        content: [{ type: 'text', text: 'new block' }]
       }
     ]
   }
@@ -258,14 +304,25 @@ export const testBlockInsertionMarks = () => {
   assertDocJSON(
     viewSuggestion.state.doc,
     expectedDoc,
-    'View Suggestions: new paragraph node and text have insertion marks'
+    'View Suggestions: new paragraph with clean text'
   )
+  assertNoAttributionMarks(viewSuggestion.state.doc, 'View Suggestions')
 
   assertDocJSON(
     viewSuggestionMode.state.doc,
     expectedDoc,
-    'Suggestion Mode: new paragraph node and text have insertion marks'
+    'Suggestion Mode: new paragraph with clean text'
   )
+  assertNoAttributionMarks(viewSuggestionMode.state.doc, 'Suggestion Mode')
+
+  // Check decorations for block + inline insertion
+  const decosSugg = getDecorations(viewSuggestion)
+  const insertDecosSugg = decosSugg.filter(d => d.spec?.diff?.type === 'block-insert' || d.spec?.diff?.type === 'inline-insert')
+  t.assert(insertDecosSugg.length > 0, 'View Suggestions: new paragraph has insert decorations')
+
+  const decosMode = getDecorations(viewSuggestionMode)
+  const insertDecosMode = decosMode.filter(d => d.spec?.diff?.type === 'block-insert' || d.spec?.diff?.type === 'inline-insert')
+  t.assert(insertDecosMode.length > 0, 'Suggestion Mode: new paragraph has insert decorations')
 }
 
 /**
@@ -303,8 +360,7 @@ export const testImageInsertionMarks = () => {
           { type: 'text', text: 'hello' },
           {
             type: 'image',
-            attrs: { src: 'test.png', alt: 'test', title: null },
-            marks: [insertionMark]
+            attrs: { src: 'test.png', alt: 'test', title: null }
           }
         ]
       }
@@ -313,96 +369,31 @@ export const testImageInsertionMarks = () => {
   assertDocJSON(
     viewSuggestion.state.doc,
     expectedDoc,
-    'View Suggestions: image has insertion mark'
+    'View Suggestions: clean doc with image'
   )
+  assertNoAttributionMarks(viewSuggestion.state.doc, 'View Suggestions')
   assertDocJSON(
     viewSuggestionMode.state.doc,
     expectedDoc,
-    'Suggestion Mode: image has insertion mark'
+    'Suggestion Mode: clean doc with image'
   )
+  assertNoAttributionMarks(viewSuggestionMode.state.doc, 'Suggestion Mode')
+
+  // Check decorations for insertion (image nodes produce block-insert decorations)
+  const decosSugg = getDecorations(viewSuggestion)
+  const insertDecosSugg = decosSugg.filter(d => d.spec?.diff?.type === 'inline-insert' || d.spec?.diff?.type === 'block-insert')
+  t.assert(insertDecosSugg.length > 0, 'View Suggestions: image has insert decoration')
+
+  const decosMode = getDecorations(viewSuggestionMode)
+  const insertDecosMode = decosMode.filter(d => d.spec?.diff?.type === 'inline-insert' || d.spec?.diff?.type === 'block-insert')
+  t.assert(insertDecosMode.length > 0, 'Suggestion Mode: image has insert decoration')
 }
 
 // === PM Schema validation tests ===
 // Verify that addNodeMark works for the node types we care about.
 
-/**
- * Schema: paragraph in doc can have an insertion node mark (doc allows attribution marks).
- */
-export const testSchemaParaInDocNodeMark = () => {
-  const state = EditorState.create({
-    schema,
-    doc: schema.node('doc', null, [schema.node('paragraph', null, [schema.text('test')])])
-  })
-  const tr = state.tr
-  const mark = schema.marks['y-attributed-insert'].create({
-    userIds: [],
-    timestamp: null
-  })
-  // pos 0 = the paragraph
-  tr.addNodeMark(0, mark)
-  t.assert(
-    tr.doc.firstChild?.marks.some(
-      (m) => m.type.name === 'y-attributed-insert'
-    ),
-    'paragraph in doc has insertion mark'
-  )
-}
-
-/**
- * Schema: paragraph in blockquote can have an insertion node mark.
- */
-export const testSchemaParaInBlockquoteNodeMark = () => {
-  const state = EditorState.create({
-    schema,
-    doc: schema.node('doc', null, [
-      schema.node('blockquote', null, [
-        schema.node('paragraph', null, [schema.text('quoted')])
-      ])
-    ])
-  })
-  const tr = state.tr
-  const mark = schema.marks['y-attributed-insert'].create({
-    userIds: [],
-    timestamp: null
-  })
-  // pos 1 = the paragraph inside the blockquote
-  tr.addNodeMark(1, mark)
-  const bq = tr.doc.firstChild
-  t.assert(bq?.type.name === 'blockquote', 'first child is blockquote')
-  const para = bq?.firstChild
-  t.assert(
-    para?.marks.some((m) => m.type.name === 'y-attributed-insert'),
-    'paragraph in blockquote has insertion mark'
-  )
-}
-
-/**
- * Schema: image in paragraph can have an insertion node mark.
- */
-export const testSchemaImageInParaNodeMark = () => {
-  const state = EditorState.create({
-    schema,
-    doc: schema.node('doc', null, [schema.node('paragraph')])
-  })
-  const tr = state.tr
-  // Insert image into the paragraph
-  tr.insert(1, schema.nodes.image.create({ src: 'test.png' }))
-  const mark = schema.marks['y-attributed-insert'].create({
-    userIds: [],
-    timestamp: null
-  })
-  // pos 1 = the image node
-  tr.addNodeMark(1, mark)
-  const img = tr.doc.firstChild?.firstChild
-  t.assert(img?.type.name === 'image', 'first inline child is image')
-  t.assert(
-    img?.marks.some((m) => m.type.name === 'y-attributed-insert'),
-    'image in paragraph has insertion mark'
-  )
-}
-
 export const testDeletionOfSuggestedContent = () => {
-  const { viewA, viewSuggestion, viewSuggestionMode, suggestionModeDoc, doc, suggestionModeAM } = createSuggestionSetup({ baseContent: 'hello' })
+  const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({ baseContent: 'hello' })
 
   t.group('insert suggestion', () => {
     // Insert a new paragraph with text at the end of the document (before trailing empty paragraph)
@@ -435,8 +426,7 @@ export const testDeletionOfSuggestedContent = () => {
         { type: 'paragraph', content: [{ type: 'text', text: 'hello' }] },
         {
           type: 'paragraph',
-          marks: [insertionMark],
-          content: [{ type: 'text', text: 'new block', marks: [insertionMark] }]
+          content: [{ type: 'text', text: 'new block' }]
         }
       ]
     }
@@ -444,14 +434,21 @@ export const testDeletionOfSuggestedContent = () => {
     assertDocJSON(
       viewSuggestion.state.doc,
       expectedDoc,
-      'View Suggestions: new paragraph node and text have insertion marks'
+      'View Suggestions: new paragraph with clean text'
     )
+    assertNoAttributionMarks(viewSuggestion.state.doc, 'View Suggestions after insert')
 
     assertDocJSON(
       viewSuggestionMode.state.doc,
       expectedDoc,
-      'Suggestion Mode: new paragraph node and text have insertion marks'
+      'Suggestion Mode: new paragraph with clean text'
     )
+    assertNoAttributionMarks(viewSuggestionMode.state.doc, 'Suggestion Mode after insert')
+
+    // Check decorations for insertion
+    const decosSugg = getDecorations(viewSuggestion)
+    const insertDecosSugg = decosSugg.filter(d => d.spec?.diff?.type === 'block-insert' || d.spec?.diff?.type === 'inline-insert')
+    t.assert(insertDecosSugg.length > 0, 'View Suggestions: new paragraph has insert decorations')
   })
   t.group('delete suggested content', () => {
     const { tr } = viewSuggestionMode.state
@@ -467,26 +464,23 @@ export const testDeletionOfSuggestedContent = () => {
         { type: 'paragraph', content: [{ type: 'text', text: 'hello' }] },
         {
           type: 'paragraph',
-          marks: [insertionMark],
-          content: [{ type: 'text', text: 'new blok', marks: [insertionMark] }]
+          content: [{ type: 'text', text: 'new blok' }]
         }
       ]
     }
-    console.log({
-      ydocSuggestionState: suggestionModeDoc.get('prosemirror').toDeltaDeep(suggestionModeAM).toJSON()
-    })
     assertDocJSON(
       viewSuggestion.state.doc,
       expectedDoc,
       'View Suggestions: expect that the deleted suggestion is actually deleted'
     )
+    assertNoAttributionMarks(viewSuggestion.state.doc, 'View Suggestions after delete')
     assertDocJSON(
       viewSuggestionMode.state.doc,
       expectedDoc,
       'Suggestion Mode: expect that the deleted suggestion is actually deleted'
     )
+    assertNoAttributionMarks(viewSuggestionMode.state.doc, 'Suggestion Mode after delete')
   })
-  console.log({ doc, suggestionModeDoc, suggestionModeAM })
 }
 
 export const testDeleteSuggustion = () => {
@@ -502,7 +496,6 @@ export const testDeleteSuggustion = () => {
     safeDispatch(viewA, tr)
   })
   t.group('suggest delete', () => {
-    // Insert a new paragraph with text at the end of the document (before trailing empty paragraph)
     const tr = viewSuggestionMode.state.tr
     // delete 'hello'
     safeDispatch(viewSuggestionMode, tr.delete(1, 6))
@@ -517,22 +510,34 @@ export const testDeleteSuggustion = () => {
       baseDoc,
       'Client A unchanged'
     )
+    // Deleted text is NOT in the doc (rendered via decorations only)
     const expectedDoc = {
       type: 'doc',
       content: [
-        { type: 'paragraph', content: [{ type: 'text', text: 'hello', marks: [deletionMark] }, { type: 'text', text: ' world' }] }
+        { type: 'paragraph', content: [{ type: 'text', text: ' world' }] }
       ]
     }
     assertDocJSON(
       viewSuggestionMode.state.doc,
       expectedDoc,
-      'Suggestion Mode: new paragraph node and text have insertion marks'
+      'Suggestion Mode: deleted text removed from doc'
     )
+    assertNoAttributionMarks(viewSuggestionMode.state.doc, 'Suggestion Mode')
     assertDocJSON(
       viewSuggestion.state.doc,
       expectedDoc,
-      'View Suggestions: new paragraph node and text have insertion marks'
+      'View Suggestions: deleted text removed from doc'
     )
+    assertNoAttributionMarks(viewSuggestion.state.doc, 'View Suggestions')
+
+    // Check decorations for deletion
+    const decosMode = getDecorations(viewSuggestionMode)
+    const deleteDecosMode = decosMode.filter(d => d.spec?.diff?.type === 'inline-delete')
+    t.assert(deleteDecosMode.length > 0, 'Suggestion Mode: has inline-delete decoration for deleted text')
+
+    const decosSugg = getDecorations(viewSuggestion)
+    const deleteDecosSugg = decosSugg.filter(d => d.spec?.diff?.type === 'inline-delete')
+    t.assert(deleteDecosSugg.length > 0, 'View Suggestions: has inline-delete decoration for deleted text')
   })
 }
 
@@ -557,33 +562,46 @@ export const testEnterInSuggestionMode = () => {
   safeDispatch(viewSuggestionMode, tr.split(4))
   // Base doc should stay unchanged
   assertDocJSON(viewA.state.doc, helloDoc, 'Client A unchanged after Enter')
+
+  // Clean doc: first paragraph has "hel", second has "lo" (no marks, no deleted text inline)
   const expectedSuggestionDoc = {
     type: 'doc',
     content: [
       {
         type: 'paragraph',
         content: [
-          { type: 'text', text: 'hel' },
-          { type: 'text', text: 'lo', marks: [deletionMark] }
+          { type: 'text', text: 'hel' }
         ]
       },
       {
         type: 'paragraph',
-        marks: [insertionMark],
-        content: [{ type: 'text', text: 'lo', marks: [insertionMark] }]
+        content: [{ type: 'text', text: 'lo' }]
       }
     ]
   }
   assertDocJSON(
     viewSuggestion.state.doc,
     expectedSuggestionDoc,
-    'View Suggestions: split paragraph shows insertion mark on new block'
+    'View Suggestions: split paragraph with clean text'
   )
+  assertNoAttributionMarks(viewSuggestion.state.doc, 'View Suggestions')
   assertDocJSON(
     viewSuggestionMode.state.doc,
     expectedSuggestionDoc,
-    'Suggestion Mode: split paragraph shows insertion mark on new block'
+    'Suggestion Mode: split paragraph with clean text'
   )
+  assertNoAttributionMarks(viewSuggestionMode.state.doc, 'Suggestion Mode')
+
+  // Check decorations for the split (delete of "lo" from first para + insert of new para)
+  const decosSugg = getDecorations(viewSuggestion)
+  const insertDecosSugg = decosSugg.filter(d => d.spec?.diff?.type === 'block-insert' || d.spec?.diff?.type === 'inline-insert')
+  const deleteDecosSugg = decosSugg.filter(d => d.spec?.diff?.type === 'inline-delete' || d.spec?.diff?.type === 'block-delete')
+  t.assert(insertDecosSugg.length > 0 || deleteDecosSugg.length > 0, 'View Suggestions: has decorations for split')
+
+  const decosMode = getDecorations(viewSuggestionMode)
+  const insertDecosMode = decosMode.filter(d => d.spec?.diff?.type === 'block-insert' || d.spec?.diff?.type === 'inline-insert')
+  const deleteDecosMode = decosMode.filter(d => d.spec?.diff?.type === 'inline-delete' || d.spec?.diff?.type === 'block-delete')
+  t.assert(insertDecosMode.length > 0 || deleteDecosMode.length > 0, 'Suggestion Mode: has decorations for split')
 }
 
 /**
@@ -592,7 +610,7 @@ export const testEnterInSuggestionMode = () => {
  * stays unchanged, and the suggestion views should show the merged paragraph.
  */
 export const testBackspaceJoinInSuggestionMode = () => {
-  const { doc, suggestionDoc, viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup()
+  const { doc, viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup()
   // Set up two paragraphs in the base doc: "hel" and "lo"
   doc.get('prosemirror').applyDelta(
     delta.create()
@@ -627,6 +645,8 @@ export const testBackspaceJoinInSuggestionMode = () => {
     twoParaDoc,
     'Client A unchanged after Backspace join'
   )
+
+  // Clean doc: merged paragraph with "hello" (no deleted text inline, no marks)
   const expectedSuggestionDoc = {
     type: 'doc',
     content: [
@@ -635,25 +655,9 @@ export const testBackspaceJoinInSuggestionMode = () => {
         content: [
           {
             type: 'text',
-            text: 'hel'
-          },
-          {
-            type: 'text',
-            marks: [insertionMark],
-            text: 'lo'
+            text: 'hello'
           }
         ]
-      },
-      {
-        type: 'paragraph',
-        content: [
-          {
-            type: 'text',
-            text: 'lo',
-            marks: [deletionMark]
-          }
-        ],
-        marks: [deletionMark]
       }
     ]
   }
@@ -662,12 +666,22 @@ export const testBackspaceJoinInSuggestionMode = () => {
     expectedSuggestionDoc,
     'Suggestion Mode: merged paragraph after join'
   )
-  console.log(suggestionDoc.get('prosemirror').toJSON())
+  assertNoAttributionMarks(viewSuggestionMode.state.doc, 'Suggestion Mode')
   assertDocJSON(
     viewSuggestion.state.doc,
     expectedSuggestionDoc,
     'View Suggestions: merged paragraph after join'
   )
+  assertNoAttributionMarks(viewSuggestion.state.doc, 'View Suggestions')
+
+  // Check decorations for join (insert of "lo" into first para + delete of second para)
+  const decosMode = getDecorations(viewSuggestionMode)
+  const allDecosMode = decosMode.filter(d => d.spec?.diff?.type === 'inline-insert' || d.spec?.diff?.type === 'block-delete' || d.spec?.diff?.type === 'inline-delete' || d.spec?.diff?.type === 'block-insert')
+  t.assert(allDecosMode.length > 0, 'Suggestion Mode: has decorations for join')
+
+  const decosSugg = getDecorations(viewSuggestion)
+  const allDecosSugg = decosSugg.filter(d => d.spec?.diff?.type === 'inline-insert' || d.spec?.diff?.type === 'block-delete' || d.spec?.diff?.type === 'inline-delete' || d.spec?.diff?.type === 'block-insert')
+  t.assert(allDecosSugg.length > 0, 'View Suggestions: has decorations for join')
 }
 
 export const testReconfigureAfterDeletion = () => {
@@ -688,16 +702,16 @@ export const testReconfigureAfterDeletion = () => {
       { type: 'paragraph', content: [{ type: 'text', text: 'hello world' }] }
     ]
   }
+  // Clean doc: deleted text removed, insertion text present, no marks
   const expectedSuggestionDoc = {
     type: 'doc',
     content: [
-      { type: 'paragraph', content: [{ type: 'text', text: 'he' }, { type: 'text', text: 'llo', marks: [deletionMark] }, { type: 'text', text: ' world' }, { type: 'text', text: '!', marks: [insertionMark] }] }
+      { type: 'paragraph', content: [{ type: 'text', text: 'he world!' }] }
     ]
   }
   t.group('suggest delete', () => {
-    // Insert a new paragraph with text at the end of the document (before trailing empty paragraph)
     const tr = viewSuggestionMode.state.tr
-    // delete 'hello', append '!'
+    // delete 'llo', append '!'
     safeDispatch(viewSuggestionMode, tr.delete(3, 6).insert(9, schema.text('!')))
     assertDocJSON(
       viewA.state.doc,
@@ -707,13 +721,22 @@ export const testReconfigureAfterDeletion = () => {
     assertDocJSON(
       viewSuggestionMode.state.doc,
       expectedSuggestionDoc,
-      'Suggestion Mode: new paragraph node and text have insertion marks'
+      'Suggestion Mode: clean doc with deletion removed and insertion present'
     )
+    assertNoAttributionMarks(viewSuggestionMode.state.doc, 'Suggestion Mode')
     assertDocJSON(
       viewSuggestion.state.doc,
       expectedSuggestionDoc,
-      'View Suggestions: new paragraph node and text have insertion marks'
+      'View Suggestions: clean doc with deletion removed and insertion present'
     )
+    assertNoAttributionMarks(viewSuggestion.state.doc, 'View Suggestions')
+
+    // Check decorations for delete + insert
+    const decosMode = getDecorations(viewSuggestionMode)
+    const deleteDecosMode = decosMode.filter(d => d.spec?.diff?.type === 'inline-delete')
+    const insertDecosMode = decosMode.filter(d => d.spec?.diff?.type === 'inline-insert')
+    t.assert(deleteDecosMode.length > 0, 'Suggestion Mode: has inline-delete decorations')
+    t.assert(insertDecosMode.length > 0, 'Suggestion Mode: has inline-insert decorations')
   })
   t.group('reconfigure', () => {
     YPM.configureYProsemirror({ ytype: doc.get('prosemirror'), attributionManager: Y.noAttributionsManager })(viewSuggestionMode.state, viewSuggestionMode.dispatch)
@@ -731,7 +754,7 @@ export const testReconfigureAfterDeletion = () => {
 }
 
 export const testReconfigureAfterDeletion2 = () => {
-  const { viewA, viewSuggestionMode, suggestionModeDoc, doc, suggestionModeAM, suggestionDoc, suggestionAM } = createSuggestionSetup({ baseContent: 'hello' })
+  const { viewA, viewSuggestionMode, doc } = createSuggestionSetup({ baseContent: 'hello' })
   t.group('populate content', () => {
     const tr = viewA.state.tr
     // Replace doc content with blockquote > paragraph
@@ -748,19 +771,14 @@ export const testReconfigureAfterDeletion2 = () => {
       { type: 'paragraph', content: [{ type: 'text', text: 'abc abc abc' }] }
     ]
   }
+  // Clean doc: deleted text removed, insertions present, no marks
   const expectedSuggestionDoc = {
     type: 'doc',
     content: [
       {
         type: 'paragraph',
         content: [
-          { type: 'text', text: 'a' },
-          { type: 'text', text: 'bc', marks: [deletionMark] },
-          { type: 'text', text: '!', marks: [insertionMark] },
-          { type: 'text', text: ' a' },
-          { type: 'text', text: 'bc', marks: [deletionMark] },
-          { type: 'text', text: '!', marks: [insertionMark] },
-          { type: 'text', text: ' abc' }
+          { type: 'text', text: 'a! a! abc' }
         ]
       }
     ]
@@ -776,22 +794,16 @@ export const testReconfigureAfterDeletion2 = () => {
     assertDocJSON(
       viewSuggestionMode.state.doc,
       expectedSuggestionDoc,
-      'Suggestion Mode: new paragraph node and text have insertion marks'
+      'Suggestion Mode: clean doc with deletions removed and insertions present'
     )
-    // // there's an issue with diffAttributionManager - it renders the deleted paragraph as a
-    // // suggested delete
-    // assertDocJSON(
-    //   viewSuggestion.state.doc,
-    //   expectedSuggestionDoc,
-    //   'Suggestion doc: new paragraph node and text have insertion marks'
-    // )
-    console.log('suggestionDocContent', suggestionDoc.get('prosemirror').toDeltaDeep(suggestionAM).toJSON())
-    console.log('suggestionModeDocContent', suggestionModeDoc.get('prosemirror').toDeltaDeep(suggestionModeAM).toJSON())
-    // assertDocJSON(
-    //   viewSuggestion.state.doc,
-    //   expectedSuggestionDoc,
-    //   'View Suggestions: new paragraph node and text have insertion marks'
-    // )
+    assertNoAttributionMarks(viewSuggestionMode.state.doc, 'Suggestion Mode')
+
+    // Check decorations for delete + insert
+    const decosMode = getDecorations(viewSuggestionMode)
+    const deleteDecosMode = decosMode.filter(d => d.spec?.diff?.type === 'inline-delete')
+    const insertDecosMode = decosMode.filter(d => d.spec?.diff?.type === 'inline-insert')
+    t.assert(deleteDecosMode.length > 0, 'Suggestion Mode: has inline-delete decorations')
+    t.assert(insertDecosMode.length > 0, 'Suggestion Mode: has inline-insert decorations')
   })
   t.group('reconfigure', () => {
     YPM.configureYProsemirror({ ytype: doc.get('prosemirror'), attributionManager: Y.noAttributionsManager })(viewSuggestionMode.state, viewSuggestionMode.dispatch)
@@ -800,12 +812,6 @@ export const testReconfigureAfterDeletion2 = () => {
       baseDoc,
       'suggestion mode doc reconfigured after deletion'
     )
-    // console.log('suggestionDocContent', suggestionDoc.get('prosemirror').toDeltaDeep(suggestionAM).toJSON())
-    // assertDocJSON(
-    //   viewSuggestion.state.doc,
-    //   expectedSuggestionDoc,
-    //   'suggestion doc didn\'t change after reconf of other editor'
-    // )
   })
 }
 
@@ -870,16 +876,14 @@ export const testSuggestInsertIntoDeletion = () => {
     )
   })
 
-  // Expected after deleting "234": rendered view re-injects the deleted run with deletion marks.
+  // Clean doc after deleting "234": deleted text removed, only "15" remains
   const afterDeleteDoc = {
     type: 'doc',
     content: [
       {
         type: 'paragraph',
         content: [
-          { type: 'text', text: '1' },
-          { type: 'text', text: '234', marks: [deletionMark] },
-          { type: 'text', text: '5' }
+          { type: 'text', text: '15' }
         ]
       }
     ]
@@ -892,7 +896,6 @@ export const testSuggestInsertIntoDeletion = () => {
       setup1.viewSuggestionMode,
       setup1.viewSuggestionMode.state.tr.delete(2, 5)
     )
-    // Wait for setupTwoWaySync to propagate the update to user2.
 
     assertDocJSON(
       setup1.viewA.state.doc,
@@ -902,46 +905,48 @@ export const testSuggestInsertIntoDeletion = () => {
     assertDocJSON(
       setup1.viewSuggestionMode.state.doc,
       afterDeleteDoc,
-      'user1 sees "234" struck through'
+      'user1 sees clean doc with "234" removed'
     )
+    assertNoAttributionMarks(setup1.viewSuggestionMode.state.doc, 'user1 after delete')
     assertDocJSON(
       viewSuggestionMode2.state.doc,
       afterDeleteDoc,
-      'user2 sees "234" struck through after sync'
+      'user2 sees clean doc with "234" removed after sync'
     )
+    assertNoAttributionMarks(viewSuggestionMode2.state.doc, 'user2 after delete')
     assertDocJSON(
       setup1.viewSuggestion.state.doc,
       afterDeleteDoc,
-      'View Suggestions sees "234" struck through'
+      'View Suggestions sees clean doc with "234" removed'
     )
+    assertNoAttributionMarks(setup1.viewSuggestion.state.doc, 'View Suggestions after delete')
+
+    // Check decorations for deletion
+    const decos1 = getDecorations(setup1.viewSuggestionMode)
+    const deleteDecos1 = decos1.filter(d => d.spec?.diff?.type === 'inline-delete')
+    t.assert(deleteDecos1.length > 0, 'user1: has inline-delete decorations for "234"')
   })
 
-  // Expected after inserting "xyz" between the deletion-marked "2" and "3":
-  //   "1" + strike("2") + insert("xyz") + strike("34") + "5"
+  // Clean doc after inserting "xyz": "1xyz5" (deleted text not shown, insertion present)
   const afterInsertDoc = {
     type: 'doc',
     content: [
       {
         type: 'paragraph',
         content: [
-          { type: 'text', text: '1' },
-          { type: 'text', text: '2', marks: [deletionMark] },
-          { type: 'text', text: 'xyz', marks: [insertionMark] },
-          { type: 'text', text: '34', marks: [deletionMark] },
-          { type: 'text', text: '5' }
+          { type: 'text', text: '1xyz5' }
         ]
       }
     ]
   }
 
   t.group('user1 suggests inserting "xyz" between "2" and "3"', () => {
-    // In the rendered suggestion view ('1'+strike('234')+'5'), pos 3 sits
-    // between the deletion-marked "2" and "3".
+    // In the clean doc ('1'+'5'), pos 2 sits after "1".
+    // The insertion goes into the middle of the deleted range.
     safeDispatch(
       setup1.viewSuggestionMode,
-      setup1.viewSuggestionMode.state.tr.insertText('xyz', 3)
+      setup1.viewSuggestionMode.state.tr.insertText('xyz', 2)
     )
-    // Wait for sync to propagate to user2.
 
     assertDocJSON(
       setup1.viewA.state.doc,
@@ -951,18 +956,28 @@ export const testSuggestInsertIntoDeletion = () => {
     assertDocJSON(
       setup1.viewSuggestionMode.state.doc,
       afterInsertDoc,
-      'user1 sees inserted "xyz" between deletion-marked "2" and "3"'
+      'user1 sees clean doc with "xyz" inserted'
     )
+    assertNoAttributionMarks(setup1.viewSuggestionMode.state.doc, 'user1 after insert')
     assertDocJSON(
       viewSuggestionMode2.state.doc,
       afterInsertDoc,
       'user2 sees the same after sync'
     )
+    assertNoAttributionMarks(viewSuggestionMode2.state.doc, 'user2 after insert')
     assertDocJSON(
       setup1.viewSuggestion.state.doc,
       afterInsertDoc,
       'View Suggestions sees the same'
     )
+    assertNoAttributionMarks(setup1.viewSuggestion.state.doc, 'View Suggestions after insert')
+
+    // Check decorations for both insert and delete
+    const decos1 = getDecorations(setup1.viewSuggestionMode)
+    const insertDecos1 = decos1.filter(d => d.spec?.diff?.type === 'inline-insert')
+    const deleteDecos1 = decos1.filter(d => d.spec?.diff?.type === 'inline-delete')
+    t.assert(insertDecos1.length > 0, 'user1: has inline-insert decorations for "xyz"')
+    t.assert(deleteDecos1.length > 0, 'user1: has inline-delete decorations for deleted text')
   })
 }
 

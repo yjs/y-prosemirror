@@ -75,7 +75,6 @@
         display: inline-block;
       }
     </style>
-    <!-- custom styling for attributions -->
     <style>
       #y-version {
         position: relative;
@@ -116,24 +115,60 @@
         background-color: #eee;
       }
 
-      /* Attribution marks: insertions */
-      y-ins {
-        background-color: #d4edda;
-        border-bottom: 2px solid #28a745;
+      /* Suggestion decoration styling (data-diff-type drives everything) */
+
+      /* Inserts: highlight + underline in the author's color */
+      [data-diff-type='inline-insert'],
+      [data-diff-type='block-insert'] {
+        background-color: color-mix(in srgb, var(--author-color, #28a745) 22%, transparent);
+        text-decoration: underline;
+        text-decoration-color: var(--author-color, #28a745);
+        text-decoration-thickness: 2px;
+        border-radius: 2px;
       }
 
-      /* Attribution marks: deletions */
-      y-del {
+      /* Deletions: reconstructed widget, struck through in the author's color */
+      [data-diff-type='inline-delete'],
+      [data-diff-type='block-delete'] {
+        background-color: color-mix(in srgb, var(--author-color, #dc3545) 14%, transparent);
         text-decoration: line-through;
-        color: #dc3545;
-        background-color: #f8d7da;
+        text-decoration-color: var(--author-color, #dc3545);
+        color: #555;
+        border-radius: 2px;
+      }
+      [data-diff-type='block-delete'] { display: block; padding: 2px 4px; margin: 2px 0; }
+      [data-diff-type='inline-delete'] { padding: 0 1px; }
+
+      /* Updates (marks / node attributes): dashed outline in the author's color */
+      [data-diff-type='inline-update'],
+      [data-diff-type='block-update'] {
+        outline: 1.5px dashed var(--author-color, #ffc107);
+        outline-offset: 1px;
+        border-radius: 2px;
       }
 
-      /* Attribution marks: format changes */
-      y-fmt {
-        background-color: #fff3cd;
-        border-bottom: 2px dotted #ffc107;
+      /* Block-update badge showing attribute changes (e.g. "level: 1 → 2") */
+      .pm-suggest-update-badge {
+        display: inline-block;
+        font-size: 10px;
+        line-height: 1.4;
+        padding: 1px 5px;
+        margin-right: 4px;
+        border-radius: 3px;
+        background-color: color-mix(in srgb, var(--author-color, #ffc107) 22%, transparent);
+        color: var(--author-color, #856404);
+        border: 1px solid color-mix(in srgb, var(--author-color, #ffc107) 40%, transparent);
+        vertical-align: middle;
+        font-family: monospace;
+        pointer-events: none;
       }
+
+      /* Reset mark styling inside deleted content so the strike reads cleanly */
+      [data-diff-type='block-delete'] strong,
+      [data-diff-type='inline-delete'] strong { font-weight: normal; }
+      [data-diff-type='block-delete'] em,
+      [data-diff-type='inline-delete'] em { font-style: normal; }
+
       /* Demo UI Styles */
       body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,

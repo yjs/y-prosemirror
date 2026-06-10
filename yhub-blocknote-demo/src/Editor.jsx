@@ -2,13 +2,18 @@ import { useCreateBlockNote } from '@blocknote/react'
 import { createExtension } from '@blocknote/core'
 import { BlockNoteView } from '@blocknote/mantine'
 import '@blocknote/mantine/style.css'
-import { syncPlugin, yCursorPlugin } from '@y/prosemirror'
+import { syncPlugin, yCursorPlugin, ySuggestionDecorationPlugin } from '@y/prosemirror'
 import { useEffect } from 'react'
-import { yhub, mapAttributionToMark } from './yhub.js'
+import { yhub } from './yhub.js'
 
 const YSyncExtension = createExtension(() => ({
   key: 'ySync',
-  prosemirrorPlugins: [syncPlugin({ mapAttributionToMark })]
+  prosemirrorPlugins: [syncPlugin({ decorationMode: true })]
+}))
+
+const YSuggestionDecorationExtension = createExtension(() => ({
+  key: 'ySuggestionDecoration',
+  prosemirrorPlugins: [ySuggestionDecorationPlugin()]
 }))
 
 const YCursorExtension = createExtension(() => ({
@@ -20,6 +25,7 @@ export default function Editor () {
   const editor = useCreateBlockNote({
     extensions: [
       YSyncExtension(),
+      YSuggestionDecorationExtension(),
       YCursorExtension()
     ]
   })

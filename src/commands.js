@@ -47,18 +47,29 @@ export const configureYProsemirror = (opts = {}) => (state, dispatch) => {
     const tr = state.tr.setMeta(ySyncPluginKey, opts)
     tr.setMeta('addToHistory', false)
     if (ytype) {
-      /**
-       * @type {ProsemirrorDelta}
-       */
-      const ycontent = deltaAttributionToFormat(ytype.toDeltaDeep(attributionManager || Y.noAttributionsManager), pluginState.attributionMapper)
-      // @todo it is preferred to apply the minimal diff - at least for debugging purposes. the
-      // document replacal is more reliable though
-      if (debugging) {
-        const pcontent = nodeToDelta(tr.doc, undefined, true)
-        const diff = d.diff(pcontent.done(), ycontent.done())
-        deltaToPSteps(tr, diff, undefined, undefined, pluginState.attributedNodes)
+      if (pluginState.decorationMode) {
+        const ycontent = ytype.toDeltaDeep()
+        try {
+          const pcontent = nodeToDelta(tr.doc)
+          const diff = d.diff(pcontent.done(), ycontent.done())
+          deltaToPSteps(tr, diff)
+        } catch {
+          tr.replaceWith(0, tr.doc.content.size, deltaToPNode(ycontent, tr.doc.type.schema, null))
+        }
       } else {
-        tr.replaceWith(0, tr.doc.content.size, deltaToPNode(ycontent, tr.doc.type.schema, null, pluginState.attributedNodes))
+        /**
+         * @type {ProsemirrorDelta}
+         */
+        const ycontent = deltaAttributionToFormat(ytype.toDeltaDeep(attributionManager || Y.noAttributionsManager), pluginState.attributionMapper)
+        // @todo it is preferred to apply the minimal diff - at least for debugging purposes. the
+        // document replacal is more reliable though
+        if (debugging) {
+          const pcontent = nodeToDelta(tr.doc, undefined, true)
+          const diff = d.diff(pcontent.done(), ycontent.done())
+          deltaToPSteps(tr, diff, undefined, undefined, pluginState.attributedNodes)
+        } else {
+          tr.replaceWith(0, tr.doc.content.size, deltaToPNode(ycontent, tr.doc.type.schema, null, pluginState.attributedNodes))
+        }
       }
     }
     dispatch(tr)

@@ -1,11 +1,11 @@
 # Attribution
 
-`y-prosemirror` can surface "who changed what" as ProseMirror marks on the rendered document. We call this **attributed content**. The same mechanism powers two different features:
+`y-prosemirror` can surface "who changed what" as ProseMirror decorations on the rendered document. We call this **attributed content**. The same mechanism powers two different features:
 
-- **Suggestion mode.** A user proposes a change; the binding records the change in the Y document but marks it visually as a suggestion (inserted text, deleted text, or a formatting change) until somebody accepts or rejects it.
-- **Version diffs and activity items.** Given two snapshots of the same Y document, the binding can render the difference in the live editor, showing who inserted, deleted, or reformatted each span. The visual treatment is the same as suggestion mode; only the attribution source differs (a diff between snapshots rather than ongoing edits).
+- **Suggestion mode.** A user proposes a change; the binding records the change in the Y document but renders it visually as a suggestion (inserted text, deleted text, or a formatting change) until somebody accepts or rejects it.
+- **Version diffs and activity items.** Given two snapshots of the same Y document, the binding can render the difference in the live editor, showing who inserted, deleted, or reformatted each span.
 
-In both cases the underlying primitive is the same. Every op produced by Yjs's `toDeltaDeep(am)` carries an optional `attribution` field that records which users authored that op and when. The binding turns those attributions into ProseMirror marks. The mark schema is yours to define; the names and the translation function are part of `y-prosemirror`'s contract.
+In both cases the underlying primitive is the same. Every op produced by Yjs's `toDeltaDeep(am)` carries an optional `attribution` field that records which users authored that op and when. The binding turns those attributions into ProseMirror decorations via `ySuggestionDecorationPlugin`.
 
 ## How attribution flows through the binding
 
@@ -14,230 +14,129 @@ The Y to PM direction looks like this:
 ```
 Y.Doc + AttributionManager
    |
-   |  ytype.toDeltaDeep(am)
+   |  ytype.toDeltaDeep(am)        — attributed delta
    v
-delta where each op may carry an `attribution` field
+   |  ydeltaToDiffSet(delta, opts)  — extract diffs from attribution
+   v
+DiffSet (array of Diff objects with positions in the clean PM doc)
    |
-   |  deltaAttributionToFormat(delta, mapAttributionToMark)
+   |  buildDiffDecorationSet(doc, diffs, schema, opts)
    v
-delta whose `format` carries y-attributed-* marks
-   |
-   |  deltaToPSteps + view.dispatch
-   v
-EditorView
+DecorationSet (rendered by ySuggestionDecorationPlugin)
 ```
 
-The PM to Y direction is the same pipeline with one extra step: we strip `y-attributed-*` from the reconcile diff before applying it to the Y type. Attribution marks are presentation, not content. They must never round-trip into the CRDT, otherwise the next render would double-apply them.
+The PM document always contains **clean** content — no attribution marks, no deleted text inline. The sync plugin reads `ytype.toDeltaDeep()` (without the AM) to produce the clean PM doc. Attribution is rendered purely as decorations overlaid on the clean content.
 
-This bidirectional flow has an important consequence: the marks the binding writes into PM (in the Y to PM pass) must match what the binding reads back from PM (in the PM to Y pass), otherwise the diff is non-empty on every pass and the sync plugin fires reconcile transactions in a loop. See "Stability is mandatory" below.
+This separation means:
 
-## Setting up the schema
+- **No schema requirements.** Consumers do not need to define attribution mark types. The schema is simpler.
+- **No stability concerns.** Since attribution data never enters the PM document, there is no risk of reconcile loops from mismatched mark attrs.
+- **No mark exclusion issues.** Decorations compose freely — a span can be simultaneously inserted, deleted, and reformatted without schema constraints.
 
-There are three canonical attribution mark names. **They are not configurable.** Internals reference them by name (notably the strip step described above), so renaming them in your schema will silently break suggestion mode.
-
-- `y-attributed-insert`
-- `y-attributed-delete`
-- `y-attributed-format`
-
-The schema must satisfy four constraints.
-
-### 1. Use exactly these mark names
-
-A custom `mapAttributionToMark` may shape the attribute payload however it likes (per-user color, suggestion id, timestamp, and so on), but the mark **type names** must match the canonical names above. If your editor ships its own suggestion mark family (BlockNote's `SuggestionMarks` is a real-world example), name them to match these canonical names rather than introducing new ones with a different name.
-
-### 2. Allow the marks on every node where attribution can land
-
-Attribution marks may be applied anywhere that attributable inline content can appear, which is essentially every node that contains text. If a node's `marks` content expression does not admit the `y-attributed-*` marks, the binding will throw `RangeError: Invalid content for node ...` from `tr.addMark` or `tr.addNodeMark` the moment a user makes the first edit in suggestion mode.
-
-ProseMirror's `gatherMarks` resolves a node's `marks` spec by mark name first and only falls back to mark-group matching when no mark by that name exists. If your schema declares for example `marks: "insertion modification deletion"` and your editor *also* defines marks literally named `insertion` / `deletion` / `modification`, the group-based fallback never fires and putting the `y-attributed-*` marks into `group: "insertion"` does not help. The safest fix is to add the marks **by name** to every affected node's `marks` content expression, or to extend the node types' `markSet` programmatically after editor construction.
-
-### 3. The three marks must not exclude each other
-
-A single op can carry multiple attribution kinds simultaneously:
-
-- Inserted text whose formatting was also suggested gets both `y-attributed-insert` and `y-attributed-format`.
-- A span that one user inserted and another user then deleted gets both `y-attributed-insert` and `y-attributed-delete`.
-- A formatted span whose attribute was changed twice gets one `y-attributed-format` with multiple authors in its payload.
-
-The schema must allow these combinations. In ProseMirror, marks default to excluding marks in their own group, so two marks of the same `group` will kick each other out and marks of the same name always replace each other. To make the three attribution marks fully composable, set `excludes: ''` on each of them. The empty string overrides the default and explicitly says "excludes nothing":
+## Setting up
 
 ```js
-const marks = {
-  'y-attributed-insert': {
-    attrs: { /* see below */ },
-    excludes: '',
-    parseDOM: [{ tag: 'y-ins' }],
-    toDOM: () => ['y-ins', 0]
-  },
-  'y-attributed-delete': {
-    attrs: { /* see below */ },
-    excludes: '',
-    parseDOM: [{ tag: 'y-del' }],
-    toDOM: () => ['y-del', 0]
-  },
-  'y-attributed-format': {
-    attrs: { /* see below */ },
-    excludes: '',
-    parseDOM: [{ tag: 'y-fmt' }],
-    toDOM: () => ['y-fmt', 0]
-  }
-}
-```
+import { syncPlugin, ySuggestionDecorationPlugin, configureYProsemirror } from '@y/prosemirror'
 
-Do **not** write:
-
-```js
-// WRONG: each attribution mark kicks the others out
-'y-attributed-insert': {
-  excludes: 'y-attributed-insert y-attributed-delete y-attributed-format',
-  ...
-}
-```
-
-That schema cannot represent insert + format on the same span. The rendered overlay will silently lose information about one of the two attribution kinds, and the diff comparing it against the freshly rendered AM delta will keep producing reconcile churn.
-
-### 4. The declared `attrs` must cover everything the mapper emits
-
-`schema.mark(name, value)` normalizes `value` against the declared `attrs`. **Undeclared keys in `value` are silently dropped** (see `computeAttrs` in `prosemirror-model/src/schema.ts`). If the schema declares `{ id, "user-color" }` and the mapper emits `{ userIds, timestamp }`, the resulting Mark instance has `{ id: null, "user-color": null }` and the `userIds` / `timestamp` payload is gone. This breaks stability (next section) and makes the rendered overlay generic instead of per-user.
-
-## Writing a custom `mapAttributionToMark`
-
-The sync plugin accepts a `mapAttributionToMark` option:
-
-```js
-syncPlugin({ mapAttributionToMark })
-```
-
-The default implementation, `defaultMapAttributionToMark` from `src/sync-utils.js`, emits:
-
-```js
-'y-attributed-insert': { userIds: attribution.insert,   timestamp: attribution.insertAt ?? null }
-'y-attributed-delete': { userIds: attribution.delete,   timestamp: attribution.deleteAt ?? null }
-'y-attributed-format': {
-  userIds:        array.unique(Object.values(attribution.format).flat()),
-  userIdsByAttr:  attribution.format,
-  timestamp:      attribution.formatAt ?? null
-}
-```
-
-The signature is `(format, attribution) => format`, where:
-
-- `format` is the existing PM format object for the op (with any non-attribution marks the op already carries).
-- `attribution` is `{ insert?: string[], delete?: string[], format?: Record<string, string[]>, insertAt?: number, deleteAt?: number, formatAt?: number }`.
-
-The mapper sets one or more of the three `y-attributed-*` keys on `format` and returns it. **Do not** write absent attribution kinds as explicit `null`. The diff layer naturally produces a format-clear when comparing pcontent (mark present) against desiredPM (key absent). Writing explicit `null`s changes the delta op fingerprint and prevents the diff from matching ops by content, which causes spurious text-node splits.
-
-### Stability is mandatory
-
-The sync plugin runs this loop after every transaction:
-
-1. `desiredPM = deltaAttributionToFormat(ytype.toDeltaDeep(am), mapAttributionToMark)` is the target state.
-2. `pcontent = nodeToDelta(view.state.doc)` is the current PM state. `marksToFormattingAttributes` reads each mark's `attrs` straight back into a format object.
-3. `diff(pcontent, desiredPM)` is the reconcile diff. If non-empty, the plugin dispatches a transaction to apply it.
-
-If `mapAttributionToMark(format, attribution)` ever produces output whose serialization differs from the `mark.attrs` we read back from PM for the same attribution, the diff is non-empty on every pass. The sync plugin will dispatch a reconcile transaction on every edit, forever. In benign cases (when the resulting `tr.addMark` is a PM-level no-op because the on-doc mark already normalizes equal) the loop bounds at one phantom dispatch per keystroke, but it is still wasted work; other plugins that observe transactions will see the phantoms. In worse cases the reconcile dispatch produces real steps and the loop never terminates.
-
-Concretely, "stable" means:
-
-- **The schema declares every attribute the mapper emits.** Otherwise PM drops them on the way in and the readback never matches the mapper output.
-- **The same `(format, attribution)` input produces the same output, byte for byte.** No `Date.now()` inside the mapper, no random ids, no allocation-dependent ordering. If you need an id per suggestion, derive it deterministically from the attribution (for example a hash of `attribution.insert.join(',') + attribution.insertAt`).
-- **Every declared attribute gets an explicit value.** If the schema declares `id: { default: null }` and the mapper omits the key, the readback will produce `id: null` but the mapper output will not, and the format objects will not be deep-equal.
-
-A useful sanity check during development: after creating a suggestion, dump `view.state.doc.nodeAt(pos).marks` and compare against the format object the mapper produced for that op. They must be deep-equal. If they are not, the binding will loop on the next transaction.
-
-### Example: per-user-color attribution
-
-Schema:
-
-```js
-const userColorAttrs = {
-  userIds:   { default: [] },
-  userColor: { default: null }
-}
-
-const marks = {
-  'y-attributed-insert': { attrs: userColorAttrs, excludes: '', parseDOM: [{ tag: 'y-ins' }], toDOM: () => ['y-ins', 0] },
-  'y-attributed-delete': { attrs: userColorAttrs, excludes: '', parseDOM: [{ tag: 'y-del' }], toDOM: () => ['y-del', 0] },
-  'y-attributed-format': { attrs: userColorAttrs, excludes: '', parseDOM: [{ tag: 'y-fmt' }], toDOM: () => ['y-fmt', 0] }
-  // ...the rest of your marks
-}
-```
-
-Mapper:
-
-```js
-const colorForUser = (userId) => userColors[hash(userId) % userColors.length]
-
-const mapAttributionToMark = (format, attribution) => {
-  const out = { ...format }
-  if (attribution.insert) {
-    out['y-attributed-insert'] = {
-      userIds:   attribution.insert,
-      userColor: colorForUser(attribution.insert[0])
-    }
-  }
-  if (attribution.delete) {
-    out['y-attributed-delete'] = {
-      userIds:   attribution.delete,
-      userColor: colorForUser(attribution.delete[0])
-    }
-  }
-  if (attribution.format) {
-    const userIds = [...new Set(Object.values(attribution.format).flat())]
-    out['y-attributed-format'] = {
-      userIds,
-      userColor: colorForUser(userIds[0])
-    }
-  }
-  return out
-}
-```
-
-Note that:
-
-- All three marks share `userColorAttrs`, so the mapper can emit the same shape regardless of which kinds are present.
-- The mapper sets each present kind independently and leaves absent kinds untouched on `format`. A span that is both inserted and reformatted ends up with both marks.
-- `colorForUser` is deterministic in the user id, so two calls of the mapper with the same `attribution` produce byte-equal output.
-
-## Rendering attributed nodes under a variant node type
-
-By default, attribution on a block (or leaf) node is surfaced only as a `y-attributed-*` *node mark*. Sometimes it is easier to integrate attribution into an existing schema if the attributed node also renders under a *different node type* - so that we can give it its own NodeView, content rules, or styling without touching the base node. The `attributedNodes` option does exactly that: an attributed `paragraph` can render as `paragraph--attributed`.
-
-```js
-syncPlugin({
-  // (nodeName, kinds) => boolean. `kinds` is { insert?, delete?, format? }
-  // reflecting which attribution kinds are present on the node.
-  attributedNodes: (nodeName, kinds) => kinds.delete === true
+const view = new EditorView(el, {
+  state: EditorState.create({
+    schema, // no attribution marks needed
+    plugins: [syncPlugin(), ySuggestionDecorationPlugin()]
+  })
 })
+configureYProsemirror({ ytype, attributionManager: am })(view.state, view.dispatch)
 ```
 
-When the predicate returns `true` for an attributed node *and* a `{nodeName}--attributed` type exists in the schema, that node renders under the variant type. The marks still determine behavior: the `y-attributed-*` marks are applied to the variant exactly as they would be to the canonical node (they carry the who/when payload and remain the single source of truth). The variant name is an additional schema hook, nothing more.
+That's it. No special mark types, no `mapAttributionToMark`, no `attributedNodes` predicate.
 
-A few properties follow from this design:
+## The DiffSet pipeline
 
-- **The suffix `--attributed` is fixed and reserved.** Canonicalizing back (PM to Y) is a pure string operation, so the forward and inverse mappings can never drift apart. As a consequence, a real node type whose name literally ends in `--attributed` would be canonicalized away on the way to Y. Do not name unrelated node types with that suffix.
-- **The Y document always stores the canonical name.** The variant exists only in the rendered ProseMirror document. When attribution is accepted/rejected (or otherwise clears), the node flips back to its canonical type in place.
-- **The predicate must be deterministic** in `(nodeName, kinds)`, for the same reason `mapAttributionToMark` must be (see "Stability is mandatory"). A non-deterministic predicate causes an endless reconcile loop.
-- **Per-kind selection, not per-kind naming.** The predicate decides *whether* a node becomes attributed; the variant name is always the single `--attributed` sibling. A node carrying several kinds (e.g. inserted and then deleted) still resolves to one `--attributed` variant; the marks encode which kinds.
+### `ydeltaToDiffSet(delta, opts)`
 
-### Schema contract for variant nodes
+Converts an attributed Y delta into a `DiffSet` — an array of `Diff` objects positioned in the clean PM document coordinate space. Each `Diff` describes one contiguous range of attributed content:
 
-The `{nodeName}--attributed` type must be a faithful sibling of the canonical node:
+```ts
+interface Diff {
+  type: 'inline-insert' | 'inline-delete' | 'block-insert' | 'block-delete' |
+        'inline-update' | 'block-update'
+  from: number    // PM position (in the clean doc)
+  to: number      // PM position (in the clean doc)
+  attribution: {
+    authorIds: string[]
+    timestamp: number | null
+  }
+  // For delete diffs: the reconstructed deleted content
+  content?: Fragment
+  // For update diffs: the changed attributes
+  attributes?: Record<string, any>
+  previousAttributes?: Record<string, any>
+}
+```
 
-- It must accept the same `content` and live in the same `group`, so it is valid everywhere the canonical node is and so an in-place type flip (`setNodeMarkup`) does not violate `content`.
-- It must declare the same `attrs`.
-- It must still allow the `y-attributed-*` marks (we keep emitting them). The "easier integration" win is moving that allowance off the *base* node onto the variant, not removing it.
+### `buildDiffDecorationSet(doc, diffs, schema, opts)`
 
-If `{nodeName}--attributed` is absent from the schema, the node simply keeps its canonical name (with the marks) - the predicate is a no-op for that type. This is how we restrict the feature to "certain nodes": define variants only for the types we want.
+Converts a `DiffSet` into a ProseMirror `DecorationSet`. Each diff becomes one or more decorations:
 
-## Pitfalls and debugging
+- **Inline inserts/updates:** `Decoration.inline` with `data-diff-type` attribute and `--author-color` CSS variable.
+- **Block inserts/updates:** `Decoration.node` (or fallback to inline when spanning multiple nodes).
+- **Deletes:** `Decoration.widget` rendering the deleted content as a ghost element.
 
-- **Schema attribute mismatch.** The most common failure mode. Symptom: suggestions render but the per-user color (or whatever attr you encoded) is always the default. The sync plugin fires an extra transaction on every keystroke. Fix: align the mapper output with the declared schema `attrs`, ensuring every declared attribute is also emitted by the mapper.
-- **Mark exclusion.** Symptom: applying a suggestion that touches an already-suggested span silently drops the previous mark, or the visual treatment for "inserted and reformatted" never appears. Fix: `excludes: ''` on all three marks.
-- **Mark not allowed on the target node.** Symptom: `RangeError: Invalid content for node ...` from `tr.addMark` or `tr.addNodeMark` on the first suggestion-mode edit. Fix: add the three marks by name to every node's `marks` content expression, or extend the node types' `markSet` programmatically.
-- **Non-canonical mark names.** Symptom: attribution marks accumulate on the document and eventually leak into the CRDT, because the PM to Y strip step does not recognize them. Fix: rename your marks to the canonical names.
-- **Non-deterministic mapper.** Symptom: sync plugin fires a never-ending stream of reconcile transactions, even with no user input. Fix: remove timestamps, random ids, and any other non-deterministic value from the mapper. Derive everything from the `attribution` argument.
-- **Variant node missing or mismatched.** Symptom (with `attributedNodes`): attributed nodes never switch to their `--attributed` type, or `setNodeMarkup` throws an invalid-content error on the first attributed edit. Fix: define `{nodeName}--attributed` with the same `content`/`group`/`attrs`/allowed marks as the canonical node. See "Schema contract for variant nodes".
-- **Non-deterministic `attributedNodes` predicate.** Symptom: never-ending reconcile transactions, same as a non-deterministic mapper. Fix: derive the result only from `(nodeName, kinds)`.
+### `defaultMapDiffToDecorations(args)`
 
-See also [`CAVEATS.md`](./CAVEATS.md) ("Attribution mark names are fixed", "Schema mismatches in suggestion mode") for related design tradeoffs and the underlying schema-resolution gotcha.
+The default decoration mapper. Can be overridden via the `mapDiffToDecorations` option on `ySuggestionDecorationPlugin` for custom rendering.
+
+## CSS styling
+
+Decorations use `data-diff-type` attributes and `--author-color` CSS custom properties. Example styles:
+
+```css
+/* Inserts: highlight + underline */
+[data-diff-type='inline-insert'],
+[data-diff-type='block-insert'] {
+  background-color: color-mix(in srgb, var(--author-color, #28a745) 22%, transparent);
+  text-decoration: underline;
+  text-decoration-color: var(--author-color, #28a745);
+}
+
+/* Deletions: struck through */
+[data-diff-type='inline-delete'],
+[data-diff-type='block-delete'] {
+  background-color: color-mix(in srgb, var(--author-color, #dc3545) 14%, transparent);
+  text-decoration: line-through;
+  text-decoration-color: var(--author-color, #dc3545);
+}
+
+/* Updates: dashed outline */
+[data-diff-type='inline-update'],
+[data-diff-type='block-update'] {
+  outline: 1.5px dashed var(--author-color, #ffc107);
+}
+```
+
+The `--author-color` CSS custom property is set per-decoration from the attribution's author ID. Multi-author scenarios get the primary author's color.
+
+## Accept / reject commands
+
+```js
+import { acceptChanges, rejectChanges, acceptAllChanges, rejectAllChanges } from '@y/prosemirror'
+
+// Accept changes in a range
+acceptChanges(from, to)(view.state, view.dispatch)
+
+// Reject changes in a range
+rejectChanges(from, to)(view.state, view.dispatch)
+
+// Accept/reject all
+acceptAllChanges()(view.state, view.dispatch)
+rejectAllChanges()(view.state, view.dispatch)
+```
+
+These commands work through the AM API using Y.ID-addressed operations. PM positions are mapped to Y relative positions internally.
+
+## Plugin keys
+
+- `ySyncPluginKey` — the sync plugin state (ytype, attributionManager).
+- `ySuggestionDecorationPluginKey` — the decoration set state.
+- `suggestionDiffPluginKey` — the raw DiffSet state (for consumers that need programmatic access to diffs).
+
+See also [`CAVEATS.md`](./CAVEATS.md) for related design tradeoffs.
