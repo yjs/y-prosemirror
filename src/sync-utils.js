@@ -193,13 +193,26 @@ const hashedMarkNameRegex = /(.*)(--[a-zA-Z0-9+/=]{8})$/
 export const yattr2markname = attrName => hashedMarkNameRegex.exec(attrName)?.[1] ?? attrName
 
 /**
+ * The reserved `y-attributed-*` attribution marks are render-only and MUST stay
+ * addressable by their exact name: `stripAttributionFormattingFromDelta`
+ * (sync-plugin.js) strips them on the PM->Y path and `attributedVariant`
+ * branches on the literal names. They must never receive the overlapping-mark
+ * hash suffix - even if an integrator's schema (wrongly) declares them
+ * non-self-excluding - or those name-based filters would miss them and the
+ * attribution formatting would leak into the Y document.
+ *
+ * @param {string} name
+ */
+const isReservedMarkName = name => name.startsWith('y-attributed-')
+
+/**
  * Inverse of {@link yattr2markname}: the delta format key for a PM mark.
  *
  * @param {import('prosemirror-model').Mark} mark
  * @return {string}
  */
 const markToYattrName = mark =>
-  mark.type.excludes(mark.type)
+  (mark.type.excludes(mark.type) || isReservedMarkName(mark.type.name))
     ? mark.type.name
     : `${mark.type.name}--${hashOfJSON(mark.toJSON())}`
 

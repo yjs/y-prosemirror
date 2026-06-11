@@ -131,3 +131,43 @@ export const testRemoveOneOverlappingComment = _tc => {
   t.compare(commentLayout(view2), expected, 'receiving peer: targeted removal kept the id:4 comment')
   t.compare(normalizeDoc(view1.state.doc.toJSON()), normalizeDoc(view2.state.doc.toJSON()), 'peers converge after removal')
 }
+
+/**
+ * Reserved `y-attributed-*` attribution marks are render-only and must stay
+ * addressable by their exact name - the binding strips/branches on the literal
+ * names. They must never get the overlapping-mark hash suffix, even when the
+ * schema declares them non-self-excluding (which would otherwise route them
+ * through the overlapping-mark path). A real overlapping mark on the same span
+ * is still hashed.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testAttributionMarksAreNeverHashed = _tc => {
+  /** @type {Object<string, import('prosemirror-model').MarkSpec>} */
+  const attributedMarks = {
+    ...basicSchema.marks,
+    comment: {
+      attrs: { id: { default: null } },
+      excludes: '',
+      toDOM () { return ['comment', 0] }
+    },
+    // declared non-self-excluding on purpose - the binding must still keep it
+    // addressable by its bare name rather than hashing it
+    'y-attributed-insert': {
+      attrs: { userIds: { default: null }, timestamp: { default: null } },
+      excludes: '',
+      toDOM () { return ['y-ins', 0] }
+    }
+  }
+  const attrSchema = new Schema({ nodes: basicSchema.nodes, marks: attributedMarks })
+  const doc = attrSchema.node('doc', undefined, attrSchema.node('paragraph', undefined,
+    attrSchema.text('x', [
+      attrSchema.mark('y-attributed-insert', { userIds: ['u1'], timestamp: 1 }),
+      attrSchema.mark('comment', { id: 7 })
+    ])
+  ))
+  const json = JSON.stringify(YPM.docToDelta(doc).toJSON())
+  t.assert(json.includes('"y-attributed-insert"'), 'attribution mark keeps its bare name')
+  t.assert(!json.includes('y-attributed-insert--'), 'attribution mark is never hashed')
+  t.assert(/comment--[A-Za-z0-9+/=]{8}/.test(json), 'a real overlapping mark is still hashed')
+}
