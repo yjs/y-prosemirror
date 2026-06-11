@@ -10,6 +10,7 @@ import * as positions from './positions.test.js'
 import * as suggestions from './suggestions.test.js'
 import * as suggestionSimulation from './suggestion-simulation.test.js'
 import * as attributedNodes from './attributed-nodes.test.js'
+import * as blockBoundary from './block-boundary.test.js'
 import * as undo from './undo.test.js'
 import * as commands from './commands.test.js'
 import * as overlappingMarks from './overlapping-marks.test.js'
@@ -61,6 +62,7 @@ runTests({
   suggestions,
   suggestionSimulation,
   attributedNodes,
+  blockBoundary,
   undo,
   commands,
   overlappingMarks
