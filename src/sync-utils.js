@@ -562,6 +562,25 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }, attribu
 }
 
 /**
+ * Default node-pairing predicate for the PM->Y diff, forwarded to
+ * `lib0/delta.diff`'s `matchNodes`: two nodes are the *same* node (diffed in
+ * place) iff they share a name - the standard `delta.diff` behavior.
+ *
+ * Override it via `syncPlugin`'s `matchNodes` option to make the diff treat
+ * certain same-named nodes as *different* (a whole-node delete + insert / a
+ * replace). The motivating case is raising the diff boundary for a strict
+ * container whose identifying child changed type (so a suggestion's old/new
+ * content lands as sibling blocks in the permissive grandparent instead of as
+ * schema-invalid siblings inside the strict node). Crucially, *what identifies
+ * a node* is schema-specific - e.g. "a `blockContainer` is identified by its
+ * first block-content child" is BlockNote's model, not the binding's - so that
+ * policy belongs in the integrator's predicate, not here.
+ *
+ * @type {YpmMatchNodes}
+ */
+export const defaultMatchNodes = (a, b) => a.name === b.name
+
+/**
  * @param {ProsemirrorDelta} d
  * @param {import('prosemirror-model').Schema} schema
  * @param {delta.FormattingAttributes|null} dformat

@@ -4,6 +4,7 @@ import {
   $prosemirrorDelta,
   defaultAttributedNodes,
   defaultMapAttributionToMark,
+  defaultMatchNodes,
   deltaAttributionToFormat,
   deltaToPSteps,
   nodeToDelta
@@ -28,7 +29,12 @@ export const $syncPluginState = s.$object({
    * Predicate deciding which attributed nodes render under their
    * `{nodeName}--attributed` variant. See {@link syncPlugin}.
    */
-  attributedNodes: /** @type {s.Schema<AttributedNodesPredicate>} */ (s.$function)
+  attributedNodes: /** @type {s.Schema<AttributedNodesPredicate>} */ (s.$function),
+  /**
+   * Node-pairing predicate for the PM->Y diff (`opts.matchNodes`). See
+   * {@link syncPlugin}.
+   */
+  matchNodes: /** @type {s.Schema<YpmMatchNodes>} */ (s.$function)
 })
 
 export const $syncPluginStateUpdate = s.$object({
@@ -107,6 +113,7 @@ const stripAttributionFormattingFromDelta = (input) => {
  * @param {Y.Doc} [opts.suggestionDoc] A {@link Y.Doc} to use for suggestion tracking
  * @param {AttributionMapper} [opts.mapAttributionToMark] A function to map the {@link Y.Attribution} to a {@link import('prosemirror-model').Mark} - the mark names *must* be one of: `y-attributed-insert`, `y-attributed-delete`, `y-attributed-format`. No other mark names are permitted
  * @param {AttributedNodesPredicate} [opts.attributedNodes] Optional predicate `(nodeName, kinds) => boolean`. When it returns `true` for an attributed node *and* a `{nodeName}--attributed` type exists in the schema, that node is rendered under the variant type (the `y-attributed-*` marks are still applied). `kinds` is `{ insert?, delete?, format? }`. The variant is a pure rendering concern - the canonical name is what is stored in the Y document. The predicate must be deterministic in `(nodeName, kinds)`.
+ * @param {YpmMatchNodes} [opts.matchNodes] Node-pairing predicate for the PM->Y diff (forwarded to `lib0/delta.diff`). Given a removed node `a` and an inserted node `b` (content deltas with canonical names), return whether they are the *same* node - i.e. diffed in place (descend/modify) vs. replaced (delete + insert). Defaults to name-equality. Override to raise the diff boundary at a strict node: report two same-named nodes as *different* when the child that identifies them changed, so a suggestion's old/new content lands as sibling blocks in the permissive grandparent instead of as schema-invalid siblings inside the strict node (e.g. BlockNote's `blockContainer`, content `blockContent blockGroup?`). What identifies a node is schema-specific, hence the integrator's to define. A plain text edit (same identity) still descends and merges normally.
  * @returns {Plugin}
  */
 export function syncPlugin (opts = {}) {
@@ -118,7 +125,8 @@ export function syncPlugin (opts = {}) {
           ytype: null,
           attributionManager: null,
           attributionMapper: opts.mapAttributionToMark || defaultMapAttributionToMark,
-          attributedNodes: opts.attributedNodes || defaultAttributedNodes
+          attributedNodes: opts.attributedNodes || defaultAttributedNodes,
+          matchNodes: opts.matchNodes || defaultMatchNodes
         })
       },
       apply: (tr, prevPluginState) => {
@@ -263,12 +271,19 @@ export function syncPlugin (opts = {}) {
           const am = attributionManager || Y.noAttributionsManager
           const mapper = pluginState.attributionMapper
           const attributedNodes = pluginState.attributedNodes
+          const matchNodes = pluginState.matchNodes
           const ycontent = deltaAttributionToFormat(
             ytype.toDeltaDeep(am),
             mapper
           ).done()
           const pcontent = nodeToDelta(view.state.doc, undefined, true).done()
-          const pmToYDiff = stripAttributionFormattingFromDelta(d.diff(ycontent, pcontent))
+          // `matchNodes` raises the diff boundary at declared suggestion-boundary
+          // node types: a child-type change inside such a (strict) node becomes a
+          // whole-node replace, so its old/new content lands as sibling blocks in
+          // the permissive grandparent instead of as schema-invalid siblings
+          // inside the strict node. A no-op (name-equality) when no boundary nodes
+          // are configured.
+          const pmToYDiff = stripAttributionFormattingFromDelta(d.diff(ycontent, pcontent, matchNodes))
           if (!pmToYDiff.isEmpty()) {
             /** @type {Y.Doc} */ (ytype.doc).transact(() => {
               ytype.applyDelta(pmToYDiff, am)

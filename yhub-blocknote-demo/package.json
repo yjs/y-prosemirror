@@ -18,7 +18,7 @@
     "@y/protocols": "^1.0.6-rc.1",
     "@y/websocket": "^4.0.0-rc.1",
     "@y/y": "^14.0.0-rc.17",
-    "lib0": "^1.0.0-rc.13",
+    "lib0": "^1.0.0-rc.14",
     "react": "^19",
     "react-dom": "^19"
   },
@@ -26,6 +26,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^4.3.4",
+    "patch-package": "^8.0.1",
     "vite": "^6.0.0"
   }
 }
