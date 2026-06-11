@@ -26,6 +26,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^4.3.4",
+    "patch-package": "^8.0.1",
     "vite": "^6.0.0"
   }
 }

@@ -5,10 +5,16 @@ import '@blocknote/mantine/style.css'
 import { syncPlugin, yCursorPlugin } from '@y/prosemirror'
 import { useEffect } from 'react'
 import { yhub, mapAttributionToMark } from './yhub.js'
+import { blockMatchNodes } from './blockMatchNodes.js'
 
 const YSyncExtension = createExtension(() => ({
   key: 'ySync',
-  prosemirrorPlugins: [syncPlugin({ mapAttributionToMark })]
+  // `matchNodes` raises the diff boundary to the whole `blockContainer` when its
+  // block-content type changes, so a type-change suggestion becomes two sibling
+  // containers (deleted + inserted) instead of two block-contents in one. No
+  // storage transform and no schema change - BlockNote's `blockContainer`
+  // already whitelists the `y-attributed-*` marks the attributed containers use.
+  prosemirrorPlugins: [syncPlugin({ mapAttributionToMark, matchNodes: blockMatchNodes })]
 }))
 
 const YCursorExtension = createExtension(() => ({
