@@ -1,8 +1,8 @@
 diff --git a/node_modules/lib0/dist/delta/delta.d.ts b/node_modules/lib0/dist/delta/delta.d.ts
-index 4b3d23b..779e9cb 100644
+index 1f97a3d..b6f9db5 100644
 --- a/node_modules/lib0/dist/delta/delta.d.ts
 +++ b/node_modules/lib0/dist/delta/delta.d.ts
-@@ -887,7 +887,7 @@ export function from<NodeName extends string | null, Attrs extends {
+@@ -905,7 +905,7 @@ export function from<NodeName extends string | null, Attrs extends {
      children: Extract<Children, Array<any>> extends Array<infer Ac> ? (unknown extends Ac ? never : Ac) : never;
      text: Extract<Children, string> extends never ? false : true;
  }>;
@@ -12,42 +12,26 @@ index 4b3d23b..779e9cb 100644
      index: number;
      remove: Array<any>;
 diff --git a/node_modules/lib0/src/delta/delta.js b/node_modules/lib0/src/delta/delta.js
-index e063729..a5f50be 100644
+index d4be86c..89ddc86 100644
 --- a/node_modules/lib0/src/delta/delta.js
 +++ b/node_modules/lib0/src/delta/delta.js
-@@ -2324,13 +2324,30 @@ class _DiffStringWrapper {
-  * 7. merge content diff and formatting updates
-  */
- 
-+/**
-+ * Default node-pairing predicate used by {@link diff}: two child nodes are
-+ * considered "the same node" (diffed in place / modified) iff they share a
-+ * name. Callers can pass a custom predicate to force a *replace* (delete +
-+ * insert) for nodes that should be treated as atomic - e.g. raising a diff
-+ * boundary when a node's identifying child changes type.
-+ *
-+ * @param {DeltaAny} a
-+ * @param {DeltaAny} b
-+ * @return {boolean}
-+ */
-+const defaultMatchNodes = (a, b) => a.name === b.name
-+
- /**
+@@ -2443,9 +2443,14 @@ class _DiffStringWrapper {
   * @template {DeltaConf} Conf
   * @param {Delta<Conf>} d1
   * @param {NoInfer<Delta<Conf>>} d2
 + * @param {(a: DeltaAny, b: DeltaAny) => boolean} [matchNodes] decides whether a
 + * removed node and an inserted node are the *same* node (→ diffed/modified in
-+ * place) or different (→ replaced). Defaults to name-equality
-+ * ({@link defaultMatchNodes}).
++ * place) or different (→ replaced). Defaults to name-equality. Override to force
++ * a *replace* for nodes that should be treated as atomic - e.g. raising a diff
++ * boundary when a node's identifying child changes type.
   * @return {Delta<Conf>}
   */
 -export const diff = (d1, d2) => {
-+export const diff = (d1, d2, matchNodes = defaultMatchNodes) => {
++export const diff = (d1, d2, matchNodes = (a, b) => a.name === b.name) => {
    const d = create(d1.name === d2.name ? d1.name : null, $deltaAny)
    if (d1.fingerprint !== d2.fingerprint) {
      /**
-@@ -2413,7 +2430,7 @@ export const diff = (d1, d2) => {
+@@ -2533,7 +2538,7 @@ export const diff = (d1, d2) => {
      const changeset3 = diffChangesetWithSeparator(changeset2, patience.smartSplitRegex)
      // split all
      const changeset4 = diffChangesetWithSeparator(changeset3, /./g)
@@ -56,7 +40,7 @@ index e063729..a5f50be 100644
      if (formattingNeedsDiff) {
        const formattingDiff = create()
        // update opsIs with content diff. then we can figure out the formatting diff.
-@@ -2477,7 +2494,7 @@ export const diff = (d1, d2) => {
+@@ -2602,7 +2607,7 @@ export const diff = (d1, d2) => {
            const prevVal = attr1?.value
            const nextVal = attr2.value
            if ($deltaAny.check(prevVal) && $deltaAny.check(nextVal) && prevVal.name === nextVal.name) {
@@ -65,18 +49,18 @@ index e063729..a5f50be 100644
            } else {
              d.setAttr(key, nextVal)
            }
-@@ -2522,8 +2539,9 @@ const applyInserts = (d, cins, len) => { len > 0 && cins.splice(0, len).forEach(
+@@ -2648,8 +2653,9 @@ const applyInserts = (d, cins, len) => { len > 0 && cins.splice(0, len).forEach(
  /**
   * @param {DeltaBuilderAny} d
   * @param {Array<{ index: number, remove: Array<any>, insert: Array<any> }>} changeset
 + * @param {(a: DeltaAny, b: DeltaAny) => boolean} [matchNodes] see {@link diff}
   */
 -const applyChangesetToDelta = (d, changeset) => {
-+const applyChangesetToDelta = (d, changeset, matchNodes = defaultMatchNodes) => {
++const applyChangesetToDelta = (d, changeset, matchNodes = (a, b) => a.name === b.name) => {
    for (let ci = 0, lastIndex = 0; ci < changeset.length; ci++) {
      const c = changeset[ci]
      d.retain(c.index - lastIndex)
-@@ -2534,14 +2552,14 @@ const applyChangesetToDelta = (d, changeset) => {
+@@ -2660,14 +2666,14 @@ const applyChangesetToDelta = (d, changeset) => {
        const cremoveDeltaIndex = c.remove.findIndex(cc => $deltaAny.check(cc))
        if (cremoveDeltaIndex < 0) break
        const cremoveDelta = c.remove[cremoveDeltaIndex]
