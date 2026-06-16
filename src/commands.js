@@ -55,7 +55,7 @@ export const configureYProsemirror = (opts = {}) => (state, dispatch) => {
       // document replacal is more reliable though
       if (debugging) {
         const pcontent = nodeToDelta(tr.doc, undefined, true)
-        const diff = d.diff(pcontent.done(), ycontent.done())
+        const diff = d.diff(pcontent.done(), ycontent.done(), { compare: pluginState.customCompare ?? undefined })
         deltaToPSteps(tr, diff, undefined, undefined, pluginState.attributedNodes)
       } else {
         tr.replaceWith(0, tr.doc.content.size, deltaToPNode(ycontent, tr.doc.type.schema, null, pluginState.attributedNodes))

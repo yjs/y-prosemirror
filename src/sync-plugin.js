@@ -28,7 +28,13 @@ export const $syncPluginState = s.$object({
    * Predicate deciding which attributed nodes render under their
    * `{nodeName}--attributed` variant. See {@link syncPlugin}.
    */
-  attributedNodes: /** @type {s.Schema<AttributedNodesPredicate>} */ (s.$function)
+  attributedNodes: /** @type {s.Schema<AttributedNodesPredicate>} */ (s.$function),
+  /**
+   * Custom pairing predicate that shifts the diffing boundary (forwarded to
+   * `lib0/delta.diff` as its `compare` option). `null` keeps lib0's name-only
+   * default. See {@link NodeCompare} and {@link syncPlugin}.
+   */
+  customCompare: /** @type {s.Schema<NodeCompare>} */ (s.$function).nullable
 })
 
 export const $syncPluginStateUpdate = s.$object({
@@ -36,6 +42,7 @@ export const $syncPluginStateUpdate = s.$object({
   attributionManager: Y.$attributionManager.nullable.optional,
   attributionMapper: /** @type {s.Schema<AttributionMapper>} */ (s.$function).nullable.optional,
   attributedNodes: /** @type {s.Schema<AttributedNodesPredicate>} */ (s.$function).nullable.optional,
+  customCompare: /** @type {s.Schema<NodeCompare>} */ (s.$function).nullable.optional,
   change: /** @type {s.Schema<Y.YEvent<any>>} */ (s.$any).nullable.optional
 })
 const $maybeSyncPluginStateUpdate = $syncPluginStateUpdate.nullable
@@ -107,6 +114,7 @@ const stripAttributionFormattingFromDelta = (input) => {
  * @param {Y.Doc} [opts.suggestionDoc] A {@link Y.Doc} to use for suggestion tracking
  * @param {AttributionMapper} [opts.mapAttributionToMark] A function to map the {@link Y.Attribution} to a {@link import('prosemirror-model').Mark} - the mark names *must* be one of: `y-attributed-insert`, `y-attributed-delete`, `y-attributed-format`. No other mark names are permitted
  * @param {AttributedNodesPredicate} [opts.attributedNodes] Optional predicate `(nodeName, kinds) => boolean`. When it returns `true` for an attributed node *and* a `{nodeName}--attributed` type exists in the schema, that node is rendered under the variant type (the `y-attributed-*` marks are still applied). `kinds` is `{ insert?, delete?, format? }`. The variant is a pure rendering concern - the canonical name is what is stored in the Y document. The predicate must be deterministic in `(nodeName, kinds)`.
+ * @param {NodeCompare} [opts.customCompare] Optional predicate `(a, b) => boolean` that shifts the *diffing boundary*. To sync, y-prosemirror diffs the ProseMirror doc against the Y document as `lib0/delta` trees; lib0's `diff` decides for each candidate node pair whether to pair them (diff *in place* via a `modify` op) or to **replace the old subtree wholesale** (delete + insert). By default a pair is matched purely on node name (`a.name === b.name`). Supply this to move the boundary - e.g. make a `blockContainer` only pair when its first child type also matches (`(a, b) => a.name === b.name && (a.name !== 'blockContainer' || firstChildName(a) === firstChildName(b))`), so changing the first child replaces the whole container instead of editing it in place. Receives the raw `lib0/delta` nodes `(fromNode, toNode)` (each exposing `.name`, `.attrs`, `.children`) and is forwarded to `lib0/delta.diff` as its `compare` option, applied recursively down the tree. Generally keep the `a.name === b.name` check; omit the option to keep lib0's name-only default.
  * @returns {Plugin}
  */
 export function syncPlugin (opts = {}) {
@@ -118,7 +126,8 @@ export function syncPlugin (opts = {}) {
           ytype: null,
           attributionManager: null,
           attributionMapper: opts.mapAttributionToMark || defaultMapAttributionToMark,
-          attributedNodes: opts.attributedNodes || defaultAttributedNodes
+          attributedNodes: opts.attributedNodes || defaultAttributedNodes,
+          customCompare: opts.customCompare || null
         })
       },
       apply: (tr, prevPluginState) => {
@@ -140,8 +149,9 @@ export function syncPlugin (opts = {}) {
        * @param {Y.AbstractAttributionManager?} opts.attributionManager
        * @param {AttributionMapper} opts.attributionMapper
        * @param {AttributedNodesPredicate} opts.attributedNodes
+       * @param {NodeCompare?} opts.customCompare
        */
-      function subscribeToYType ({ view, ytype, attributionManager, attributionMapper, attributedNodes }) {
+      function subscribeToYType ({ view, ytype, attributionManager, attributionMapper, attributedNodes, customCompare }) {
         unsubscribeFn?.()
         if (ytype != null) {
           // Listen on the doc's `afterTransaction` event rather than
@@ -180,7 +190,7 @@ export function syncPlugin (opts = {}) {
               attributionMapper
             ).done()
             const pcontent = nodeToDelta(view.state.doc, undefined, true).done()
-            const diff = d.diff(pcontent, desiredPM)
+            const diff = d.diff(pcontent, desiredPM, { compare: customCompare ?? undefined })
             if (diff.isEmpty()) return
             const ptr = deltaToPSteps(view.state.tr, diff, undefined, undefined, attributedNodes)
             ptr.setMeta('addToHistory', false)
@@ -208,7 +218,7 @@ export function syncPlugin (opts = {}) {
               attributionMapper
             ).done()
             const pcontent = nodeToDelta(view.state.doc, undefined, true).done()
-            const diff = d.diff(pcontent, desiredPM)
+            const diff = d.diff(pcontent, desiredPM, { compare: customCompare ?? undefined })
             if (diff.isEmpty()) return
             const ptr = deltaToPSteps(view.state.tr, diff, undefined, undefined, attributedNodes)
             ptr.setMeta('addToHistory', false)
@@ -246,7 +256,8 @@ export function syncPlugin (opts = {}) {
               ytype,
               attributionManager,
               attributionMapper: pluginState.attributionMapper,
-              attributedNodes: pluginState.attributedNodes
+              attributedNodes: pluginState.attributedNodes,
+              customCompare: pluginState.customCompare
             })
           }
           if (ytype == null) return
@@ -263,12 +274,13 @@ export function syncPlugin (opts = {}) {
           const am = attributionManager || Y.noAttributionsManager
           const mapper = pluginState.attributionMapper
           const attributedNodes = pluginState.attributedNodes
+          const customCompare = pluginState.customCompare
           const ycontent = deltaAttributionToFormat(
             ytype.toDeltaDeep(am),
             mapper
           ).done()
           const pcontent = nodeToDelta(view.state.doc, undefined, true).done()
-          const pmToYDiff = stripAttributionFormattingFromDelta(d.diff(ycontent, pcontent))
+          const pmToYDiff = stripAttributionFormattingFromDelta(d.diff(ycontent, pcontent, { compare: customCompare ?? undefined }))
           if (!pmToYDiff.isEmpty()) {
             /** @type {Y.Doc} */ (ytype.doc).transact(() => {
               ytype.applyDelta(pmToYDiff, am)
@@ -279,7 +291,7 @@ export function syncPlugin (opts = {}) {
             mapper
           ).done()
           const pcontentAfter = nodeToDelta(view.state.doc, undefined, true).done()
-          const pmReconcileDiff = d.diff(pcontentAfter, desiredPM)
+          const pmReconcileDiff = d.diff(pcontentAfter, desiredPM, { compare: customCompare ?? undefined })
           if (pmReconcileDiff.isEmpty()) return
           const tr = view.state.tr
           deltaToPSteps(tr, pmReconcileDiff, undefined, undefined, attributedNodes)
