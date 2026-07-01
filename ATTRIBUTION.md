@@ -12,7 +12,7 @@ In both cases the underlying primitive is the same. Every op produced by Yjs's `
 The Y to PM direction looks like this:
 
 ```
-Y.Doc + AttributionManager
+Y.Doc + Renderer
    |
    |  ytype.toDeltaDeep(am)
    v

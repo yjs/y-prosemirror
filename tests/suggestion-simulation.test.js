@@ -13,7 +13,7 @@
  *
  * Everything in y-prosemirror, `@y/y`, and lib0 is fully synchronous, so the
  * simulation does not yield to the event loop between ops - the moment
- * `view.dispatch` returns, every cascading observeDeep / AM-change /
+ * `view.dispatch` returns, every cascading observeDeep / renderer-change /
  * appendTransaction has finished.
  */
 
@@ -185,7 +185,7 @@ const opInsertParagraph = (cohort, user, gen) => {
 
 /**
  * Accept all pending suggestions. Only fires for users with a
- * DiffAttributionManager (view-suggestions / suggestion-mode); silently
+ * DiffRenderer (view-suggestions / suggestion-mode); silently
  * skips no-suggestions users.
  *
  * @param {Cohort} _cohort

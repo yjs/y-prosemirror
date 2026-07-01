@@ -69,7 +69,7 @@ export const defaultSelectionBuilder = (user) => {
  * @param {(user: User, clientId: number) => Element} createCursor
  * @param {(user: User, clientId: number) => import('prosemirror-view').DecorationAttrs} createSelection
  * @param {string} cursorStateField
- * @param {{ytype: Y.Type | null, attributionManager: Y.AbstractAttributionManager | null} | undefined} ystate
+ * @param {{ytype: Y.Type | null, renderer: Y.AbstractRenderer | null} | undefined} ystate
  * @return {DecorationSet}
  */
 export const createDecorations = (
@@ -110,13 +110,13 @@ export const createDecorations = (
       Y.createRelativePositionFromJSON(cursor.anchor),
       type,
       state.doc,
-      ystate.attributionManager
+      ystate.renderer
     )
     let head = relativePositionToAbsolutePosition(
       Y.createRelativePositionFromJSON(cursor.head),
       type,
       state.doc,
-      ystate.attributionManager
+      ystate.renderer
     )
     if (anchor !== null && head !== null) {
       anchor = math.min(anchor, maxsize)
@@ -257,7 +257,7 @@ export const yCursorPlugin = (
         // Belt-and-braces around the PM->Y position encoding. positions.js
         // already falls back to a doc-root relative position on traversal
         // failure, but anything else throwing here (DOM-change-time selection
-        // resolution, AM internals) would bubble up through dispatch and
+        // resolution, renderer internals) would bubble up through dispatch and
         // tear the editor down on every keystroke - just skip the awareness
         // update in that case.
         /** @type {{anchor: Y.RelativePosition, head: Y.RelativePosition} | null} */
@@ -268,12 +268,12 @@ export const yCursorPlugin = (
               anchor: absolutePositionToRelativePosition(
                 view.state.selection.$anchor,
                 ystate.ytype,
-                ystate.attributionManager
+                ystate.renderer
               ),
               head: absolutePositionToRelativePosition(
                 view.state.selection.$head,
                 ystate.ytype,
-                ystate.attributionManager
+                ystate.renderer
               )
             }
           } catch (err) {
@@ -291,7 +291,7 @@ export const yCursorPlugin = (
               prevState.anchor,
               ystate.ytype,
               view.state.doc,
-              ystate.attributionManager
+              ystate.renderer
             ) !== null
           }
         })

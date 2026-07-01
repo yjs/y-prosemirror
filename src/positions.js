@@ -6,20 +6,20 @@ import * as s from 'lib0/schema'
  *
  * @param {import('prosemirror-model').ResolvedPos} resolvedPos
  * @param {Y.Type} type
- * @param {Y.AbstractAttributionManager | null} [am]
+ * @param {Y.AbstractRenderer | null} [renderer]
  * @return {Y.RelativePosition} relative position
  */
-export const absolutePositionToRelativePosition = (resolvedPos, type, am) => {
+export const absolutePositionToRelativePosition = (resolvedPos, type, renderer) => {
   if (resolvedPos.pos === 0) {
     // if the type is later populated, we want to retain the 0 position (hence assoc=-1)
-    return Y.createRelativePositionFromTypeIndex(type, 0, type.length === 0 ? -1 : 0, am || Y.noAttributionsManager)
+    return Y.createRelativePositionFromTypeIndex(type, 0, type.length === 0 ? -1 : 0, renderer || Y.baseRenderer)
   }
   const depth = resolvedPos.depth
   // Navigate through the Y.js structure using the path from ResolvedPos.
   // The PM resolved-pos can transiently disagree with the Y type when this
   // runs mid-dispatch (the cursor-plugin's view.update may observe the PM
   // doc before sync-plugin's view.update has flushed the PM->Y commit and
-  // reconcile; AM-filtered subtrees can also shift child indices). If
+  // reconcile; renderer-filtered subtrees can also shift child indices). If
   // traversal can't follow the PM path all the way, fall back to a
   // relative position at the start of the bound type rather than throwing
   // - the contract here is non-nullable.
@@ -31,14 +31,14 @@ export const absolutePositionToRelativePosition = (resolvedPos, type, am) => {
     if (currentYType.length == null || childIndex >= currentYType.length) break
     // @TODO
     // @ts-ignore
-    const next = currentYType.get(childIndex, am) // @todo get method should support attribution manager
+    const next = currentYType.get(childIndex, renderer) // @todo get method should support renderer
     if (next == null) break
     currentYType = next
     traversedDepth = d + 1
   }
   if (traversedDepth !== depth || currentYType == null || currentYType.length == null) {
     return Y.createRelativePositionFromTypeIndex(
-      type, 0, type.length === 0 ? -1 : 0, am || Y.noAttributionsManager)
+      type, 0, type.length === 0 ? -1 : 0, renderer || Y.baseRenderer)
   }
   // Use the parent offset as the position within the target Y.js type.
   // For inline content (text containers), parentOffset equals the Y type index.
@@ -51,7 +51,7 @@ export const absolutePositionToRelativePosition = (resolvedPos, type, am) => {
 
   return Y.createRelativePositionFromTypeIndex(currentYType, offset,
     // If we are at the end of a type, then we want to be associated to the end of the type
-    offset > 0 && offset === currentYType.length ? -1 : 0, am || Y.noAttributionsManager)
+    offset > 0 && offset === currentYType.length ? -1 : 0, renderer || Y.baseRenderer)
 }
 
 /**
@@ -59,16 +59,16 @@ export const absolutePositionToRelativePosition = (resolvedPos, type, am) => {
  * @param {Y.RelativePosition} relPos Encoded Yjs based relative position
  * @param {Y.Type} documentType Top level type that is bound to pView
  * @param {import('prosemirror-model').Node} pmDoc
- * @param {Y.AbstractAttributionManager | null} [am]
+ * @param {Y.AbstractRenderer | null} [renderer]
  * @return {null|number} Prosemirror based absolute position
  */
-export const relativePositionToAbsolutePosition = (relPos, documentType, pmDoc, am) => {
+export const relativePositionToAbsolutePosition = (relPos, documentType, pmDoc, renderer) => {
   const doc = documentType.doc
   if (!doc) {
     return null
   }
   // (1) decodedPos.index is the absolute position starting at the referred  prosemirror node.
-  const decodedPos = Y.createAbsolutePositionFromRelativePosition(relPos, /** @type {Y.Doc} */ (documentType.doc), undefined, am || Y.noAttributionsManager)
+  const decodedPos = Y.createAbsolutePositionFromRelativePosition(relPos, /** @type {Y.Doc} */ (documentType.doc), undefined, renderer || Y.baseRenderer)
   if (decodedPos === null || (decodedPos.type !== documentType && !Y.isParentOf(documentType, decodedPos.type._item))) {
     return null
   }
@@ -117,13 +117,13 @@ export const relativePositionToAbsolutePosition = (relPos, documentType, pmDoc, 
  * Creates a function that can be used to keep track of an absolute position of a Prosemirror document, and restore it to an absolute position in a different Prosemirror document.
  * @param {import('prosemirror-model').ResolvedPos} resolvedPos Absolute position in the Prosemirror document
  * @param {Y.Type} type Top level type that is bound to pView
- * @param {Y.AbstractAttributionManager} [am] Attribution manager to use for the relative position
- * @returns {(doc: import('prosemirror-model').Node, documentType?: Y.Type, attributionManager?: Y.AbstractAttributionManager) => number}
+ * @param {Y.AbstractRenderer} [renderer] renderer to use for the relative position
+ * @returns {(doc: import('prosemirror-model').Node, documentType?: Y.Type, renderer?: Y.AbstractRenderer) => number}
  */
-export const relativePositionStore = (resolvedPos, type, am) => {
-  const relPos = absolutePositionToRelativePosition(resolvedPos, type, am)
-  return (doc, documentType = type, attributionManager) => {
-    const absPos = relativePositionToAbsolutePosition(relPos, documentType, doc, attributionManager)
+export const relativePositionStore = (resolvedPos, type, renderer) => {
+  const relPos = absolutePositionToRelativePosition(resolvedPos, type, renderer)
+  return (doc, documentType = type, renderer) => {
+    const absPos = relativePositionToAbsolutePosition(relPos, documentType, doc, renderer)
     if (absPos === null) {
       throw new Error('Failed to resolve absolute position')
     }
@@ -134,7 +134,7 @@ export const relativePositionStore = (resolvedPos, type, am) => {
 /**
  * @callback CaptureMapping
  * @param {import('prosemirror-model').Node} doc Prosemirror document used to resolve positions
- * @param {Y.AbstractAttributionManager | null} [am] Attribution manager to use for the relative position
+ * @param {Y.AbstractRenderer | null} [renderer] renderer to use for the relative position
  * @param {boolean} [clear] If true, clears all previously stored positions and captures fresh values for the mapping
  * @returns {import('prosemirror-transform').Mappable}
  */
@@ -143,7 +143,7 @@ export const relativePositionStore = (resolvedPos, type, am) => {
  * @callback RestoreMapping
  * @param {Y.Type} type Top level type that is bound to pView
  * @param {import('prosemirror-model').Node} pmDoc Prosemirror document
- * @param {Y.AbstractAttributionManager | null} [am] Attribution manager to use for the relative position
+ * @param {Y.AbstractRenderer | null} [renderer] renderer to use for the relative position
  * @returns {import('prosemirror-transform').Mappable}
  */
 
@@ -161,7 +161,7 @@ export const relativePositionStoreMapping = (type) => {
   const positionMapping = new Map()
 
   return {
-    captureMapping: (doc, am, clear = false) => {
+    captureMapping: (doc, renderer, clear = false) => {
       if (clear) {
         positionMapping.clear()
       }
@@ -172,7 +172,7 @@ export const relativePositionStoreMapping = (type) => {
         map (pos) {
           const resolvedPos = doc.resolve(pos)
           // Store the relative position using the position as the key
-          positionMapping.set(pos, absolutePositionToRelativePosition(resolvedPos, type, am))
+          positionMapping.set(pos, absolutePositionToRelativePosition(resolvedPos, type, renderer))
 
           // Pass through the position unchanged, since we are just using it to store the relative position
           return pos
@@ -186,14 +186,14 @@ export const relativePositionStoreMapping = (type) => {
         }
       }
     },
-    restoreMapping (type, pmDoc, am) {
+    restoreMapping (type, pmDoc, renderer) {
       return {
         map (pos) {
           const relPos = positionMapping.get(pos)
           if (!relPos) {
             throw new Error('Relative position not set')
           }
-          const absPos = relativePositionToAbsolutePosition(relPos, type, pmDoc, am)
+          const absPos = relativePositionToAbsolutePosition(relPos, type, pmDoc, renderer)
           if (absPos === null) {
             throw new Error('Failed to resolve absolute position')
           }

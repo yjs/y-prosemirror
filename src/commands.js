@@ -33,14 +33,14 @@ const debugging = false
  *
  * @param {object} [opts]
  * @param {YType?} [opts.ytype] Sync different ytype. Set to null to pause sync
- * @param {AttributionManager?} [opts.attributionManager] Optional attribution manager to switch to
+ * @param {Renderer?} [opts.renderer] Optional renderer to switch to
  * @returns {import('prosemirror-state').Command}
  */
 export const configureYProsemirror = (opts = {}) => (state, dispatch) => {
   const pluginState = ySyncPluginKey.getState(state)
   const ytype = opts.ytype
-  const attributionManager = opts.attributionManager
-  if (pluginState == null || (ytype === pluginState.ytype && attributionManager === pluginState.attributionManager)) {
+  const renderer = opts.renderer
+  if (pluginState == null || (ytype === pluginState.ytype && renderer === pluginState.renderer)) {
     return false
   }
   if (dispatch) {
@@ -50,7 +50,7 @@ export const configureYProsemirror = (opts = {}) => (state, dispatch) => {
       /**
        * @type {ProsemirrorDelta}
        */
-      const ycontent = deltaAttributionToFormat(ytype.toDeltaDeep(attributionManager || Y.noAttributionsManager), pluginState.attributionMapper)
+      const ycontent = deltaAttributionToFormat(ytype.toDeltaDeep({ renderer: renderer || Y.baseRenderer }), pluginState.attributionMapper)
       // @todo it is preferred to apply the minimal diff - at least for debugging purposes. the
       // document replacal is more reliable though
       if (debugging) {
@@ -100,14 +100,14 @@ export const redoCommand = (state, dispatch) => dispatch == null ? (yUndoPluginK
  */
 export const rejectChanges = (start, end = start) => (state, dispatch) => {
   const pluginState = ySyncPluginKey.getState(state)
-  if (!pluginState?.ytype || !(pluginState?.attributionManager instanceof Y.DiffAttributionManager)) {
+  if (!pluginState?.ytype || !(pluginState?.renderer instanceof Y.DiffRenderer)) {
     return false
   }
   if (dispatch) {
-    const relStart = absolutePositionToRelativePosition(state.doc.resolve(start), pluginState.ytype, pluginState.attributionManager)
-    const relEnd = absolutePositionToRelativePosition(state.doc.resolve(end), pluginState.ytype, pluginState.attributionManager)
+    const relStart = absolutePositionToRelativePosition(state.doc.resolve(start), pluginState.ytype, pluginState.renderer)
+    const relEnd = absolutePositionToRelativePosition(state.doc.resolve(end), pluginState.ytype, pluginState.renderer)
 
-    pluginState.attributionManager.rejectChanges(relStart.item, relEnd.item)
+    pluginState.renderer.rejectChanges(relStart.item, relEnd.item)
   }
   return true
 }
@@ -120,14 +120,14 @@ export const rejectChanges = (start, end = start) => (state, dispatch) => {
  */
 export const acceptChanges = (start, end = start) => (state, dispatch) => {
   const pluginState = ySyncPluginKey.getState(state)
-  if (!pluginState?.ytype || !(pluginState?.attributionManager instanceof Y.DiffAttributionManager)) {
+  if (!pluginState?.ytype || !(pluginState?.renderer instanceof Y.DiffRenderer)) {
     return false
   }
   if (dispatch) {
-    const relStart = absolutePositionToRelativePosition(state.doc.resolve(start), pluginState.ytype, pluginState.attributionManager)
-    const relEnd = absolutePositionToRelativePosition(state.doc.resolve(end), pluginState.ytype, pluginState.attributionManager)
+    const relStart = absolutePositionToRelativePosition(state.doc.resolve(start), pluginState.ytype, pluginState.renderer)
+    const relEnd = absolutePositionToRelativePosition(state.doc.resolve(end), pluginState.ytype, pluginState.renderer)
 
-    pluginState.attributionManager.acceptChanges(relStart.item, relEnd.item)
+    pluginState.renderer.acceptChanges(relStart.item, relEnd.item)
   }
   return true
 }
@@ -138,11 +138,11 @@ export const acceptChanges = (start, end = start) => (state, dispatch) => {
  */
 export const acceptAllChanges = () => (state, dispatch) => {
   const pluginState = ySyncPluginKey.getState(state)
-  if (!pluginState?.ytype || !(pluginState?.attributionManager instanceof Y.DiffAttributionManager)) {
+  if (!pluginState?.ytype || !(pluginState?.renderer instanceof Y.DiffRenderer)) {
     return false
   }
   if (dispatch) {
-    pluginState.attributionManager.acceptAllChanges()
+    pluginState.renderer.acceptAllChanges()
   }
   return true
 }
@@ -153,11 +153,11 @@ export const acceptAllChanges = () => (state, dispatch) => {
  */
 export const rejectAllChanges = () => (state, dispatch) => {
   const pluginState = ySyncPluginKey.getState(state)
-  if (!pluginState?.ytype || !(pluginState?.attributionManager instanceof Y.DiffAttributionManager)) {
+  if (!pluginState?.ytype || !(pluginState?.renderer instanceof Y.DiffRenderer)) {
     return false
   }
   if (dispatch) {
-    pluginState.attributionManager.rejectAllChanges()
+    pluginState.renderer.rejectAllChanges()
   }
   return true
 }

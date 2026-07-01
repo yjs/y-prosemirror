@@ -56,17 +56,17 @@ const createSuggestionSetup = (opts = {}) => {
   const suggestionModeDoc = new Y.Doc({ isSuggestionDoc: true, gc: false, guid: 'suggestions-edit' })
 
   const attrs = new Y.Attributions()
-  const suggestionAM = Y.createAttributionManagerFromDiff(doc, suggestionDoc, {
+  const suggestionRenderer = Y.createDiffRenderer(doc, suggestionDoc, {
     attrs
   })
-  suggestionAM.suggestionMode = false
+  suggestionRenderer.suggestionMode = false
 
-  const suggestionModeAM = Y.createAttributionManagerFromDiff(
+  const suggestionModeRenderer = Y.createDiffRenderer(
     doc,
     suggestionModeDoc,
     { attrs }
   )
-  suggestionModeAM.suggestionMode = true
+  suggestionModeRenderer.suggestionMode = true
 
   // Sync suggestion docs
   setupTwoWaySync(suggestionDoc, suggestionModeDoc)
@@ -74,12 +74,12 @@ const createSuggestionSetup = (opts = {}) => {
   const viewA = createPMView(doc.get('prosemirror'), undefined, viewOpts)
   const viewSuggestion = createPMView(
     suggestionDoc.get('prosemirror'),
-    suggestionAM,
+    suggestionRenderer,
     viewOpts
   )
   const viewSuggestionMode = createPMView(
     suggestionModeDoc.get('prosemirror'),
-    suggestionModeAM,
+    suggestionModeRenderer,
     viewOpts
   )
 
@@ -97,8 +97,8 @@ const createSuggestionSetup = (opts = {}) => {
     suggestionDoc,
     suggestionModeDoc,
     attrs,
-    suggestionAM,
-    suggestionModeAM,
+    suggestionRenderer,
+    suggestionModeRenderer,
     viewA,
     viewSuggestion,
     viewSuggestionMode
@@ -402,7 +402,7 @@ export const testSchemaImageInParaNodeMark = () => {
 }
 
 export const testDeletionOfSuggestedContent = () => {
-  const { viewA, viewSuggestion, viewSuggestionMode, suggestionModeDoc, doc, suggestionModeAM } = createSuggestionSetup({ baseContent: 'hello' })
+  const { viewA, viewSuggestion, viewSuggestionMode, suggestionModeDoc, doc, suggestionModeRenderer } = createSuggestionSetup({ baseContent: 'hello' })
 
   t.group('insert suggestion', () => {
     // Insert a new paragraph with text at the end of the document (before trailing empty paragraph)
@@ -473,7 +473,7 @@ export const testDeletionOfSuggestedContent = () => {
       ]
     }
     console.log({
-      ydocSuggestionState: suggestionModeDoc.get('prosemirror').toDeltaDeep(suggestionModeAM).toJSON()
+      ydocSuggestionState: suggestionModeDoc.get('prosemirror').toDeltaDeep({ renderer: suggestionModeRenderer }).toJSON()
     })
     assertDocJSON(
       viewSuggestion.state.doc,
@@ -486,7 +486,7 @@ export const testDeletionOfSuggestedContent = () => {
       'Suggestion Mode: expect that the deleted suggestion is actually deleted'
     )
   })
-  console.log({ doc, suggestionModeDoc, suggestionModeAM })
+  console.log({ doc, suggestionModeDoc, suggestionModeRenderer })
 }
 
 export const testDeleteSuggustion = () => {
@@ -716,7 +716,7 @@ export const testReconfigureAfterDeletion = () => {
     )
   })
   t.group('reconfigure', () => {
-    YPM.configureYProsemirror({ ytype: doc.get('prosemirror'), attributionManager: Y.noAttributionsManager })(viewSuggestionMode.state, viewSuggestionMode.dispatch)
+    YPM.configureYProsemirror({ ytype: doc.get('prosemirror'), renderer: Y.baseRenderer })(viewSuggestionMode.state, viewSuggestionMode.dispatch)
     assertDocJSON(
       viewSuggestionMode.state.doc,
       baseDoc,
@@ -731,7 +731,7 @@ export const testReconfigureAfterDeletion = () => {
 }
 
 export const testReconfigureAfterDeletion2 = () => {
-  const { viewA, viewSuggestionMode, suggestionModeDoc, doc, suggestionModeAM, suggestionDoc, suggestionAM } = createSuggestionSetup({ baseContent: 'hello' })
+  const { viewA, viewSuggestionMode, suggestionModeDoc, doc, suggestionModeRenderer, suggestionDoc, suggestionRenderer } = createSuggestionSetup({ baseContent: 'hello' })
   t.group('populate content', () => {
     const tr = viewA.state.tr
     // Replace doc content with blockquote > paragraph
@@ -785,8 +785,8 @@ export const testReconfigureAfterDeletion2 = () => {
     //   expectedSuggestionDoc,
     //   'Suggestion doc: new paragraph node and text have insertion marks'
     // )
-    console.log('suggestionDocContent', suggestionDoc.get('prosemirror').toDeltaDeep(suggestionAM).toJSON())
-    console.log('suggestionModeDocContent', suggestionModeDoc.get('prosemirror').toDeltaDeep(suggestionModeAM).toJSON())
+    console.log('suggestionDocContent', suggestionDoc.get('prosemirror').toDeltaDeep({ renderer: suggestionRenderer }).toJSON())
+    console.log('suggestionModeDocContent', suggestionModeDoc.get('prosemirror').toDeltaDeep({ renderer: suggestionModeRenderer }).toJSON())
     // assertDocJSON(
     //   viewSuggestion.state.doc,
     //   expectedSuggestionDoc,
@@ -794,13 +794,13 @@ export const testReconfigureAfterDeletion2 = () => {
     // )
   })
   t.group('reconfigure', () => {
-    YPM.configureYProsemirror({ ytype: doc.get('prosemirror'), attributionManager: Y.noAttributionsManager })(viewSuggestionMode.state, viewSuggestionMode.dispatch)
+    YPM.configureYProsemirror({ ytype: doc.get('prosemirror'), renderer: Y.baseRenderer })(viewSuggestionMode.state, viewSuggestionMode.dispatch)
     assertDocJSON(
       viewSuggestionMode.state.doc,
       baseDoc,
       'suggestion mode doc reconfigured after deletion'
     )
-    // console.log('suggestionDocContent', suggestionDoc.get('prosemirror').toDeltaDeep(suggestionAM).toJSON())
+    // console.log('suggestionDocContent', suggestionDoc.get('prosemirror').toDeltaDeep({ renderer: suggestionRenderer }).toJSON())
     // assertDocJSON(
     //   viewSuggestion.state.doc,
     //   expectedSuggestionDoc,
@@ -821,7 +821,7 @@ export const testSuggestInsertIntoDeletion = () => {
   // user1 brings the full setup (base doc + suggestion view + suggestion-mode editor).
   const setup1 = createSuggestionSetup({ baseContent: '12345' })
   // user2 has their own suggestion-mode doc that syncs with user1's via two-way sync.
-  // The base doc is shared via the AttributionManager's internal prevDoc->nextDoc flow.
+  // The base doc is shared via the Renderer's internal prevDoc->nextDoc flow.
   const suggestionModeDoc2 = new Y.Doc({
     isSuggestionDoc: true,
     gc: false,
@@ -829,18 +829,18 @@ export const testSuggestInsertIntoDeletion = () => {
   })
   setupTwoWaySync(setup1.suggestionModeDoc, suggestionModeDoc2)
 
-  // user2's own AttributionManager - prevDoc is the same shared base doc.
-  // Fresh Attributions: each AM tracks its own attribution metadata from the diff.
-  const suggestionModeAM2 = Y.createAttributionManagerFromDiff(
+  // user2's own Renderer - prevDoc is the same shared base doc.
+  // Fresh Attributions: each renderer tracks its own attribution metadata from the diff.
+  const suggestionModeRenderer2 = Y.createDiffRenderer(
     setup1.doc,
     suggestionModeDoc2,
     { attrs: new Y.Attributions() }
   )
-  suggestionModeAM2.suggestionMode = true
+  suggestionModeRenderer2.suggestionMode = true
 
   const viewSuggestionMode2 = createPMView(
     suggestionModeDoc2.get('prosemirror'),
-    suggestionModeAM2
+    suggestionModeRenderer2
   )
 
   const initDoc = {
@@ -1017,13 +1017,13 @@ export const testTwoViewSuggestionsUsersDivergeOnSplit = () => {
   setupTwoWaySync(suggDocA, suggDocB)
 
   const attrs = new Y.Attributions()
-  const amA = Y.createAttributionManagerFromDiff(baseDoc, suggDocA, { attrs })
-  amA.suggestionMode = false
-  const amB = Y.createAttributionManagerFromDiff(baseDoc, suggDocB, { attrs })
-  amB.suggestionMode = false
+  const rendererA = Y.createDiffRenderer(baseDoc, suggDocA, { attrs })
+  rendererA.suggestionMode = false
+  const rendererB = Y.createDiffRenderer(baseDoc, suggDocB, { attrs })
+  rendererB.suggestionMode = false
 
-  const viewA = createPMView(suggDocA.get('prosemirror'), amA)
-  const viewB = createPMView(suggDocB.get('prosemirror'), amB)
+  const viewA = createPMView(suggDocA.get('prosemirror'), rendererA)
+  const viewB = createPMView(suggDocB.get('prosemirror'), rendererB)
 
   // Seed base doc with the simulation's starter content.
   baseDoc.get('prosemirror').applyDelta(
@@ -1041,7 +1041,7 @@ export const testTwoViewSuggestionsUsersDivergeOnSplit = () => {
   assertDocJSON(viewA.state.doc, seedDoc, 'viewA sees seeded content')
   assertDocJSON(viewB.state.doc, seedDoc, 'viewB sees seeded content')
 
-  // The AttributionManager 'change' listener can throw inside
+  // The Renderer 'change' listener can throw inside
   // `view.dispatch` (separate bug downstream of `deltaToPSteps`).
   // Swallow it - the divergence we care about manifests regardless.
   try {
@@ -1082,16 +1082,16 @@ export const testTwoViewSuggestionsUsersDivergeOnFormatAcrossInsert = () => {
   setupTwoWaySync(suggDocS2, suggDocM)
 
   const attrs = new Y.Attributions()
-  const amS1 = Y.createAttributionManagerFromDiff(baseDoc, suggDocS1, { attrs })
-  amS1.suggestionMode = false
-  const amS2 = Y.createAttributionManagerFromDiff(baseDoc, suggDocS2, { attrs })
-  amS2.suggestionMode = false
-  const amM = Y.createAttributionManagerFromDiff(baseDoc, suggDocM, { attrs })
-  amM.suggestionMode = true
+  const rendererS1 = Y.createDiffRenderer(baseDoc, suggDocS1, { attrs })
+  rendererS1.suggestionMode = false
+  const rendererS2 = Y.createDiffRenderer(baseDoc, suggDocS2, { attrs })
+  rendererS2.suggestionMode = false
+  const rendererM = Y.createDiffRenderer(baseDoc, suggDocM, { attrs })
+  rendererM.suggestionMode = true
 
-  const viewS1 = createPMView(suggDocS1.get('prosemirror'), amS1)
-  const viewS2 = createPMView(suggDocS2.get('prosemirror'), amS2)
-  const viewM = createPMView(suggDocM.get('prosemirror'), amM)
+  const viewS1 = createPMView(suggDocS1.get('prosemirror'), rendererS1)
+  const viewS2 = createPMView(suggDocS2.get('prosemirror'), rendererS2)
+  const viewM = createPMView(suggDocM.get('prosemirror'), rendererM)
 
   baseDoc.get('prosemirror').applyDelta(
     delta.create()
@@ -1136,7 +1136,7 @@ export const testTwoViewSuggestionsUsersDivergeOnFormatAcrossInsert = () => {
  *   - u2, u3: suggestion-mode    (u2 inserts a paragraph; u3 deletes a range)
  *
  * After all four ops, the two view-suggestions peers (u0, u1) end up with
- * different PM docs even though their underlying Y state and the AM
+ * different PM docs even though their underlying Y state and the renderer
  * render are bit-identical.
  *
  * Greedy delta-debug bottomed out at this 4-op shape; further trims either
@@ -1168,12 +1168,12 @@ export const testCohortReplayConvergesAfterSplitDeleteInterleave = () => {
  * no-suggestions / view-suggestions / suggestion-mode), then asserts that
  * peers in each mode converge to the same PM doc.
  *
- * Symptom: the underlying Y state and `ytype.toDeltaDeep(am)` outputs are
+ * Symptom: the underlying Y state and `ytype.toDeltaDeep(renderer)` outputs are
  * bit-identical across all peers, but the PM views have stale paragraph
  * splits and stray `y-attributed-*` marks left over from intermediate
  * states. The bug is in the y-prosemirror reconcile pipeline (lib0/delta
  * `diff` + `deltaToPSteps` round-trip) failing to drive each peer's PM
- * doc to the canonical AM render.
+ * doc to the canonical renderer render.
  *
  * Everything in y-prosemirror, `@y/y`, and lib0 is fully synchronous;
  * ops are dispatched directly with no event-loop yield between them.
@@ -1347,7 +1347,7 @@ export const testViewSuggestionsDeleteOutOfBounds = () => {
  *
  * X moves from sibling-of-B to grandchild-of-B. In Y, the old B XML element
  * is suggestion-deleted and a new B-prime is suggestion-inserted; the old
- * B's child `setAttr id` items get tombstoned and the attribution manager
+ * B's child `setAttr id` items get tombstoned and the renderer
  * surfaces them as `DeleteAttrOp`s, which lib0/delta `diff` rejects with
  * `unexpectedCase` on its target side.
  */
@@ -1419,7 +1419,7 @@ const bnBlock = (id, text) =>
  * Issue #247: indenting a block in suggestion mode used to crash the sync
  * pipeline on the view-suggestion peer with `unexpectedCase` from
  * lib0/delta `diff`. The fix lives in `deltaAttributionToFormat`
- * (sync-utils.js): `DeleteAttrOp`s emitted by the attribution manager are
+ * (sync-utils.js): `DeleteAttrOp`s emitted by the renderer are
  * folded back to a `SetAttrOp` with the previous value, because PM has no
  * model for an attribute deleted under attribution. The parent node's own
  * delete attribution already carries the visual signal.

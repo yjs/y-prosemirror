@@ -20,9 +20,9 @@ import * as object from 'lib0/object'
 export const $syncPluginState = s.$object({
   ytype: Y.$ytypeAny.nullable,
   /**
-   * If provided, will switch to the given attribution manager instead of the current attribution manager
+   * If provided, will switch to the given renderer instead of the current renderer
    */
-  attributionManager: Y.$attributionManager.nullable,
+  renderer: Y.$renderer.nullable,
   attributionMapper: /** @type {s.Schema<AttributionMapper>} */ (s.$function),
   /**
    * Predicate deciding which attributed nodes render under their
@@ -39,7 +39,7 @@ export const $syncPluginState = s.$object({
 
 export const $syncPluginStateUpdate = s.$object({
   ytype: Y.$ytypeAny.nullable.optional,
-  attributionManager: Y.$attributionManager.nullable.optional,
+  renderer: Y.$renderer.nullable.optional,
   attributionMapper: /** @type {s.Schema<AttributionMapper>} */ (s.$function).nullable.optional,
   attributedNodes: /** @type {s.Schema<AttributedNodesPredicate>} */ (s.$function).nullable.optional,
   customCompare: /** @type {s.Schema<NodeCompare>} */ (s.$function).nullable.optional,
@@ -124,7 +124,7 @@ export function syncPlugin (opts = {}) {
       init: () => {
         return $syncPluginState.expect({
           ytype: null,
-          attributionManager: null,
+          renderer: null,
           attributionMapper: opts.mapAttributionToMark || defaultMapAttributionToMark,
           attributedNodes: opts.attributedNodes || defaultAttributedNodes,
           customCompare: opts.customCompare || null
@@ -135,7 +135,7 @@ export function syncPlugin (opts = {}) {
         if (!stateUpdate) {
           return prevPluginState
         }
-        return object.assign({}, prevPluginState, stateUpdate, stateUpdate.attributionManager == null ? { attributionManager: Y.noAttributionsManager } : {})
+        return object.assign({}, prevPluginState, stateUpdate, stateUpdate.renderer == null ? { renderer: Y.baseRenderer } : {})
       }
     },
     view () {
@@ -146,12 +146,12 @@ export function syncPlugin (opts = {}) {
        * @param {object} opts
        * @param {import('prosemirror-view').EditorView} opts.view
        * @param {Y.Type?} opts.ytype
-       * @param {Y.AbstractAttributionManager?} opts.attributionManager
+       * @param {Y.AbstractRenderer?} opts.renderer
        * @param {AttributionMapper} opts.attributionMapper
        * @param {AttributedNodesPredicate} opts.attributedNodes
        * @param {NodeCompare?} opts.customCompare
        */
-      function subscribeToYType ({ view, ytype, attributionManager, attributionMapper, attributedNodes, customCompare }) {
+      function subscribeToYType ({ view, ytype, renderer, attributionMapper, attributedNodes, customCompare }) {
         unsubscribeFn?.()
         if (ytype != null) {
           // Listen on the doc's `afterTransaction` event rather than
@@ -176,17 +176,16 @@ export function syncPlugin (opts = {}) {
             // dispatch in the same call.
             if (/** @type {any} */ (tr).origin === ySyncPluginKey.get(view.state)) return
             // Same pipeline as the PM->Y sync in `view().update`:
-            // render ytype through the AM, diff against the current PM doc,
+            // render ytype through the renderer, diff against the current PM doc,
             // apply only the difference. Using `change.getDelta` here
             // produced wrong/asymmetric output for some interleavings
             // (notably commits-to-base from one peer that touched suggestion
             // overlays from another), causing PM views to diverge from each
-            // other and from the canonical AM render. The full re-render is
+            // other and from the canonical renderer render. The full re-render is
             // more expensive per update but is the only diff target all
             // peers agree on.
-            const am = attributionManager || Y.noAttributionsManager
             const desiredPM = deltaAttributionToFormat(
-              ytype.toDeltaDeep(am),
+              ytype.toDeltaDeep({ renderer: renderer || Y.baseRenderer }),
               attributionMapper
             ).done()
             const pcontent = nodeToDelta(view.state.doc, undefined, true).done()
@@ -196,25 +195,25 @@ export function syncPlugin (opts = {}) {
             ptr.setMeta('addToHistory', false)
             ptr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
               change: null,
-              attributionManager,
+              renderer,
               attributionMapper,
               ytype
             }))
             view.dispatch(ptr)
           }
           ydoc.on('afterTransaction', onAfterTransaction)
-          const onAttrsChanged = attributionManager?.on('change', (_changes) => {
+          const onAttrsChanged = renderer?.on('change', (_changes) => {
             if (!view || view.isDestroyed) {
               return unsubscribeFn?.()
             }
             // Same pipeline as the PM->Y sync in `view().update`:
-            // render ytype through the AM, diff against the current PM doc,
+            // render ytype through the renderer, diff against the current PM doc,
             // apply only the difference. We give up the `itemsToRender`
             // targeted-rerender optimization in exchange for going through
             // the same path that the rest of the plugin uses, which keeps
             // the deltas shallow (only what actually changed).
             const desiredPM = deltaAttributionToFormat(
-              ytype.toDeltaDeep(attributionManager || Y.noAttributionsManager),
+              ytype.toDeltaDeep({ renderer: renderer || Y.baseRenderer }),
               attributionMapper
             ).done()
             const pcontent = nodeToDelta(view.state.doc, undefined, true).done()
@@ -225,7 +224,7 @@ export function syncPlugin (opts = {}) {
             // @todo stop updating meta on every transaction
             ptr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
               change: null, // @todo - remove this property
-              attributionManager,
+              renderer,
               attributionMapper,
               ytype
             }))
@@ -233,7 +232,7 @@ export function syncPlugin (opts = {}) {
           })
           unsubscribeFn = () => {
             ydoc.off('afterTransaction', onAfterTransaction)
-            onAttrsChanged && attributionManager?.off('change', onAttrsChanged)
+            onAttrsChanged && renderer?.off('change', onAttrsChanged)
             unsubscribeFn = null
           }
         }
@@ -243,18 +242,18 @@ export function syncPlugin (opts = {}) {
           const pluginState = $syncPluginState.cast(ySyncPluginKey.getState(view.state))
           const prevPluginState = ySyncPluginKey.getState(prevState)
           const ytype = pluginState.ytype
-          const attributionManager = pluginState.attributionManager
+          const renderer = pluginState.renderer
           const prevYtype = prevPluginState?.ytype
-          const prevAttributionManager = prevPluginState?.attributionManager
+          const prevRenderer = prevPluginState?.renderer
           const ytypeChanged = prevYtype !== ytype
-          const attributionManagerChanged = prevAttributionManager !== attributionManager
-          if (ytypeChanged || attributionManagerChanged) {
-            // Subscribe to the new ytype/attributionManager
+          const rendererChanged = prevRenderer !== renderer
+          if (ytypeChanged || rendererChanged) {
+            // Subscribe to the new ytype/renderer
             // (subscribeToYType will automatically unsubscribe from previous if needed)
             subscribeToYType({
               view,
               ytype,
-              attributionManager,
+              renderer,
               attributionMapper: pluginState.attributionMapper,
               attributedNodes: pluginState.attributedNodes,
               customCompare: pluginState.customCompare
@@ -266,28 +265,27 @@ export function syncPlugin (opts = {}) {
           // committed to the view, so speculative `state.apply` calls
           // do not write to Y. The Y `afterTransaction` observer
           // skips the write we make here via the origin check. The
-          // AM `change` handler may, however, dispatch its own
+          // renderer `change` handler may, however, dispatch its own
           // reconcile synchronously during `transact` - so we
           // re-read `pcontent` from `view.state.doc` after the write
           // before computing our own reconcile, otherwise we'd
           // apply the same insert twice.
-          const am = attributionManager || Y.noAttributionsManager
           const mapper = pluginState.attributionMapper
           const attributedNodes = pluginState.attributedNodes
           const customCompare = pluginState.customCompare
           const ycontent = deltaAttributionToFormat(
-            ytype.toDeltaDeep(am),
+            ytype.toDeltaDeep({ renderer: renderer || Y.baseRenderer }),
             mapper
           ).done()
           const pcontent = nodeToDelta(view.state.doc, undefined, true).done()
           const pmToYDiff = stripAttributionFormattingFromDelta(d.diff(ycontent, pcontent, { compare: customCompare ?? undefined }))
           if (!pmToYDiff.isEmpty()) {
             /** @type {Y.Doc} */ (ytype.doc).transact(() => {
-              ytype.applyDelta(pmToYDiff, am)
+              ytype.applyDelta(pmToYDiff, { renderer: renderer || Y.baseRenderer })
             }, ySyncPluginKey.get(view.state))
           }
           const desiredPM = deltaAttributionToFormat(
-            ytype.toDeltaDeep(am),
+            ytype.toDeltaDeep({ renderer: renderer || Y.baseRenderer }),
             mapper
           ).done()
           const pcontentAfter = nodeToDelta(view.state.doc, undefined, true).done()
@@ -298,7 +296,7 @@ export function syncPlugin (opts = {}) {
           tr.setMeta('addToHistory', false)
           tr.setMeta('y-sync-transaction', $syncPluginStateUpdate.expect({
             change: null,
-            attributionManager,
+            renderer,
             attributionMapper: mapper,
             ytype
           }))

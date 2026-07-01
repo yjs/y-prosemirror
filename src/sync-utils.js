@@ -98,7 +98,7 @@ export const attributedVariant = (canonicalName, format, attributedNodes, schema
  * each applicable mark independently rather than picking one. Absent kinds
  * are not added to the format object - the diff layer naturally produces a
  * format-remove when comparing PM content (where a stale mark is present)
- * against the freshly-rendered AM delta (where the key is absent).
+ * against the freshly-rendered renderer delta (where the key is absent).
  *
  * @template {import('lib0/delta').Attribution} T
  * @param {Record<string, unknown> | null} format
@@ -146,8 +146,24 @@ export const defaultMapAttributionToMark = (format, attribution) => {
 export const deltaAttributionToFormat = (d, attributionsToFormat) => {
   const r = delta.create(d.name, $prosemirrorDelta)
   for (const attr of d.attrs) {
-    // @ts-ignore
-    r.attrs[attr.key] = attr.clone()
+    // Drop attribution from attribute ops. ProseMirror has no model for
+    // per-attribute attribution (a node's attribution is carried by its
+    // `y-attributed-*` format marks), so `nodeToDelta` never reproduces it.
+    // Keeping it here makes the rendered delta differ from the PM-derived
+    // delta on every reconcile - the PM<->Y diff never reaches an empty
+    // fixpoint and `view().update`/`onAttrsChanged` loop forever (e.g. an
+    // inserted node whose attrs carry an empty `{ insert: [] }` attribution),
+    // eventually overflowing the stack inside `lib0/delta.diff`.
+    const key = /** @type {string} */ (attr.key)
+    if (delta.$setAttrOp.check(attr)) {
+      r.setAttr(key, attr.value, null, attr.prevValue)
+    } else if (delta.$deleteAttrOp.check(attr)) {
+      r.deleteAttr(key, null, attr.prevValue)
+    } else if (delta.$modifyAttrOp.check(attr)) {
+      r.modifyAttr(key, /** @type {any} */ (deltaAttributionToFormat(attr.value, attributionsToFormat)), null)
+    } else {
+      error.unexpectedCase()
+    }
   }
   for (const child of d.children) {
     if (delta.$deleteOp.check(child)) {
@@ -264,14 +280,14 @@ export const nodesToDelta = ns => {
  * @param {Node} node
  * @param {Y.Type} fragment
  * @param {Object} [opts]
- * @param {Y.AbstractAttributionManager} [opts.attributionManager]
+ * @param {Y.AbstractRenderer} [opts.renderer]
  * @returns {Y.Type}
  */
-export function pmToFragment (node, fragment, { attributionManager = Y.noAttributionsManager } = {}) {
+export function pmToFragment (node, fragment, { renderer = Y.baseRenderer } = {}) {
   // Canonicalize so the Y document never stores an attributed-variant name
   // (`--attributed` is a reserved suffix - identity when no variant is present).
   const initialPDelta = nodeToDelta(node, undefined, true).done()
-  fragment.applyDelta(initialPDelta, attributionManager)
+  fragment.applyDelta(initialPDelta, { renderer })
 
   return fragment
 }
@@ -281,18 +297,18 @@ export function pmToFragment (node, fragment, { attributionManager = Y.noAttribu
  * @param {Y.Type} fragment
  * @param {import('prosemirror-state').Transaction} tr
  * @param {object} ctx
- * @param {Y.AbstractAttributionManager} [ctx.attributionManager]
+ * @param {Y.AbstractRenderer} [ctx.renderer]
  * @param {typeof defaultMapAttributionToMark} [ctx.mapAttributionToMark]
  * @param {AttributedNodesPredicate} [ctx.attributedNodes]
  * @returns {import('prosemirror-state').Transaction}
  */
 export function fragmentToTr (fragment, tr, {
-  attributionManager = Y.noAttributionsManager,
+  renderer = Y.baseRenderer,
   mapAttributionToMark = defaultMapAttributionToMark,
   attributedNodes = defaultAttributedNodes
 } = {}) {
   const fragmentContent = deltaAttributionToFormat(
-    fragment.toDelta(attributionManager, { deep: true }),
+    fragment.toDelta({ renderer, deep: true }),
     mapAttributionToMark
   )
   const initialPDelta = nodeToDelta(tr.doc, undefined, true).done()
@@ -577,7 +593,7 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }, attribu
 /**
  * @param {ProsemirrorDelta} d
  * @param {import('prosemirror-model').Schema} schema
- * @param {delta.FormattingAttributes|null} dformat
+ * @param {delta.Formats|null} dformat
  * @param {AttributedNodesPredicate} [attributedNodes]
  * @return {Node}
  */

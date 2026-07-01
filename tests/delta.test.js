@@ -16,16 +16,16 @@ const schema = new Schema({
 
 /**
  * @param {Y.Type} ytype
- * @param {Y.AbstractAttributionManager} attributionManager
+ * @param {Y.AbstractRenderer} renderer
  */
-const createProsemirrorView = (ytype, attributionManager = Y.noAttributionsManager) => {
+const createProsemirrorView = (ytype, renderer = Y.baseRenderer) => {
   const view = new EditorView({ mount: document.createElement('div') }, {
     state: EditorState.create({
       schema,
       plugins: [YPM.syncPlugin()]
     })
   })
-  YPM.configureYProsemirror({ ytype, attributionManager })(view.state, view.dispatch)
+  YPM.configureYProsemirror({ ytype, renderer })(view.state, view.dispatch)
   return view
 }
 

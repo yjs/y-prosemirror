@@ -6,9 +6,9 @@
  * The suggestion-mode test suite revolves around a small set of recurring
  * shapes, captured here once:
  *
- *   - **`createPMView(ytype, am)`**: build a ProseMirror EditorView bound to a
+ *   - **`createPMView(ytype, renderer)`**: build a ProseMirror EditorView bound to a
  *     Y type via the y-prosemirror sync-plugin, optionally observed through an
- *     AttributionManager.
+ *     Renderer.
  *
  *   - **`setupTwoWaySync(docA, docB)`**: bridge two Y.Docs - initial state
  *     vector exchange + live `update` forwarding in both directions. Idempotent
@@ -16,13 +16,13 @@
  *
  *   - **`Cohort`**: a multi-user collaborative session. One shared `baseDoc`
  *     plus, for each non-`no-suggestions` user, a private suggestion `Y.Doc`
- *     that the user's AttributionManager bridges to base. Every suggestion
+ *     that the user's Renderer bridges to base. Every suggestion
  *     doc is chain-synced two-way (linear chain is enough; updates propagate
  *     transitively). Each user has a PM EditorView either on baseDoc directly
  *     (no-suggestions mode) or on their own suggDoc (view-/suggestion-mode).
  *
  *     The three modes:
- *       - `'no-suggestions'`   — edits commit to base directly, no AM.
+ *       - `'no-suggestions'`   — edits commit to base directly, no renderer.
  *       - `'view-suggestions'` — sees pending suggestions, own edits commit to base.
  *       - `'suggestion-mode'`  — sees pending suggestions, own edits stay as suggestions.
  *
@@ -56,29 +56,29 @@ const PM_KEY = 'prosemirror'
  * @property {number} idx
  * @property {UserMode} mode
  * @property {EditorView} view
- * @property {Y.AbstractAttributionManager} am
+ * @property {Y.AbstractRenderer} renderer
  * @property {Y.Doc | null} suggestionDoc
  */
 
 /**
  * Build a PM EditorView wired through the y-prosemirror sync-plugin to a Y
- * type and an AttributionManager.
+ * type and an Renderer.
  *
  * @param {Y.Type} ytype
- * @param {Y.AbstractAttributionManager} [attributionManager]
+ * @param {Y.AbstractRenderer} [renderer]
  * @param {Object} [opts]
  * @param {import('prosemirror-model').Schema} [opts.schema]
  * @param {typeof YPM.defaultMapAttributionToMark} [opts.mapAttributionToMark]
  * @returns {EditorView}
  */
-export const createPMView = (ytype, attributionManager = Y.noAttributionsManager, opts = {}) => {
+export const createPMView = (ytype, renderer = Y.baseRenderer, opts = {}) => {
   const s = opts.schema || defaultSchema
   const plugin = YPM.syncPlugin(opts.mapAttributionToMark ? { mapAttributionToMark: opts.mapAttributionToMark } : {})
   const view = new EditorView(
     { mount: document.createElement('div') },
     { state: EditorState.create({ schema: s, plugins: [plugin] }) }
   )
-  YPM.configureYProsemirror({ ytype, attributionManager })(view.state, view.dispatch)
+  YPM.configureYProsemirror({ ytype, renderer })(view.state, view.dispatch)
   return view
 }
 
@@ -166,12 +166,12 @@ export const normalizeDoc = (node) => {
  * chain-synced suggestion Y.Doc per suggestion-aware user.
  *
  *   baseDoc                                  (shared Y state)
- *     ↑↓ via AttributionManager bridge
+ *     ↑↓ via Renderer bridge
  *   user[i].suggestionDoc                    (per user, only if mode != 'no-suggestions')
  *     ↔ user[i+1].suggestionDoc              (chain-synced; propagates transitively)
  *
  * A 'no-suggestions' user has `suggestionDoc = null` and the editor view binds
- * directly to `baseDoc`. Otherwise the user's AM bridges base↔suggestion and
+ * directly to `baseDoc`. Otherwise the user's renderer bridges base↔suggestion and
  * the view binds to the suggestion doc.
  */
 export class Cohort {
@@ -214,26 +214,26 @@ export class Cohort {
         idx,
         mode,
         suggestionDoc: null,
-        am: Y.noAttributionsManager,
-        view: createPMView(this.baseDoc.get(PM_KEY), Y.noAttributionsManager, this.opts)
+        renderer: Y.baseRenderer,
+        view: createPMView(this.baseDoc.get(PM_KEY), Y.baseRenderer, this.opts)
       }
     }
     const suggestionDoc = new Y.Doc({ isSuggestionDoc: true, gc: false, guid: `sugg-${idx}` })
     suggestionDoc.clientID = idx + 1
-    const am = Y.createAttributionManagerFromDiff(this.baseDoc, suggestionDoc, { attrs: this.attrs })
-    am.suggestionMode = mode === 'suggestion-mode'
+    const renderer = Y.createDiffRenderer(this.baseDoc, suggestionDoc, { attrs: this.attrs })
+    renderer.suggestionMode = mode === 'suggestion-mode'
     return {
       idx,
       mode,
       suggestionDoc,
-      am,
-      view: createPMView(suggestionDoc.get(PM_KEY), am, this.opts)
+      renderer,
+      view: createPMView(suggestionDoc.get(PM_KEY), renderer, this.opts)
     }
   }
 
   /**
    * Insert a single paragraph with the given text into the base doc. All peers
-   * receive it through their AM bridge / chain-sync.
+   * receive it through their renderer bridge / chain-sync.
    *
    * @param {string} text
    */
@@ -266,7 +266,7 @@ export class Cohort {
   destroy () {
     for (const u of this.users) {
       u.view.destroy()
-      u.am?.destroy?.()
+      u.renderer?.destroy?.()
     }
   }
 }

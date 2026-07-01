@@ -24,7 +24,7 @@ const getRelativeSelectionBookmark = (state) => {
   const syncState = ySyncPluginKey.getState(state)
   if (!syncState?.ytype || syncState.ytype.length === 0) return null
   const { captureMapping, restoreMapping } = relativePositionStoreMapping(syncState.ytype)
-  const mappable = captureMapping(state.doc, syncState.attributionManager, true)
+  const mappable = captureMapping(state.doc, syncState.renderer, true)
   const bookmark = state.selection.getBookmark().map(mappable)
   return { bookmark, restoreMapping }
 }
@@ -140,7 +140,7 @@ const createStackHandlers = (view, getLatestPrevSel) => {
       if (!syncState?.ytype) return
       try {
         const restoredBookmark = sel.bookmark.map(
-          sel.restoreMapping(syncState.ytype, view.state.doc, syncState.attributionManager)
+          sel.restoreMapping(syncState.ytype, view.state.doc, syncState.renderer)
         )
         const selection = restoredBookmark.resolve(view.state.doc)
         const tr = view.state.tr.setSelection(selection)

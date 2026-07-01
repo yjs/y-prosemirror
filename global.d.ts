@@ -1,6 +1,6 @@
 
 declare type YType = import('@y/y').Type
-declare type AttributionManager = import('@y/y').AbstractAttributionManager
+declare type Renderer = import('@y/y').AbstractRenderer
 declare type EditorState = import('prosemirror-state').EditorState
 declare type Transaction = import('prosemirror-state').Transaction
 declare type EditorView = import('prosemirror-view').EditorView

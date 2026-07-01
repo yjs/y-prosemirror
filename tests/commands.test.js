@@ -25,8 +25,8 @@ const assertDocJSON = (doc, expected, message) => {
 /**
  * Build the standard 3-doc suggestion setup used by every command test.
  *
- *   baseDoc  <-- committedAM (view-suggestions) -->  suggestionDoc
- *   baseDoc  <-- suggestionModeAM (suggestion-mode) -->  suggestionModeDoc
+ *   baseDoc  <-- committedRenderer (view-suggestions) -->  suggestionDoc
+ *   baseDoc  <-- suggestionModeRenderer (suggestion-mode) -->  suggestionModeDoc
  *   suggestionDoc  <->  suggestionModeDoc  (two-way sync)
  *
  * @param {string} baseContent — initial paragraph text
@@ -37,17 +37,17 @@ const setup = (baseContent) => {
   const suggestionModeDoc = new Y.Doc({ isSuggestionDoc: true, gc: false, guid: 'suggestions-edit' })
 
   const attrs = new Y.Attributions()
-  const suggestionAM = Y.createAttributionManagerFromDiff(doc, suggestionDoc, { attrs })
-  suggestionAM.suggestionMode = false
+  const suggestionRenderer = Y.createDiffRenderer(doc, suggestionDoc, { attrs })
+  suggestionRenderer.suggestionMode = false
 
-  const suggestionModeAM = Y.createAttributionManagerFromDiff(doc, suggestionModeDoc, { attrs })
-  suggestionModeAM.suggestionMode = true
+  const suggestionModeRenderer = Y.createDiffRenderer(doc, suggestionModeDoc, { attrs })
+  suggestionModeRenderer.suggestionMode = true
 
   setupTwoWaySync(suggestionDoc, suggestionModeDoc)
 
   const base = createPMView(doc.get('prosemirror'))
-  const viewer = createPMView(suggestionDoc.get('prosemirror'), suggestionAM)
-  const editor = createPMView(suggestionModeDoc.get('prosemirror'), suggestionModeAM)
+  const viewer = createPMView(suggestionDoc.get('prosemirror'), suggestionRenderer)
+  const editor = createPMView(suggestionModeDoc.get('prosemirror'), suggestionModeRenderer)
 
   doc.get('prosemirror').applyDelta(
     delta.create().insert([delta.create('paragraph', {}, baseContent)]).done()
@@ -59,9 +59,9 @@ const setup = (baseContent) => {
 // === Tests ===
 
 /**
- * Guard: all four commands return false when no DiffAttributionManager is present.
+ * Guard: all four commands return false when no DiffRenderer is present.
  */
-export const testCommandsReturnFalseWithoutDiffAM = () => {
+export const testCommandsReturnFalseWithoutDiffRenderer = () => {
   const doc = new Y.Doc({ gc: false, guid: 'plain' })
   doc.get('prosemirror').applyDelta(
     delta.create().insert([delta.create('paragraph', {}, 'hello')]).done()

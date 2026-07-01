@@ -42,7 +42,7 @@ elemToggleConnect.checked && providerYdoc.connectBc()
 const suggestionDoc = new Y.Doc({ gc: false, isSuggestionDoc: true })
 const providerYdocSuggestions = new WebsocketProvider('wss://demos.yjs.dev/ws', roomName + '--suggestions', suggestionDoc, { connect: false })
 elemToggleConnect.checked && providerYdocSuggestions.connectBc()
-const am = /** @type {any} */ (Y).createAttributionManagerFromDiff(ydoc, suggestionDoc, { attrs: [Y.createContentAttribute('insert', ['nickthesick'])] })
+const renderer = /** @type {any} */ (Y).createAttributionManagerFromDiff(ydoc, suggestionDoc, { attrs: [Y.createContentAttribute('insert', ['nickthesick'])] })
 
 const yxmlFragment = ydoc.get()
 
@@ -100,13 +100,13 @@ const initLiveEditor = () => {
   if (mode === 'off') {
     configureYProsemirror({
       ytype: yxmlFragment,
-      attributionManager: null
+      renderer: null
     })(currentView.state, currentView.dispatch)
   } else {
-    am.suggestionMode = mode === 'edit'
+    renderer.suggestionMode = mode === 'edit'
     configureYProsemirror({
       ytype: suggestionDoc.get(),
-      attributionManager: am
+      renderer
     })(currentView.state, currentView.dispatch)
   }
   updateSuggestionButtons()
@@ -132,13 +132,13 @@ elemSelectSuggestionMode.addEventListener('change', () => {
   if (mode === 'off') { // normal mode
     configureYProsemirror({
       ytype: yxmlFragment,
-      attributionManager: null
+      renderer: null
     })(currentView.state, currentView.dispatch)
   } else { // suggestion mode - render suggestion doc with attributions
-    am.suggestionMode = mode === 'edit'
+    renderer.suggestionMode = mode === 'edit'
     configureYProsemirror({
       ytype: suggestionDoc.get(),
-      attributionManager: am
+      renderer
     })(currentView.state, currentView.dispatch)
   }
   previousMode = mode

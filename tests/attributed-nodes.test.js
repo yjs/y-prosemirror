@@ -83,29 +83,29 @@ const setup = (attributedNodes, baseContent, seedDelta = delta.create().insert([
   const suggestionModeDoc = new Y.Doc({ isSuggestionDoc: true, gc: false, guid: 'suggestions-edit' })
 
   const attrs = new Y.Attributions()
-  const suggestionAM = Y.createAttributionManagerFromDiff(doc, suggestionDoc, { attrs })
-  suggestionAM.suggestionMode = false
-  const suggestionModeAM = Y.createAttributionManagerFromDiff(doc, suggestionModeDoc, { attrs })
-  suggestionModeAM.suggestionMode = true
+  const suggestionRenderer = Y.createDiffRenderer(doc, suggestionDoc, { attrs })
+  suggestionRenderer.suggestionMode = false
+  const suggestionModeRenderer = Y.createDiffRenderer(doc, suggestionModeDoc, { attrs })
+  suggestionModeRenderer.suggestionMode = true
 
   setupTwoWaySync(suggestionDoc, suggestionModeDoc)
 
   /**
    * @param {Y.Type} ytype
-   * @param {Y.AbstractAttributionManager} [am]
+   * @param {Y.AbstractRenderer} [renderer]
    */
-  const mkView = (ytype, am = Y.noAttributionsManager) => {
+  const mkView = (ytype, renderer = Y.baseRenderer) => {
     const view = new EditorView(
       { mount: document.createElement('div') },
       { state: EditorState.create({ schema, plugins: [YPM.syncPlugin({ attributedNodes })] }) }
     )
-    YPM.configureYProsemirror({ ytype, attributionManager: am })(view.state, view.dispatch)
+    YPM.configureYProsemirror({ ytype, renderer })(view.state, view.dispatch)
     return view
   }
 
   const base = mkView(doc.get('prosemirror'))
-  const viewer = mkView(suggestionDoc.get('prosemirror'), suggestionAM)
-  const editor = mkView(suggestionModeDoc.get('prosemirror'), suggestionModeAM)
+  const viewer = mkView(suggestionDoc.get('prosemirror'), suggestionRenderer)
+  const editor = mkView(suggestionModeDoc.get('prosemirror'), suggestionModeRenderer)
 
   doc.get('prosemirror').applyDelta(
     seedDelta
@@ -238,7 +238,7 @@ export const testYStoresCanonicalName = _tc => {
   ))
 
   const yjson = JSON.stringify(
-    suggestionModeDoc.get('prosemirror').toDelta(Y.noAttributionsManager, { deep: true }).toJSON()
+    suggestionModeDoc.get('prosemirror').toDelta({ renderer: Y.baseRenderer, deep: true }).toJSON()
   )
   t.assert(yjson.includes('paragraph'), 'sanity: Y delta mentions the paragraph node')
   t.assert(!yjson.includes('--attributed'), 'Y never stores the attributed-variant name')
