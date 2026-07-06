@@ -1,7 +1,10 @@
 import * as t from 'lib0/testing'
 import * as Y from '@y/y'
 import * as delta from 'lib0/delta'
+import { Schema } from 'prosemirror-model'
 import { YSyncRdt } from '../src/rdt/y-sync.js'
+import { createPMView, setupTwoWaySync, normalizeDoc, stableStringify } from './cohort.js'
+import { schema as complexSchema } from './complexSchema.js'
 
 /**
  * Unit tests for the two-mode `YSyncRdt` (see its module doc): steady state
@@ -153,4 +156,59 @@ export const testYSyncRdtMergedTransactionNoDoubleApply = _tc => {
   t.assert(rdt._stateOverride === null, 'settled after the drain')
   t.assert(state.equals(ytype.toDelta({ deep: true })), 'state equals a fresh render')
   t.assert(JSON.stringify(state.toJSON()).includes('"ours"'), 'the write itself landed in the ytype')
+}
+
+/**
+ * The complex schema with the doc constrained to exactly one blockquote, so a
+ * fresh editor can never be empty — PM auto-fills `doc > blockquote >
+ * paragraph`, which the initial bind writes back into an empty ytype as a
+ * schema-normalization fix.
+ */
+const requiredBlockquoteSchema = new Schema({
+  nodes: complexSchema.spec.nodes.update('doc', {
+    .../** @type {any} */ (complexSchema.spec.nodes.get('doc')),
+    content: 'blockquote'
+  }),
+  marks: complexSchema.spec.marks
+})
+
+/**
+ * Initialization race: two clients each bind a fresh editor to their own
+ * (empty) Y.Doc before ever syncing. Each binding independently pushes the
+ * schema-mandated default content (one blockquote) into its ydoc; merging the
+ * two docs must not duplicate it. Desired behavior: after sync, exactly one
+ * blockquote survives and both editors converge on a schema-valid doc.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testInitRaceWithRequiredDocContent = _tc => {
+  const ydoc1 = new Y.Doc({ gc: false })
+  ydoc1.clientID = 1
+  const ydoc2 = new Y.Doc({ gc: false })
+  ydoc2.clientID = 2
+  // bind both editors while the docs are still offline from each other
+  const view1 = createPMView(ydoc1.get('prosemirror'), Y.baseRenderer, { schema: requiredBlockquoteSchema })
+  const view2 = createPMView(ydoc2.get('prosemirror'), Y.baseRenderer, { schema: requiredBlockquoteSchema })
+  try {
+    // sanity: each binding wrote its schema-default content into its own ydoc
+    t.assert(ydoc1.get('prosemirror').length === 1, 'client 1 initialized its ytype with one blockquote')
+    t.assert(ydoc2.get('prosemirror').length === 1, 'client 2 initialized its ytype with one blockquote')
+    // the clients connect and merge their histories
+    setupTwoWaySync(ydoc1, ydoc2)
+    // desired behavior: the schema-mandated default content is not duplicated
+    t.assert(
+      ydoc1.get('prosemirror').length === 1,
+      `merged ytype has exactly one top-level blockquote (got ${ydoc1.get('prosemirror').length})`
+    )
+    view1.state.doc.check()
+    view2.state.doc.check()
+    t.compare(
+      stableStringify(normalizeDoc(view1.state.doc.toJSON())),
+      stableStringify(normalizeDoc(view2.state.doc.toJSON())),
+      'both editors converge on the same doc'
+    )
+  } finally {
+    view1.destroy()
+    view2.destroy()
+  }
 }
