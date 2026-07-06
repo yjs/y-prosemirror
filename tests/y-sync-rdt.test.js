@@ -166,7 +166,7 @@ export const testYSyncRdtMergedTransactionNoDoubleApply = _tc => {
  */
 const requiredBlockquoteSchema = new Schema({
   nodes: complexSchema.spec.nodes.update('doc', {
-    .../** @type {any} */ (complexSchema.spec.nodes.get('doc')),
+    ...(complexSchema.spec.nodes.get('doc')),
     content: 'blockquote'
   }),
   marks: complexSchema.spec.marks
