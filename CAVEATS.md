@@ -11,6 +11,19 @@ A handful of goals and constraints inform everything below:
 - **Direct Yjs manipulation.** Nice to have: humans and LLMs should be able to edit the Yjs document directly (outside the editor) and have those edits reflected correctly in ProseMirror.
 - **Migration compatibility.** We want a migration path - ideally transparent - for existing `y-prosemirror` users.
 
+## Initial content: the ytype is always the source of truth
+
+When the binding is set up, the Y document wins. Whatever the ProseMirror state contains at bind time is **not** imported into Yjs — the binding renders the ytype into the editor, replacing any pre-existing editor content. Only edits made *while the binding is active* are content that we sync. This is deliberate: importing editor state at bind time would make every client that opens a pre-populated editor a competing writer of the "same" initial content, and merging those writes duplicates it.
+
+To give a document initial content, write it into the Y document instead — server-side, or locally before binding (e.g. via `pmToFragment`), or through any Yjs update. The binding then renders it into the editor.
+
+One refinement to "the ytype wins": a fresh editor is never truly empty, because ProseMirror always materializes the schema's `createAndFill()` default (e.g. `doc > paragraph`, or `doc > blockquote > paragraph` for a schema that requires a blockquote). Rendering an *empty* ytype into such an editor would let the schema refill the default skeleton, and writing that refill back to Yjs would reintroduce exactly the duplication problem above — every fresh client would seed its own copy (the "init race"). The binding therefore **gates** the schema-default document: while the ytype has no children and the editor content fingerprints equal to the schema default, nothing is written to Yjs and the skeleton stays a local-only rendering. The gate opens on the first real content from either side — a local edit syncs the full document (including the skeleton it grew from) as the first write, and incoming remote content replaces the skeleton wholesale. See "Initial-content gate" in `src/rdt/prosemirror.js`.
+
+**Integrator requirements:**
+
+1. Do not pass initial content to the editor and expect it to reach Yjs — seed the ydoc instead.
+2. An editor bound to an empty ytype shows the schema-default document; that skeleton is not synced until someone edits.
+
 ## Compatibility with older `y-prosemirror`
 
 The new binding is not yet update-compatible with documents produced by the old `y-prosemirror`:

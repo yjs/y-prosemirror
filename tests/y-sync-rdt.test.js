@@ -161,8 +161,8 @@ export const testYSyncRdtMergedTransactionNoDoubleApply = _tc => {
 /**
  * The complex schema with the doc constrained to exactly one blockquote, so a
  * fresh editor can never be empty — PM auto-fills `doc > blockquote >
- * paragraph`, which the initial bind writes back into an empty ytype as a
- * schema-normalization fix.
+ * paragraph`. The initial-content gate (see {@link ProsemirrorRdt}) must keep
+ * that schema-default skeleton out of an empty ytype.
  */
 const requiredBlockquoteSchema = new Schema({
   nodes: complexSchema.spec.nodes.update('doc', {
@@ -174,10 +174,11 @@ const requiredBlockquoteSchema = new Schema({
 
 /**
  * Initialization race: two clients each bind a fresh editor to their own
- * (empty) Y.Doc before ever syncing. Each binding independently pushes the
- * schema-mandated default content (one blockquote) into its ydoc; merging the
- * two docs must not duplicate it. Desired behavior: after sync, exactly one
- * blockquote survives and both editors converge on a schema-valid doc.
+ * (empty) Y.Doc before ever syncing. Neither binding may push the
+ * schema-mandated default content (one blockquote) into its ydoc — otherwise
+ * merging duplicates it into a schema-invalid doc. The gated skeleton stays
+ * local until a real edit on one client seeds Y exactly once; the other
+ * client's first render replaces its own skeleton with the synced content.
  *
  * @param {t.TestCase} _tc
  */
@@ -190,15 +191,80 @@ export const testInitRaceWithRequiredDocContent = _tc => {
   const view1 = createPMView(ydoc1.get('prosemirror'), Y.baseRenderer, { schema: requiredBlockquoteSchema })
   const view2 = createPMView(ydoc2.get('prosemirror'), Y.baseRenderer, { schema: requiredBlockquoteSchema })
   try {
-    // sanity: each binding wrote its schema-default content into its own ydoc
-    t.assert(ydoc1.get('prosemirror').length === 1, 'client 1 initialized its ytype with one blockquote')
-    t.assert(ydoc2.get('prosemirror').length === 1, 'client 2 initialized its ytype with one blockquote')
-    // the clients connect and merge their histories
+    // the schema-default content is gated — nothing is written at bind time
+    // (this also pins that the binding's initial sync diffs empty vs empty)
+    t.assert(ydoc1.get('prosemirror').length === 0, 'client 1 wrote nothing at bind time')
+    t.assert(ydoc2.get('prosemirror').length === 0, 'client 2 wrote nothing at bind time')
+    // the clients connect and merge their (empty) histories
     setupTwoWaySync(ydoc1, ydoc2)
-    // desired behavior: the schema-mandated default content is not duplicated
+    t.assert(ydoc1.get('prosemirror').length === 0, 'two empty docs merge to an empty doc')
+    view1.state.doc.check()
+    view2.state.doc.check()
+    t.compare(
+      stableStringify(normalizeDoc(view1.state.doc.toJSON())),
+      stableStringify(normalizeDoc(view2.state.doc.toJSON())),
+      'both editors show the schema-default doc'
+    )
+    // a real edit on client 1 opens the gate: its full content seeds ydoc1
+    // exactly once and syncs over; client 2's first render replaces its own
+    // gated skeleton instead of merging next to it
+    view1.dispatch(view1.state.tr.insertText('hello', 2)) // pos 2 = start of the default paragraph
     t.assert(
       ydoc1.get('prosemirror').length === 1,
-      `merged ytype has exactly one top-level blockquote (got ${ydoc1.get('prosemirror').length})`
+      `client 1 seeded exactly one top-level blockquote (got ${ydoc1.get('prosemirror').length})`
+    )
+    t.assert(
+      ydoc2.get('prosemirror').length === 1,
+      `client 2 converged on exactly one top-level blockquote (got ${ydoc2.get('prosemirror').length})`
+    )
+    view1.state.doc.check()
+    view2.state.doc.check()
+    t.assert(JSON.stringify(view2.state.doc.toJSON()).includes('hello'), 'the edit reached client 2')
+    t.compare(
+      stableStringify(normalizeDoc(view1.state.doc.toJSON())),
+      stableStringify(normalizeDoc(view2.state.doc.toJSON())),
+      'both editors converge on the same doc'
+    )
+  } finally {
+    view1.destroy()
+    view2.destroy()
+  }
+}
+
+/**
+ * The complex schema with `doc > paragraph+`: the default doc is one empty
+ * paragraph, and — unlike `requiredBlockquoteSchema` — a remote paragraph can
+ * *legally* land next to it, so this pins that the gated first render
+ * replaces the skeleton wholesale instead of applying incremental steps
+ * (which would keep the stale empty paragraph and leak it into Y as a fix).
+ */
+const requiredParagraphSchema = new Schema({
+  nodes: complexSchema.spec.nodes.update('doc', {
+    ...(complexSchema.spec.nodes.get('doc')),
+    content: 'paragraph+'
+  }),
+  marks: complexSchema.spec.marks
+})
+
+/**
+ * @param {t.TestCase} _tc
+ */
+export const testInitRaceFirstRenderReplacesGatedSkeleton = _tc => {
+  const ydoc1 = new Y.Doc({ gc: false })
+  ydoc1.clientID = 1
+  const ydoc2 = new Y.Doc({ gc: false })
+  ydoc2.clientID = 2
+  const view1 = createPMView(ydoc1.get('prosemirror'), Y.baseRenderer, { schema: requiredParagraphSchema })
+  const view2 = createPMView(ydoc2.get('prosemirror'), Y.baseRenderer, { schema: requiredParagraphSchema })
+  try {
+    t.assert(ydoc1.get('prosemirror').length === 0, 'client 1 wrote nothing at bind time')
+    t.assert(ydoc2.get('prosemirror').length === 0, 'client 2 wrote nothing at bind time')
+    setupTwoWaySync(ydoc1, ydoc2)
+    view1.dispatch(view1.state.tr.insertText('hi', 1)) // pos 1 = start of the default paragraph
+    t.assert(ydoc1.get('prosemirror').length === 1, 'client 1 seeded exactly one paragraph')
+    t.assert(
+      ydoc2.get('prosemirror').length === 1,
+      `client 2 must not leak its skeleton paragraph next to the synced one (got ${ydoc2.get('prosemirror').length})`
     )
     view1.state.doc.check()
     view2.state.doc.check()

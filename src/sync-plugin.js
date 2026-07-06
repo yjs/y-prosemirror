@@ -136,6 +136,9 @@ export function syncPlugin (opts = {}) {
           view,
           attributedNodes: pluginState.attributedNodes,
           compare,
+          // an empty ytype must not receive the editor's schema-default
+          // content — see "Initial-content gate" in ProsemirrorRdt's doc
+          gateInitialContent: ytype.length === 0,
           getMeta: () => $syncPluginStateUpdate.expect({
             change: null,
             renderer: pluginState.renderer,

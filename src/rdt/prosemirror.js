@@ -11,6 +11,21 @@ import {
 const Y_PREFIX = 'y-attributed-'
 
 /**
+ * The gated initial `_state` (see "Initial-content gate" in
+ * {@link ProsemirrorRdt}): the document's root shell with no children — the
+ * same shape {@link nodeToDelta} produces for a childless doc, so it diffs
+ * empty against the binding's projection of an empty ytype.
+ *
+ * @param {import('prosemirror-model').Node} doc
+ * @return {ProsemirrorDelta}
+ */
+const emptyDocState = doc => {
+  const d = delta.create(doc.type.name, $prosemirrorDelta)
+  d.setAttrs(doc.attrs)
+  return /** @type {ProsemirrorDelta} */ (d.done(false))
+}
+
+/**
  * @param {Record<string, any> | null | undefined} format
  */
 const touchesAttributionSpace = format => {
@@ -46,6 +61,35 @@ const touchesAttributionSpace = format => {
  * transaction before emitting (the Y side re-attributes the emitted content
  * and sends the resulting marks back as a fix).
  *
+ * ## Initial-content gate (`gateInitialContent`)
+ *
+ * A fresh editor is never truly empty: the schema's `createAndFill()` default
+ * (e.g. `doc > blockquote > paragraph` for a `doc{blockquote}` schema) is
+ * always materialized. Binding that default to an *empty* ytype must not write
+ * it into Y — every fresh client would seed its own copy and merging two such
+ * docs duplicates the content (the init race). When the sync plugin signals
+ * that the ytype has no children and the document fingerprints equal to the
+ * schema default, `_state` starts as the **empty** delta instead of a document
+ * snapshot, with {@link ProsemirrorRdt#_defaultFingerprint} set. The
+ * binding's initial sync then diffs empty against empty — nothing is rendered
+ * or written — while the schema-default skeleton stays visible in the editor,
+ * invisible to the sync layer, until either side produces real content:
+ *
+ * - a local edit diverges the doc from the default fingerprint → `pull` emits
+ *   `diff(empty, doc)`, one full-content insert that validly seeds the empty
+ *   ytype through the normal pipeline;
+ * - a foreign delta arrives → `applyDelta` force-renders the whole document
+ *   from `expected` (never incremental steps, which could keep the stale
+ *   skeleton next to the foreign content and leak it into Y via the fix).
+ *
+ * The first render in either direction clears the gate; from then on the RDT
+ * behaves exactly as usual.
+ *
+ * Note that the gate is the only concession to editor-held content: the ytype
+ * is always the source of truth at bind time, and pre-existing editor content
+ * is intentionally NOT imported into Yjs — only edits made during an active
+ * binding are synced (see CAVEATS.md, "Initial content").
+ *
  * @extends {ObservableV2<{ delta: (d: ProsemirrorDelta, origin: any) => void, destroy: (rdt: ProsemirrorRdt) => void }>}
  */
 export class ProsemirrorRdt extends ObservableV2 {
@@ -56,18 +100,32 @@ export class ProsemirrorRdt extends ObservableV2 {
    * @param {NodeCompare?} [opts.compare] forwarded to every `delta.diff`
    * @param {() => any} opts.getMeta value for the `y-sync-transaction` meta on
    *   every transaction this RDT dispatches
+   * @param {boolean} [opts.gateInitialContent] the counterpart ytype has no
+   *   children — gate the schema-default document instead of treating it as
+   *   content (see "Initial-content gate" in the class doc)
    */
-  constructor ({ view, attributedNodes = defaultAttributedNodes, compare = null, getMeta }) {
+  constructor ({ view, attributedNodes = defaultAttributedNodes, compare = null, getMeta, gateInitialContent = false }) {
     super()
     this.view = view
     this.attributedNodes = attributedNodes
     this.compare = compare ?? undefined
     this.getMeta = getMeta
     this.$delta = $prosemirrorDelta
+    const snapshot = nodeToDelta(view.state.doc, undefined, true)
+    const dflt = gateInitialContent ? view.state.doc.type.createAndFill() : null
+    const dfltFingerprint = dflt != null ? nodeToDelta(dflt, undefined, true).fingerprint : null
+    /**
+     * Non-null while the initial content is gated (see class doc): the
+     * fingerprint of the schema-default document, which `pull` must not emit.
+     * The first render in either direction resets this to `null`.
+     *
+     * @type {string?}
+     */
+    this._defaultFingerprint = dfltFingerprint != null && snapshot.fingerprint === dfltFingerprint ? dfltFingerprint : null
     /**
      * @type {ProsemirrorDelta}
      */
-    this._state = nodeToDelta(view.state.doc, undefined, true)
+    this._state = this._defaultFingerprint != null ? emptyDocState(view.state.doc) : snapshot
     this._applying = false
     /**
      * Set when a dispatch was filtered away (e.g. a readonly mode's
@@ -148,6 +206,13 @@ export class ProsemirrorRdt extends ObservableV2 {
   pull () {
     if (!this._recover()) return
     let next = nodeToDelta(this.view.state.doc, undefined, true)
+    if (this._defaultFingerprint != null) {
+      // initial-content gate: while the doc still equals the schema default,
+      // the skeleton must not leak into Y — not even via a transaction that
+      // changed the doc and changed it back (see class doc)
+      if (next.fingerprint === this._defaultFingerprint) return
+      this._defaultFingerprint = null
+    }
     let change = delta.diff(/** @type {any} */ (this._state), /** @type {any} */ (next), { compare: this.compare })
     if (change.isEmpty()) return
     const correction = buildAttributionCorrection(change, this._state)
@@ -192,18 +257,29 @@ export class ProsemirrorRdt extends ObservableV2 {
       // The view cannot be written to right now (dispatches are filtered).
       // Track the projection so subsequent deltas keep applying in the right
       // coordinate space; the document catches up once dispatches land again.
+      this._defaultFingerprint = null
       this._state = /** @type {ProsemirrorDelta} */ (expected.done(false))
       return null
     }
     /** @type {import('prosemirror-state').Transaction} */
     let tr
-    try {
-      tr = deltaToPSteps(this.view.state.tr, /** @type {any} */ (d), undefined, undefined, this.attributedNodes)
-    } catch (_err) {
-      // Raw steps could not express the change against the schema — replace
-      // the whole document through ProseMirror's fitting `replaceWith`.
+    if (this._defaultFingerprint != null) {
+      // initial-content gate: the first render replaces the gated
+      // schema-default skeleton wholesale. Raw steps must not run here — a
+      // schema that permits it would fit the foreign content *next to* the
+      // skeleton, and the fix below would write the skeleton into Y.
+      this._defaultFingerprint = null
       tr = this.view.state.tr
       tr.replaceWith(0, tr.doc.content.size, deltaToPNode(/** @type {any} */ (expected), tr.doc.type.schema, null, this.attributedNodes))
+    } else {
+      try {
+        tr = deltaToPSteps(this.view.state.tr, /** @type {any} */ (d), undefined, undefined, this.attributedNodes)
+      } catch (_err) {
+        // Raw steps could not express the change against the schema — replace
+        // the whole document through ProseMirror's fitting `replaceWith`.
+        tr = this.view.state.tr
+        tr.replaceWith(0, tr.doc.content.size, deltaToPNode(/** @type {any} */ (expected), tr.doc.type.schema, null, this.attributedNodes))
+      }
     }
     if (tr.docChanged && !this._dispatch(tr)) {
       this._state = /** @type {ProsemirrorDelta} */ (expected.done(false))
