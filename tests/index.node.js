@@ -14,6 +14,7 @@ import * as undo from './undo.test.js'
 import * as commands from './commands.test.js'
 import * as overlappingMarks from './overlapping-marks.test.js'
 import * as customCompare from './custom-compare.test.js'
+import * as ySyncRdt from './y-sync-rdt.test.js'
 // import * as tr from './tr.test.js'
 
 import { runTests } from 'lib0/testing'
@@ -65,7 +66,8 @@ runTests({
   undo,
   commands,
   overlappingMarks,
-  customCompare
+  customCompare,
+  ySyncRdt
   // prosemirror,
   // tr
 }).then(success => {

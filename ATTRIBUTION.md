@@ -9,27 +9,28 @@ In both cases the underlying primitive is the same. Every op produced by Yjs's `
 
 ## How attribution flows through the binding
 
-The Y to PM direction looks like this:
+The binding syncs the two sides through a transformer pipeline (see
+[`ARCHITECTURE.md`](./ARCHITECTURE.md)). The Y to PM direction looks like this:
 
 ```
-Y.Doc + Renderer
+Y.Doc + Renderer  (YSyncRdt)
    |
-   |  ytype.toDeltaDeep(am)
+   |  change delta - each op may carry an `attribution` field
    v
-delta where each op may carry an `attribution` field
+renderedAttributions            - expands to the complete accumulated attribution
    |
-   |  deltaAttributionToFormat(delta, mapAttributionToMark)
+attributionToFormat(conf)       - conf derived from mapAttributionToMark
    v
 delta whose `format` carries y-attributed-* marks
    |
-   |  deltaToPSteps + view.dispatch
+   |  deltaToPSteps + view.dispatch   (ProsemirrorRdt)
    v
 EditorView
 ```
 
-The PM to Y direction is the same pipeline with one extra step: we strip `y-attributed-*` from the reconcile diff before applying it to the Y type. Attribution marks are presentation, not content. They must never round-trip into the CRDT, otherwise the next render would double-apply them.
+The PM to Y direction runs the same pipeline in reverse; the `attributionToFormat` stage strips every `y-attributed-*` key before a change reaches the Y type. Attribution marks are presentation, not content. They must never round-trip into the CRDT, otherwise the next render would double-apply them.
 
-This bidirectional flow has an important consequence: the marks the binding writes into PM (in the Y to PM pass) must match what the binding reads back from PM (in the PM to Y pass), otherwise the diff is non-empty on every pass and the sync plugin fires reconcile transactions in a loop. See "Stability is mandatory" below.
+This bidirectional flow has an important consequence: the marks the binding writes into PM (in the Y to PM pass) must match what the binding reads back from PM (in the PM to Y pass), otherwise every apply produces a spurious fix that has to bounce between the two sides. See "Stability is mandatory" below.
 
 ## Setting up the schema
 
@@ -129,13 +130,19 @@ The mapper sets one or more of the three `y-attributed-*` keys on `format` and r
 
 ### Stability is mandatory
 
-The sync plugin runs this loop after every transaction:
+For every change the binding applies to the view, `ProsemirrorRdt` compares the state it
+expected (`old state + change`) against what the document actually contains after the
+dispatch (`marksToFormattingAttributes` reads each mark's `attrs` straight back into a
+format object) and reports the difference as a fix that is written back to Y. The mapper
+also runs on every attribution-touching change - the `attributionToFormat` stage clears or
+replaces whole mark values from the mapper's output.
 
-1. `desiredPM = deltaAttributionToFormat(ytype.toDeltaDeep(am), mapAttributionToMark)` is the target state.
-2. `pcontent = nodeToDelta(view.state.doc)` is the current PM state. `marksToFormattingAttributes` reads each mark's `attrs` straight back into a format object.
-3. `diff(pcontent, desiredPM)` is the reconcile diff. If non-empty, the plugin dispatches a transaction to apply it.
+If `mapAttributionToMark(format, attribution)` ever produces output whose serialization differs from the `mark.attrs` we read back from PM for the same attribution, every apply produces a spurious fix. In benign cases the fix bounces once and settles (wasted work; other plugins that observe transactions will see the phantoms). In worse cases the two sides keep correcting each other and the fix propagation never terminates.
 
-If `mapAttributionToMark(format, attribution)` ever produces output whose serialization differs from the `mark.attrs` we read back from PM for the same attribution, the diff is non-empty on every pass. The sync plugin will dispatch a reconcile transaction on every edit, forever. In benign cases (when the resulting `tr.addMark` is a PM-level no-op because the on-doc mark already normalizes equal) the loop bounds at one phantom dispatch per keystroke, but it is still wasted work; other plugins that observe transactions will see the phantoms. In worse cases the reconcile dispatch produces real steps and the loop never terminates.
+Note on inputs: the mapper is invoked through an adapter (`attributionMapperToConf`) that
+resolves the attribution to plain data form first - `null`-cleared keys from incremental
+updates are dropped before the mapper sees them - so a mapper written against the
+documented `attribution` shape keeps working unchanged.
 
 Concretely, "stable" means:
 

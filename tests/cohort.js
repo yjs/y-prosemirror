@@ -56,7 +56,7 @@ const PM_KEY = 'prosemirror'
  * @property {number} idx
  * @property {UserMode} mode
  * @property {EditorView} view
- * @property {Y.AbstractRenderer} renderer
+ * @property {Y.AbstractRenderer?} renderer
  * @property {Y.Doc | null} suggestionDoc
  */
 
@@ -65,7 +65,7 @@ const PM_KEY = 'prosemirror'
  * type and an Renderer.
  *
  * @param {Y.Type} ytype
- * @param {Y.AbstractRenderer} [renderer]
+ * @param {Y.AbstractRenderer?} [renderer]
  * @param {Object} [opts]
  * @param {import('prosemirror-model').Schema} [opts.schema]
  * @param {typeof YPM.defaultMapAttributionToMark} [opts.mapAttributionToMark]

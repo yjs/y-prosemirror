@@ -106,7 +106,7 @@ Attributed content (insertions, deletions, format changes) is surfaced in ProseM
 - `y-attributed-delete`
 - `y-attributed-format`
 
-The default `defaultMapAttributionToMark` produces these names; custom `mapAttributionToMark` mappers must produce them too. Other internals (e.g. `_clearAttributionFormatting` in `sync-utils.js`) reference the names directly. Returning a different name from your mapper will cause `y-prosemirror` to fail to clear the attribution formatting on subsequent renders, and any code that relies on these names (decorations, accept/reject UI) will silently miss the marks.
+The default `defaultMapAttributionToMark` produces these names; custom `mapAttributionToMark` mappers must produce them too. Other internals reference the names directly - the `attributionToFormat` pipeline stage strips exactly the `y-attributed-*` namespace on the view→data direction, and `attributedVariant`/`ProsemirrorRdt`'s read-only-projection guard branch on the literal names. Returning a different name from your mapper will cause `y-prosemirror` to fail to clear the attribution formatting on subsequent renders, and any code that relies on these names (decorations, accept/reject UI) will silently miss the marks.
 
 **Integrator requirements:**
 
@@ -126,6 +126,19 @@ The default `defaultMapAttributionToMark` produces these names; custom `mapAttri
 
    The safest fix is to extend the affected node types' `markSet` after editor construction so the `y-attributed-*` marks are explicitly listed.
 
+## The `y-attributed-*` projection is read-only in ProseMirror
+
+The attribution marks are a *projection* of the Y side's attribution dimension - they are computed by the binding (see [`ARCHITECTURE.md`](./ARCHITECTURE.md)) and cannot be written back: the reverse transformer strips every `y-attributed-*` key before a change reaches the Y document. A local edit to that projection therefore has no data to change and would silently diverge from every other peer. Two ways this happens in practice:
+
+- **Explicitly** - a user (or plugin) removes a `y-attributed-*` mark, e.g. via "clear formatting".
+- **Implicitly** - a fresh insert *inherits* an inclusive attribution mark from its neighborhood, e.g. typing inside a suggestion-deleted span inherits `y-attributed-delete` onto the typed character.
+
+`ProsemirrorRdt.pull()` reverts any such local change with a corrective transaction before emitting: restored marks reappear, inherited marks are removed. The Y side then re-attributes the emitted content through its renderer and sends the correct marks back as a fix (the typed character above ends up with `y-attributed-insert`, as on every other peer). Integrators should treat the `y-attributed-*` marks strictly as render output - to change attribution, go through the renderer (accept/reject) or edit the content itself.
+
+## Editing suggestion-deleted content from ProseMirror
+
+Content that is deleted in the base document but still rendered through a suggestion overlay occupies positions in the view (struck-through text). Text inserts and deletes at those positions work; *modifications* of a suggestion-deleted node (e.g. adding a mark across a suggestion-deleted paragraph) are **reverted by design**: `YType.applyDelta` addresses the deleted-but-rendered node renderer-aware, applies nothing to it, and returns the inverse as its fix. The binding propagates that revert, so all peers stay convergent - the formatting of the deleted content is undone rather than becoming a format-suggestion.
+
 ## Overlapping marks and mark order
 
 ProseMirror marks of a type that does not exclude itself (declared with `excludes: ''`, e.g. a `comment` mark) may overlap on the same span - several distinct instances coexist. The Y document stores marks as a flat per-span `format` map keyed by mark name, so two instances of the same type would collide on one key. `y-prosemirror` therefore gives each overlapping mark a stable content-hash suffix - `` `${markName}--${hash}` `` (8 base64 chars, see `hashOfJSON`/`yattr2markname` in `utils.js`/`sync-utils.js`) - so each instance keeps its own key. The suffix is stripped again on the way back to ProseMirror. The reserved `y-attributed-*` attribution marks are exempt - they are never hashed (regardless of their schema's `excludes`), so the binding can keep filtering them by their exact names. Two consequences:
@@ -133,6 +146,14 @@ ProseMirror marks of a type that does not exclude itself (declared with `exclude
 - **`--<8 base64 chars>` is a reserved suffix.** A real mark whose name literally ends in `--` followed by exactly 8 base64 characters would be mis-parsed as a hashed overlapping mark. This is the same class of reserved-suffix limitation as `--attributed` (see "Node splitting, merging, and lifting"). Don't name marks that way.
 
 - **The *relative order* of overlapping marks of the same type is not significant and is not guaranteed to be identical across peers.** ProseMirror keeps same-type marks in an order-sensitive array (`Mark.sameSet` compares positionally), but the `format` map is unordered, so a peer that adds overlapping marks locally keeps them in the order the user applied them, while a peer that renders the same span from Y may order them differently. The rendered result is identical (both marks wrap the text); only the marks-array order - and, consequently, where ProseMirror happens to split adjacent text nodes - can differ. Treat overlapping marks of a single type as an unordered set; do not rely on their array order matching on every peer or on `doc.toJSON()` being byte-identical across peers when overlapping marks are present.
+
+## Transaction discipline around the binding
+
+Two integration constraints follow from how the sync binding consumes the ytype's native RDT surface (see `src/rdt/y-sync.js` and ARCHITECTURE.md "Why the two thin wrappers exist"):
+
+- **Wrapping binding-driven ProseMirror dispatches in your own `ydoc.transact(...)` is supported but degrades the fast path.** The write the binding issues then merges into your transaction: its events and cache patch defer, so the binding falls back to the legacy full-render diffing (the "uncertain window") until your transaction's cleanup queue drains. Correctness is preserved - the merged emission, which carries *your* origin and contains the binding's own write, is netted out by diffing rather than double-applied - but the O(doc) render cost returns for the duration of the window.
+
+- **Do not write to `ytype.doc` synchronously from inside a binding-initiated dispatch** (e.g. a ProseMirror plugin reacting to a `y-sync-transaction` by mutating the Y document in the same call stack). The resulting `'delta'` emission fires while the binding's echo mutex is held and is dropped; the content only reaches the other side after the next unrelated change re-syncs the affected region. This was already lossy before the native-payload refactor. Dispatch such writes asynchronously (microtask) instead.
 
 ## Visualizing attributed content
 

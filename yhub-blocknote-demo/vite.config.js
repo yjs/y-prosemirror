@@ -6,6 +6,7 @@ export default defineConfig({
   resolve: {
     dedupe: [
       '@y/y',
+      'lib0',
       'prosemirror-state',
       'prosemirror-view',
       'prosemirror-model'

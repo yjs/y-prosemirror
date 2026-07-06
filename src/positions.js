@@ -117,7 +117,7 @@ export const relativePositionToAbsolutePosition = (relPos, documentType, pmDoc, 
  * Creates a function that can be used to keep track of an absolute position of a Prosemirror document, and restore it to an absolute position in a different Prosemirror document.
  * @param {import('prosemirror-model').ResolvedPos} resolvedPos Absolute position in the Prosemirror document
  * @param {Y.Type} type Top level type that is bound to pView
- * @param {Y.AbstractRenderer} [renderer] renderer to use for the relative position
+ * @param {Y.AbstractRenderer?} [renderer] renderer to use for the relative position
  * @returns {(doc: import('prosemirror-model').Node, documentType?: Y.Type, renderer?: Y.AbstractRenderer) => number}
  */
 export const relativePositionStore = (resolvedPos, type, renderer) => {

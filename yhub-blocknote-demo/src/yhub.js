@@ -1,7 +1,7 @@
 /* eslint-env browser */
 import * as Y from '@y/y'
 import { configureYProsemirror, ySyncPluginKey } from '@y/prosemirror'
-import { deltaAttributionToFormat, deltaToPNode } from '../../src/sync-utils.js'
+import { attributionMapperToConf, deltaAttributionToFormat, deltaToPNode } from '../../src/sync-utils.js'
 import * as delta from 'lib0/delta'
 import { WebsocketProvider } from '@y/websocket'
 import * as random from 'lib0/random'
@@ -142,9 +142,7 @@ let suggestionOtherClientID = random.uint53()
 
 console.log({ suggestionDoc, suggestionProvider })
 
-const am = /** @type {any} */ (Y).createAttributionManagerFromDiff(ydoc, suggestionDoc, {
-  attrs: [Y.createContentAttribute('insert', ['User'])]
-})
+const suggestionRenderer = Y.createDiffRenderer(ydoc, suggestionDoc, { attrs: new Y.Attributions() })
 
 const elemSelectSuggestionMode = /** @type {HTMLSelectElement} */ (document.querySelector('#select-suggestion-mode'))
 const btnAcceptChanges = /** @type {HTMLButtonElement} */ (document.querySelector('#btn-accept-changes'))
@@ -185,16 +183,16 @@ elemSelectSuggestionMode.addEventListener('change', () => {
   if (mode === 'off') {
     configureYProsemirror({
       ytype: yxmlFragment,
-      attributionManager: null
+      renderer: null
     })(currentView.state, currentView.dispatch)
   } else {
-    am.suggestionMode = mode === 'edit'
+    suggestionRenderer.suggestionMode = mode === 'edit'
     const ytype = suggestionDoc.get('blocknote')
     try {
-      const rawDelta = ytype.toDeltaDeep(am)
+      const rawDelta = ytype.toDeltaDeep({ renderer: suggestionRenderer })
       console.log('[debug] === walking RAW delta ===')
       debugWalk(rawDelta)
-      const ycontent = deltaAttributionToFormat(rawDelta, mapAttributionToMark)
+      const ycontent = deltaAttributionToFormat(rawDelta, attributionMapperToConf(mapAttributionToMark))
       console.log('[debug] === walking FORMATTED delta ===')
       debugWalk(ycontent)
       const node = deltaToPNode(ycontent, currentView.state.schema, null)
@@ -204,7 +202,7 @@ elemSelectSuggestionMode.addEventListener('change', () => {
     }
     configureYProsemirror({
       ytype,
-      attributionManager: am
+      renderer: suggestionRenderer
     })(currentView.state, currentView.dispatch)
   }
   previousMode = mode
@@ -264,13 +262,13 @@ const initLiveEditor = () => {
   if (mode === 'off') {
     configureYProsemirror({
       ytype: yxmlFragment,
-      attributionManager: null
+      renderer: null
     })(currentView.state, currentView.dispatch)
   } else {
-    am.suggestionMode = mode === 'edit'
+    suggestionRenderer.suggestionMode = mode === 'edit'
     configureYProsemirror({
       ytype: suggestionDoc.get('blocknote'),
-      attributionManager: am
+      renderer: suggestionRenderer
     })(currentView.state, currentView.dispatch)
   }
   updateSuggestionButtons()
@@ -279,19 +277,20 @@ const initLiveEditor = () => {
 /**
  * @param {Y.Doc} prev
  * @param {Y.Doc} next
- * @param {Y.ContentMap} attributions
+ * @param {Y.Attributions} attributions
  */
 const initVersionDiffEditor = (prev, next, attributions) => {
   if (!currentView) return
   isViewingVersion = true
-  // Pass the contentmap so the diff AM knows who/when authored each change.
-  // Without `attrs`, the AM only produces "what changed" (empty userIds, null
-  // timestamp), and downstream mark tooltips show "unknown / unknown time".
-  const diffAM = Y.createAttributionManagerFromDiff(prev, next, { attrs: attributions })
+  // Pass the contentmap so the diff renderer knows who/when authored each
+  // change. Without `attrs`, the renderer only produces "what changed" (empty
+  // userIds, null timestamp), and downstream mark tooltips show
+  // "unknown / unknown time".
+  const diffRenderer = Y.createDiffRenderer(prev, next, { attrs: attributions })
   const versionFragment = next.get('blocknote')
   configureYProsemirror({
     ytype: versionFragment,
-    attributionManager: diffAM
+    renderer: diffRenderer
   })(currentView.state, currentView.dispatch)
 }
 

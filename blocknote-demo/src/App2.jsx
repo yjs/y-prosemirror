@@ -63,24 +63,24 @@ const suggestingProvider = {
   awareness: new Awareness(suggestingDoc)
 }
 suggestingProvider.awareness.setLocalStateField('user', { name: 'View Suggestions', color: '#ffbc42' })
-const suggestingAttributionManager = Y.createAttributionManagerFromDiff(
+const suggestingRenderer = Y.createDiffRenderer(
   doc,
   suggestingDoc,
   { attrs }
 )
-suggestingAttributionManager.suggestionMode = false
+suggestingRenderer.suggestionMode = false
 
 const suggestionModeDoc = new Y.Doc({ isSuggestionDoc: true })
 const suggestionModeProvider = {
   awareness: new Awareness(suggestionModeDoc)
 }
 suggestionModeProvider.awareness.setLocalStateField('user', { name: 'Suggestion Mode', color: '#ee6352' })
-const suggestionModeAttributionManager = Y.createAttributionManagerFromDiff(
+const suggestionModeRenderer = Y.createDiffRenderer(
   doc,
   suggestionModeDoc,
   { attrs }
 )
-suggestionModeAttributionManager.suggestionMode = true
+suggestionModeRenderer.suggestionMode = true
 
 // Function to sync two documents
 function syncDocs (sourceDoc, targetDoc) {
@@ -120,7 +120,7 @@ suggestionModeDoc.on('update', (update, origin, _doc, tr) => {
 suggestingDoc.get('doc').observeDeep((events) => {
   console.log("[DEBUG] suggestingDoc.get('doc') observeDeep fired!", events.length, 'events')
   try {
-    const d = events.getDelta(suggestingAttributionManager, { deep: true })
+    const d = suggestingDoc.get('doc').toDeltaDeep({ renderer: suggestingRenderer })
     console.log('[DEBUG] suggestingDoc delta:', JSON.stringify(d?.toJSON?.() ?? d))
   } catch (e) {
     console.error('[DEBUG] Error getting delta from suggestingDoc observer:', e)
@@ -139,7 +139,7 @@ window.addEventListener('unhandledrejection', (e) => {
   console.error('[DEBUG] Unhandled rejection:', e.reason)
 })
 
-function Editor ({ fragment, provider, attributionManager }) {
+function Editor ({ fragment, provider, renderer }) {
   const editor = useCreateBlockNote({
     _tiptapOptions: {
       extensions: [YSyncExtension, createYCursorExtension(provider.awareness)]
@@ -156,7 +156,7 @@ function Editor ({ fragment, provider, attributionManager }) {
 
       configureYProsemirror({
         ytype: fragment,
-        attributionManager
+        renderer
       })(view.state, view.dispatch)
     }
   }, [editor])
@@ -198,7 +198,7 @@ export default function App () {
           <Editor
             fragment={suggestingDoc.get('doc')}
             provider={suggestingProvider}
-            attributionManager={suggestingAttributionManager}
+            renderer={suggestingRenderer}
           />
         </div>
         <div style={{ flex: 1 }}>
@@ -206,7 +206,7 @@ export default function App () {
           <Editor
             fragment={suggestionModeDoc.get('doc')}
             provider={suggestionModeProvider}
-            attributionManager={suggestionModeAttributionManager}
+            renderer={suggestionModeRenderer}
           />
         </div>
       </div>

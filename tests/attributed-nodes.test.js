@@ -92,7 +92,7 @@ const setup = (attributedNodes, baseContent, seedDelta = delta.create().insert([
 
   /**
    * @param {Y.Type} ytype
-   * @param {Y.AbstractRenderer} [renderer]
+   * @param {Y.AbstractRenderer?} [renderer]
    */
   const mkView = (ytype, renderer = Y.baseRenderer) => {
     const view = new EditorView(

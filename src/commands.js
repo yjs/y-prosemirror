@@ -1,13 +1,11 @@
-import * as d from 'lib0/delta'
 import { ySyncPluginKey, yUndoPluginKey } from './keys.js'
-import { deltaToPSteps, deltaAttributionToFormat, nodeToDelta, deltaToPNode } from './sync-utils.js'
 import * as Y from '@y/y'
 import { absolutePositionToRelativePosition } from './positions.js'
 
 /**
  * Switch to pause mode (stop synchronization between prosemirror and ytype)
  * @param {import('prosemirror-state').EditorState} state
- * @param {CommandDispatch?} dispatch
+ * @param {((tr: import('prosemirror-state').Transaction) => void)?} dispatch
  * @returns {boolean}
  */
 export function pauseSync (state, dispatch) {
@@ -23,13 +21,16 @@ export function pauseSync (state, dispatch) {
   return true
 }
 
-const debugging = false
-
 /**
  * Reconfigure y-prosemirror.
  * - enable syncing to (different) ytype
  * - render attributions
  * - pause sync (by setting ytype=null)
+ *
+ * The dispatched meta makes the sync plugin's `view().update` hook (re)create
+ * the RDT binding, whose initial sync renders the ytype into the view
+ * synchronously (the ytype fully overwrites the ProseMirror content) — by the
+ * time `dispatch` returns, the view is hydrated.
  *
  * @param {object} [opts]
  * @param {YType?} [opts.ytype] Sync different ytype. Set to null to pause sync
@@ -38,29 +39,12 @@ const debugging = false
  */
 export const configureYProsemirror = (opts = {}) => (state, dispatch) => {
   const pluginState = ySyncPluginKey.getState(state)
-  const ytype = opts.ytype
-  const renderer = opts.renderer
-  if (pluginState == null || (ytype === pluginState.ytype && renderer === pluginState.renderer)) {
+  if (pluginState == null || (opts.ytype === pluginState.ytype && opts.renderer === pluginState.renderer)) {
     return false
   }
   if (dispatch) {
     const tr = state.tr.setMeta(ySyncPluginKey, opts)
     tr.setMeta('addToHistory', false)
-    if (ytype) {
-      /**
-       * @type {ProsemirrorDelta}
-       */
-      const ycontent = deltaAttributionToFormat(ytype.toDeltaDeep({ renderer: renderer || Y.baseRenderer }), pluginState.attributionMapper)
-      // @todo it is preferred to apply the minimal diff - at least for debugging purposes. the
-      // document replacal is more reliable though
-      if (debugging) {
-        const pcontent = nodeToDelta(tr.doc, undefined, true)
-        const diff = d.diff(pcontent.done(), ycontent.done(), { compare: pluginState.customCompare ?? undefined })
-        deltaToPSteps(tr, diff, undefined, undefined, pluginState.attributedNodes)
-      } else {
-        tr.replaceWith(0, tr.doc.content.size, deltaToPNode(ycontent, tr.doc.type.schema, null, pluginState.attributedNodes))
-      }
-    }
     dispatch(tr)
   }
   return true
@@ -107,7 +91,7 @@ export const rejectChanges = (start, end = start) => (state, dispatch) => {
     const relStart = absolutePositionToRelativePosition(state.doc.resolve(start), pluginState.ytype, pluginState.renderer)
     const relEnd = absolutePositionToRelativePosition(state.doc.resolve(end), pluginState.ytype, pluginState.renderer)
 
-    pluginState.renderer.rejectChanges(relStart.item, relEnd.item)
+    pluginState.renderer.rejectChanges(/** @type {NonNullable<typeof relStart.item>} */ (relStart.item), /** @type {NonNullable<typeof relEnd.item>} */ (relEnd.item))
   }
   return true
 }
@@ -127,7 +111,7 @@ export const acceptChanges = (start, end = start) => (state, dispatch) => {
     const relStart = absolutePositionToRelativePosition(state.doc.resolve(start), pluginState.ytype, pluginState.renderer)
     const relEnd = absolutePositionToRelativePosition(state.doc.resolve(end), pluginState.ytype, pluginState.renderer)
 
-    pluginState.renderer.acceptChanges(relStart.item, relEnd.item)
+    pluginState.renderer.acceptChanges(/** @type {NonNullable<typeof relStart.item>} */ (relStart.item), /** @type {NonNullable<typeof relEnd.item>} */ (relEnd.item))
   }
   return true
 }

@@ -1,7 +1,7 @@
 /* eslint-env browser */
 
 import * as Y from '@y/y'
-import { syncPlugin, ySyncPluginKey, configureYProsemirror, defaultMapAttributionToMark, undoCommand, redoCommand } from '../src/index.js'
+import { syncPlugin, configureYProsemirror, defaultMapAttributionToMark, undoCommand, redoCommand, acceptChanges, rejectChanges, acceptAllChanges, rejectAllChanges } from '../src/index.js'
 import { yCursorPlugin } from '../src/cursor-plugin.js'
 import { EditorState } from 'prosemirror-state'
 import { schema } from './schema.js'
@@ -42,7 +42,7 @@ elemToggleConnect.checked && providerYdoc.connectBc()
 const suggestionDoc = new Y.Doc({ gc: false, isSuggestionDoc: true })
 const providerYdocSuggestions = new WebsocketProvider('wss://demos.yjs.dev/ws', roomName + '--suggestions', suggestionDoc, { connect: false })
 elemToggleConnect.checked && providerYdocSuggestions.connectBc()
-const renderer = /** @type {any} */ (Y).createAttributionManagerFromDiff(ydoc, suggestionDoc, { attrs: [Y.createContentAttribute('insert', ['nickthesick'])] })
+const renderer = Y.createDiffRenderer(ydoc, suggestionDoc, { attrs: new Y.Attributions() })
 
 const yxmlFragment = ydoc.get()
 
@@ -159,66 +159,28 @@ elemToggleConnect.addEventListener('change', () => {
 // Accept/Reject changes buttons
 if (btnAcceptChanges) {
   btnAcceptChanges.addEventListener('click', () => {
-    const pluginState = ySyncPluginKey.getState(currentView.state)
-    if (!pluginState) return
-
-    const selection = currentView.state.selection
-    const from = selection.from
-    const to = selection.to
-
-    try {
-      /** @type {any} */ (pluginState).acceptChanges(from, to)
-    } catch (/** @type {any} */ error) {
-      console.error('Error accepting changes:', error)
-      alert('Error accepting changes: ' + error.message)
-    }
+    const { from, to } = currentView.state.selection
+    acceptChanges(from, to)(currentView.state, currentView.dispatch)
   })
 }
 
 if (btnRejectChanges) {
   btnRejectChanges.addEventListener('click', () => {
-    const pluginState = ySyncPluginKey.getState(currentView.state)
-    if (!pluginState) return
-
-    const selection = currentView.state.selection
-    const from = selection.from
-    const to = selection.to
-
-    try {
-      /** @type {any} */ (pluginState).rejectChanges(from, to)
-    } catch (/** @type {any} */ error) {
-      console.error('Error rejecting changes:', error)
-      alert('Error rejecting changes: ' + error.message)
-    }
+    const { from, to } = currentView.state.selection
+    rejectChanges(from, to)(currentView.state, currentView.dispatch)
   })
 }
 
 // Accept/Reject all changes buttons
 if (btnAcceptAllChanges) {
   btnAcceptAllChanges.addEventListener('click', () => {
-    const pluginState = ySyncPluginKey.getState(currentView.state)
-    if (!pluginState) return
-
-    try {
-      /** @type {any} */ (pluginState).acceptAllChanges()
-    } catch (/** @type {any} */ error) {
-      console.error('Error accepting all changes:', error)
-      alert('Error accepting all changes: ' + error.message)
-    }
+    acceptAllChanges()(currentView.state, currentView.dispatch)
   })
 }
 
 if (btnRejectAllChanges) {
   btnRejectAllChanges.addEventListener('click', () => {
-    const pluginState = ySyncPluginKey.getState(currentView.state)
-    if (!pluginState) return
-
-    try {
-      /** @type {any} */ (pluginState).rejectAllChanges()
-    } catch (/** @type {any} */ error) {
-      console.error('Error rejecting all changes:', error)
-      alert('Error rejecting all changes: ' + error.message)
-    }
+    rejectAllChanges()(currentView.state, currentView.dispatch)
   })
 }
 

@@ -248,9 +248,7 @@ let suggestionOtherClientID = random.uint53()
 
 console.log({ suggestionDoc, suggestionProvider })
 
-const am = /** @type {any} */ (Y).createAttributionManagerFromDiff(ydoc, suggestionDoc, {
-  attrs: [Y.createContentAttribute('insert', ['User'])]
-})
+const suggestionRenderer = Y.createDiffRenderer(ydoc, suggestionDoc, { attrs: new Y.Attributions() })
 
 const elemSelectSuggestionMode = /** @type {HTMLSelectElement} */ (document.querySelector('#select-suggestion-mode'))
 const btnAcceptChanges = /** @type {HTMLButtonElement} */ (document.querySelector('#btn-accept-changes'))
@@ -287,13 +285,13 @@ elemSelectSuggestionMode.addEventListener('change', () => {
   if (mode === 'off') {
     configureYProsemirror({
       ytype: yxmlFragment,
-      attributionManager: null
+      renderer: null
     })(currentView.state, currentView.dispatch)
   } else {
-    am.suggestionMode = mode === 'edit'
+    suggestionRenderer.suggestionMode = mode === 'edit'
     configureYProsemirror({
       ytype: suggestionDoc.get('prosemirror'),
-      attributionManager: am
+      renderer: suggestionRenderer
     })(currentView.state, currentView.dispatch)
   }
   previousMode = mode
@@ -327,13 +325,13 @@ const initLiveEditor = () => {
   if (mode === 'off') {
     configureYProsemirror({
       ytype: yxmlFragment,
-      attributionManager: null
+      renderer: null
     })(currentView.state, currentView.dispatch)
   } else {
-    am.suggestionMode = mode === 'edit'
+    suggestionRenderer.suggestionMode = mode === 'edit'
     configureYProsemirror({
       ytype: suggestionDoc.get('prosemirror'),
-      attributionManager: am
+      renderer: suggestionRenderer
     })(currentView.state, currentView.dispatch)
   }
   updateSuggestionButtons()
@@ -342,16 +340,16 @@ const initLiveEditor = () => {
 /**
  * @param {Y.Doc} prev
  * @param {Y.Doc} next
- * @param {Y.ContentMap} attributions
+ * @param {Y.Attributions} attributions
  */
 const initVersionDiffEditor = (prev, next, attributions) => {
   isVersionView = true
   currentView.setProps({ editable: () => !isVersionView })
-  const diffAM = Y.createAttributionManagerFromDiff(prev, next, { attrs: attributions })
+  const diffRenderer = Y.createDiffRenderer(prev, next, { attrs: attributions })
   const versionFragment = next.get('prosemirror')
   configureYProsemirror({
     ytype: versionFragment,
-    attributionManager: diffAM
+    renderer: diffRenderer
   })(currentView.state, currentView.dispatch)
 }
 

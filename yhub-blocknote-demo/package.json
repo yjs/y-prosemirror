@@ -17,8 +17,8 @@
     "@y/prosemirror": "file:..",
     "@y/protocols": "^1.0.6-rc.1",
     "@y/websocket": "^4.0.0-rc.1",
-    "@y/y": "^14.0.0-rc.17",
-    "lib0": "^1.0.0-rc.13",
+    "@y/y": "^14.0.0-rc.23",
+    "lib0": "^1.0.0-rc.22",
     "react": "^19",
     "react-dom": "^19"
   },

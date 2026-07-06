@@ -139,6 +139,91 @@ export const defaultMapAttributionToMark = (format, attribution) => {
 }
 
 /**
+ * Resolve an *instruction-form* attribution (as produced by the
+ * `fullAttributions` transformer and by `lib0/delta.diff`) to plain data form.
+ * Instruction form keeps cleared keys as `null` leaves (`{ insert: null }`,
+ * `{ format: { bold: null } }`) so downstream consumers can clear state.
+ * Attribution mappers only ever saw resolved render attributions, so before
+ * handing an attribution to one, drop `null` leaves, drop `null` inner
+ * `format` keys, and drop an emptied `format` map.
+ *
+ * @param {import('lib0/delta').Attribution} a
+ * @return {import('lib0/delta').Attribution}
+ */
+const resolveAttribution = (a) => {
+  const out = /** @type {import('lib0/delta').Attribution} */ ({})
+  object.forEach(/** @type {Record<string, any>} */ (a), (v, k) => {
+    if (v == null) return
+    if (k === 'format') {
+      const format = dropNullLeaves(v)
+      if (!object.isEmpty(format)) out.format = format
+    } else {
+      // @ts-ignore dynamic attribution key
+      out[k] = v
+    }
+  })
+  return out
+}
+
+/**
+ * A copy of `map` without its `null`-valued keys (instruction-form clears).
+ *
+ * @param {Record<string, any>} map
+ * @return {Record<string, any>}
+ */
+const dropNullLeaves = (map) => {
+  /** @type {Record<string, any>} */
+  const out = {}
+  object.forEach(map, (v, k) => {
+    if (v != null) out[k] = v
+  })
+  return out
+}
+
+/**
+ * The conf handed to lib0's `attributionToFormat` transformer: one handler per
+ * attribution dimension, mapping the op's (complete, instruction-form)
+ * attribution to the value stored under the corresponding reserved mark name
+ * (`y-attributed-insert` / `y-attributed-delete` / `y-attributed-format`).
+ * Returning `null` clears the mark (on retain/modify instructions) or renders
+ * nothing (on inserted data).
+ *
+ * There is deliberately no `attrs` handler: ProseMirror has no model for
+ * per-attribute attribution, so attr-op attribution is dropped — the same
+ * decision {@link deltaAttributionToFormat} documents.
+ *
+ * @typedef {(a: import('lib0/delta').Attribution) => any} AttributionConfHandler
+ * @typedef {{ insert?: AttributionConfHandler, delete?: AttributionConfHandler, format?: AttributionConfHandler, attrs?: AttributionConfHandler }} AttributionConf
+ */
+
+/**
+ * Adapt a legacy `(format, attribution) => format` attribution mapper (the
+ * `mapAttributionToMark` option) to an {@link AttributionConf}. The mapper is
+ * called with a resolved data-form attribution ({@link resolveAttribution}) and
+ * a `null` base format; each handler extracts its own reserved key from the
+ * result. A key the mapper did not set maps to `null` — which clears the mark
+ * on instruction ops and renders nothing on data ops, matching the legacy
+ * "absent kinds are not added" contract.
+ *
+ * @param {AttributionMapper} mapper
+ * @return {AttributionConf}
+ */
+export const attributionMapperToConf = (mapper) => ({
+  insert: a => mapper(null, resolveAttribution(a))?.['y-attributed-insert'] ?? null,
+  delete: a => mapper(null, resolveAttribution(a))?.['y-attributed-delete'] ?? null,
+  format: a => mapper(null, resolveAttribution(a))?.['y-attributed-format'] ?? null
+})
+
+/**
+ * Default {@link AttributionConf} — {@link defaultMapAttributionToMark}'s mark
+ * values in conf form (the mark *names* are y-prosemirror's fixed public
+ * contract; see that function's docs).
+ *
+ * @type {AttributionConf}
+ */
+export const defaultAttributionConf = attributionMapperToConf(defaultMapAttributionToMark)
+
+/**
  * Transform delta with attributions to delta with formats (marks).
  * @param {delta.DeltaAny} d
  * @param {function} attributionsToFormat
@@ -156,9 +241,9 @@ export const deltaAttributionToFormat = (d, attributionsToFormat) => {
     // eventually overflowing the stack inside `lib0/delta.diff`.
     const key = /** @type {string} */ (attr.key)
     if (delta.$setAttrOp.check(attr)) {
-      r.setAttr(key, attr.value, null, attr.prevValue)
+      r.setAttr(key, attr.value, null)
     } else if (delta.$deleteAttrOp.check(attr)) {
-      r.deleteAttr(key, null, attr.prevValue)
+      r.deleteAttr(key, null)
     } else if (delta.$modifyAttrOp.check(attr)) {
       r.modifyAttr(key, /** @type {any} */ (deltaAttributionToFormat(attr.value, attributionsToFormat)), null)
     } else {
@@ -280,14 +365,14 @@ export const nodesToDelta = ns => {
  * @param {Node} node
  * @param {Y.Type} fragment
  * @param {Object} [opts]
- * @param {Y.AbstractRenderer} [opts.renderer]
+ * @param {Y.AbstractRenderer?} [opts.renderer]
  * @returns {Y.Type}
  */
 export function pmToFragment (node, fragment, { renderer = Y.baseRenderer } = {}) {
   // Canonicalize so the Y document never stores an attributed-variant name
   // (`--attributed` is a reserved suffix - identity when no variant is present).
   const initialPDelta = nodeToDelta(node, undefined, true).done()
-  fragment.applyDelta(initialPDelta, { renderer })
+  fragment.applyDelta(initialPDelta, null, { renderer })
 
   return fragment
 }
@@ -297,7 +382,7 @@ export function pmToFragment (node, fragment, { renderer = Y.baseRenderer } = {}
  * @param {Y.Type} fragment
  * @param {import('prosemirror-state').Transaction} tr
  * @param {object} ctx
- * @param {Y.AbstractRenderer} [ctx.renderer]
+ * @param {Y.AbstractRenderer?} [ctx.renderer]
  * @param {typeof defaultMapAttributionToMark} [ctx.mapAttributionToMark]
  * @param {AttributedNodesPredicate} [ctx.attributedNodes]
  * @returns {import('prosemirror-state').Transaction}
@@ -642,7 +727,7 @@ export const docDiffToDelta = (beforeDoc, afterDoc) => {
 }
 
 /**
- * @param {Transaction} tr
+ * @param {import('prosemirror-state').Transaction} tr
  */
 export const trToDelta = (tr) => {
   // const d = delta.create($prosemirrorDelta)
