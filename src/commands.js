@@ -4,9 +4,7 @@ import { absolutePositionToRelativePosition } from './positions.js'
 
 /**
  * Switch to pause mode (stop synchronization between prosemirror and ytype)
- * @param {import('prosemirror-state').EditorState} state
- * @param {((tr: import('prosemirror-state').Transaction) => void)?} dispatch
- * @returns {boolean}
+ * @type {import('prosemirror-state').Command}
  */
 export function pauseSync (state, dispatch) {
   const pluginState = ySyncPluginKey.getState(state)
