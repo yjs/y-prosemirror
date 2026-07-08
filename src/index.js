@@ -1,7 +1,7 @@
 export * from './sync-plugin.js'
 export * from './keys.js'
 export * from './positions.js'
-export { docToDelta, $prosemirrorDelta, defaultMapAttributionToMark, defaultAttributionConf, attributionMapperToConf, yattr2markname, pmToFragment, fragmentToPm } from './sync-utils.js'
+export * from './sync-utils.js'
 export * from './commands.js'
 export * from './undo-plugin.js'
 export * from './cursor-plugin.js'
