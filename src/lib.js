@@ -30,6 +30,7 @@ const updateMetas = () => {
       metas.forEach((val, key) => {
         tr.setMeta(key, val)
       })
+      tr.setMeta('async', true)
       view.dispatch(tr)
     }
   })
