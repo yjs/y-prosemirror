@@ -278,3 +278,37 @@ export const testInitRaceFirstRenderReplacesGatedSkeleton = _tc => {
     view2.destroy()
   }
 }
+
+/**
+ * `onInternalError` observes errors the last-resort catch in `applyDelta`
+ * recovers from. The default logs a console warning; a provided handler
+ * replaces the warning, so hosts can surface these failures (fail a test,
+ * report to an error tracker) instead of scraping the console.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testYSyncRdtOnInternalErrorReplacesWarn = _tc => {
+  const doc = new Y.Doc({ gc: false })
+  const ytype = doc.get('prosemirror')
+  /** @type {Array<[string, unknown]>} */
+  const seen = []
+  const rdt = new YSyncRdt({ ytype, renderer: null, origin: PLUGIN_ORIGIN, onInternalError: (context, err) => seen.push([context, err]) })
+  /** @type {Array<unknown>} */
+  const warned = []
+  const originalWarn = console.warn
+  const originalApply = ytype.applyDelta.bind(ytype)
+  console.warn = (/** @type {Array<unknown>} */ ...args) => warned.push(args)
+  // @ts-ignore - force the next Y-side apply to throw, entering the catch
+  ytype.applyDelta = () => { throw new Error('boom') }
+  try {
+    rdt.applyDelta(delta.create().insert([paragraph('x')]).done(), null)
+  } finally {
+    // @ts-ignore
+    ytype.applyDelta = originalApply
+    console.warn = originalWarn
+  }
+  t.assert(seen.length === 1, 'the handler received the recovered error')
+  t.assert(seen[0][0].includes('applyDelta failed'), 'the handler received the failure context')
+  t.assert(seen[0][1] instanceof Error && seen[0][1].message === 'boom', 'the handler received the original error object')
+  t.assert(warned.length === 0, 'a provided handler replaces the default console warning')
+}

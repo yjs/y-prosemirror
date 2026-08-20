@@ -3,6 +3,15 @@ import * as delta from 'lib0/delta'
 import { $prosemirrorDelta } from '../sync-utils.js'
 
 /**
+ * Default {@link YSyncRdt} `onInternalError` handler: log a console warning
+ * and move on.
+ *
+ * @param {string} context
+ * @param {unknown} err
+ */
+const defaultOnInternalError = (context, err) => console.warn(context, err)
+
+/**
  * The Y side of the sync binding: a thin lib0-`RDT` wrapper around a
  * {@link YType}, which implements the RDT interface natively — the `'delta'`
  * channel (with transaction origins, delivered through deleted parents, and
@@ -91,8 +100,15 @@ export class YSyncRdt extends ObservableV2 {
    * @param {any} opts.origin origin for Y transactions this RDT writes
    *   (typically the sync Plugin instance, so the undo plugin tracks them)
    * @param {NodeCompare?} [opts.compare] forwarded to every `delta.diff`
+   * @param {(context: string, err: unknown) => void} [opts.onInternalError]
+   *   called with a description of what failed and how the sync recovered
+   *   (`context`) plus the thrown error, for any error the sync recovered from
+   *   instead of rethrowing (see the last-resort catch in `applyDelta`).
+   *   Defaults to logging a console warning; providing a handler replaces the
+   *   warning, so hosts (test harnesses, error reporters) can surface these
+   *   instead of scraping the console.
    */
-  constructor ({ ytype, renderer, origin, compare = null }) {
+  constructor ({ ytype, renderer, origin, compare = null, onInternalError = defaultOnInternalError }) {
     super()
     if (ytype.doc == null) {
       throw new Error('[y/prosemirror]: the ytype must be integrated into a Y.Doc before binding')
@@ -101,6 +117,7 @@ export class YSyncRdt extends ObservableV2 {
     this.renderer = renderer
     this.origin = origin
     this.compare = compare ?? undefined
+    this.onInternalError = onInternalError
     this.$delta = $prosemirrorDelta
     this._applying = false
     /**
@@ -244,7 +261,7 @@ export class YSyncRdt extends ObservableV2 {
       // the ops before the failing one have already been applied — do NOT
       // rethrow; the fix below is computed from the actual post-write state
       // and heals both sides from whatever actually landed.
-      console.warn('[y/prosemirror] ytype.applyDelta failed - reverting the unappliable part of the change', err)
+      this.onInternalError('[y/prosemirror] ytype.applyDelta failed - reverting the unappliable part of the change', err)
     } finally {
       this._applying = false
     }
