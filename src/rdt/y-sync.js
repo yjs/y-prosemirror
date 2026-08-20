@@ -91,8 +91,11 @@ export class YSyncRdt extends ObservableV2 {
    * @param {any} opts.origin origin for Y transactions this RDT writes
    *   (typically the sync Plugin instance, so the undo plugin tracks them)
    * @param {NodeCompare?} [opts.compare] forwarded to every `delta.diff`
+   * @param {null|((err:Error,errCode:number)=>any)} [opts.onInternalError] Listen to internal
+   * errors for debugging purposes. This API is unstable and can be changed/removed at any time!
+   * (errCode 0: applyDelta failed)
    */
-  constructor ({ ytype, renderer, origin, compare = null }) {
+  constructor ({ ytype, renderer, origin, compare = null, onInternalError = null }) {
     super()
     if (ytype.doc == null) {
       throw new Error('[y/prosemirror]: the ytype must be integrated into a Y.Doc before binding')
@@ -103,6 +106,7 @@ export class YSyncRdt extends ObservableV2 {
     this.compare = compare ?? undefined
     this.$delta = $prosemirrorDelta
     this._applying = false
+    this._onInternalError = onInternalError
     /**
      * Non-null while in the uncertain window: the last known-good full render,
      * serving as the RDT state until the doc's cleanup queue drains and the
@@ -245,6 +249,7 @@ export class YSyncRdt extends ObservableV2 {
       // rethrow; the fix below is computed from the actual post-write state
       // and heals both sides from whatever actually landed.
       console.warn('[y/prosemirror] ytype.applyDelta failed - reverting the unappliable part of the change', err)
+      this._onInternalError?.(/** @type {any} */ (err), 0)
     } finally {
       this._applying = false
     }
