@@ -719,11 +719,12 @@ export const deltaToPNode = (d, schema, dformat, attributedNodes = defaultAttrib
 /**
  * @param {Node} beforeDoc
  * @param {Node} afterDoc
+ * @param {delta.DiffOptions} [options]
  */
-export const docDiffToDelta = (beforeDoc, afterDoc) => {
+export const docDiffToDelta = (beforeDoc, afterDoc, options) => {
   const initialDelta = nodeToDelta(beforeDoc)
   const finalDelta = nodeToDelta(afterDoc)
-  return delta.diff(initialDelta.done(), finalDelta.done())
+  return delta.diff(initialDelta.done(), finalDelta.done(), options)
 }
 
 /**
