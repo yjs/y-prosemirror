@@ -24,10 +24,10 @@ if (!roomName) {
 }
 const docid = roomName
 
-const yhubApiUrl = 'https://yhub-standalone-x9kss.ondigitalocean.app' // 'http://localhost:3002'
+const yhubApiUrl = 'https://yhub-standalone-x9kss.ondigitalocean.app' // 'http://localhost:4400'
 
 const ydoc = new Y.Doc()
-const wsUrl = yhubApiUrl + '/ws/' + org
+const wsUrl = yhubApiUrl + '/api/ws/v1/' + org
 const provider = new WebsocketProvider(wsUrl, docid, ydoc, { params: { gc: false } })
 const yxmlFragment = ydoc.get('prosemirror')
 
@@ -514,7 +514,7 @@ const renderActivityList = () => {
 
 const fetchActivity = async () => {
   try {
-    const response = await fetch(`${yhubApiUrl}/activity/${org}/${docid}?delta=true&order=desc&limit=50&customAttributions=true&group=true`)
+    const response = await fetch(`${yhubApiUrl}/api/activity/v1/${org}/${docid}?delta=true&order=desc&limit=50&customAttributions=true&group=true`)
     if (!response.ok) return
     const arrayBuffer = await response.arrayBuffer()
     const data = buffer.decodeAny(new Uint8Array(arrayBuffer))
@@ -561,7 +561,7 @@ const resolveDiffRange = () => {
  */
 const renderVersions = async (from, to) => {
   try {
-    const response = await fetch(`${yhubApiUrl}/changeset/${org}/${docid}?from=${from}&to=${to}&ydoc=true&attributions=true`)
+    const response = await fetch(`${yhubApiUrl}/api/changeset/v1/${org}/${docid}?from=${from}&to=${to}&ydoc=true&attributions=true`)
     if (!response.ok) return
     const arrayBuffer = await response.arrayBuffer()
     const history = buffer.decodeAny(new Uint8Array(arrayBuffer))
@@ -739,7 +739,7 @@ const rollback = async () => {
     }
   }
   try {
-    const response = await fetch(`${yhubApiUrl}/rollback/${org}/${docid}`, {
+    const response = await fetch(`${yhubApiUrl}/api/rollback/v1/${org}/${docid}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/octet-stream' },
       // @ts-ignore
