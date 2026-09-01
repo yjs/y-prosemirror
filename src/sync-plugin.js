@@ -8,6 +8,7 @@ import {
 import { YSyncRdt } from './rdt/y-sync.js'
 import { ProsemirrorRdt } from './rdt/prosemirror.js'
 import { renderedAttributions } from './transformers/rendered-attributions.js'
+import { inlineAnonymousNodes } from './transformers/inline-anonymous-nodes.js'
 import { bind } from 'lib0/delta/rdt'
 import * as dt from 'lib0/delta/transformer'
 import { ySyncPluginKey } from './keys.js'
@@ -55,7 +56,7 @@ const $maybeSyncPluginStateUpdate = $syncPluginStateUpdate.nullable
  * {@link ProsemirrorRdt} around the view) connected through a transformer
  * pipeline (`lib0/delta/rdt.bind`):
  *
- *     YSyncRdt ⇄ pipe(fullAttributions, ...opts.transformers, attributionToFormat) ⇄ ProsemirrorRdt
+ *     YSyncRdt ⇄ pipe(fullAttributions, inlineAnonymousNodes, ...opts.transformers, attributionToFormat) ⇄ ProsemirrorRdt
  *
  * Data → view (`applyA`), the pipeline expands each change's attribution to
  * the full accumulated attribution (`fullAttributions`) and renders it into
@@ -71,10 +72,10 @@ const $maybeSyncPluginStateUpdate = $syncPluginStateUpdate.nullable
  *
  * @param {object} opts
  * @param {Y.Doc} [opts.suggestionDoc] A {@link Y.Doc} to use for suggestion tracking
- * @param {AttributionMapper} [opts.mapAttributionToMark] A function to map the {@link Y.Attribution} to a {@link import('prosemirror-model').Mark} - the mark names *must* be one of: `y-attributed-insert`, `y-attributed-delete`, `y-attributed-format`. No other mark names are permitted
+ * @param {AttributionMapper} [opts.mapAttributionToMark] A function to map the {@link Y.ContentAttribute} to a {@link import('prosemirror-model').Mark} - the mark names *must* be one of: `y-attributed-insert`, `y-attributed-delete`, `y-attributed-format`. No other mark names are permitted
  * @param {AttributedNodesPredicate} [opts.attributedNodes] Optional predicate `(nodeName, kinds) => boolean`. When it returns `true` for an attributed node *and* a `{nodeName}--attributed` type exists in the schema, that node is rendered under the variant type (the `y-attributed-*` marks are still applied). `kinds` is `{ insert?, delete?, format? }`. The variant is a pure rendering concern - the canonical name is what is stored in the Y document. The predicate must be deterministic in `(nodeName, kinds)`.
  * @param {NodeCompare} [opts.customCompare] Optional predicate `(a, b) => boolean` that shifts the *diffing boundary*. To sync, y-prosemirror diffs the ProseMirror doc against the Y document as `lib0/delta` trees; lib0's `diff` decides for each candidate node pair whether to pair them (diff *in place* via a `modify` op) or to **replace the old subtree wholesale** (delete + insert). By default a pair is matched purely on node name (`a.name === b.name`). Supply this to move the boundary - e.g. make a `blockContainer` only pair when its first child type also matches (`(a, b) => a.name === b.name && (a.name !== 'blockContainer' || firstChildName(a) === firstChildName(b))`), so changing the first child replaces the whole container instead of editing it in place. Receives the raw `lib0/delta` nodes `(fromNode, toNode)` (each exposing `.name`, `.attrs`, `.children`) and is forwarded to `lib0/delta.diff` as its `compare` option, applied recursively down the tree. Generally keep the `a.name === b.name` check; omit the option to keep lib0's name-only default.
- * @param {Array<(($d: s.Schema<any>) => dt.Template<any, any>)>} [opts.transformers] Optional custom transformer stages, slotted into the pipeline **between** `fullAttributions` and `attributionToFormat`, in data→view (`applyA`) order. Each is a `$d => Template` factory (see `lib0/delta/transformer`); the input schema is threaded left to right. Custom transformers see changes in canonical document space, with the complete accumulated attribution on every attribution-bearing op.
+ * @param {Array<(($d: s.Schema<any>) => dt.Template<any, any>)>} [opts.transformers] Optional custom transformer stages, slotted into the pipeline **between** the built-in compat flattening stage ({@link inlineAnonymousNodes}) and `attributionToFormat`, in data→view (`applyA`) order. Each is a `$d => Template` factory (see `lib0/delta/transformer`); the input schema is threaded left to right. Custom transformers see changes in the flattened document space (old-representation anonymous text containers already spliced into their parents), with the complete accumulated attribution on every attribution-bearing op.
  * @param {null|((err:Error,errCode:number)=>any)} [opts.onInternalError] Listen to internal
  * errors for debugging purposes. This API is unstable and can be changed/removed at any time!
  * (errCode 0: applyDelta failed)
@@ -98,7 +99,7 @@ export const syncPlugin = (opts = {}) => {
         if (!stateUpdate) {
           return prevPluginState
         }
-        return object.assign({}, prevPluginState, stateUpdate, stateUpdate.renderer == null ? { renderer: Y.baseRenderer } : {})
+        return object.assign({}, prevPluginState, stateUpdate, stateUpdate.renderer == null ? { renderer: null } : {})
       }
     },
     view () {
@@ -126,7 +127,7 @@ export const syncPlugin = (opts = {}) => {
         teardown()
         const ytype = pluginState.ytype
         if (ytype == null) return // paused
-        const renderer = pluginState.renderer || Y.baseRenderer
+        const renderer = pluginState.renderer || null
         const compare = pluginState.customCompare
         const conf = attributionMapperToConf(pluginState.attributionMapper)
         const yRdt = new YSyncRdt({
@@ -160,6 +161,11 @@ export const syncPlugin = (opts = {}) => {
           // resolves full attributions from the Y render instead of a stateful
           // overlay (see transformers/rendered-attributions.js for why)
           (/** @type {s.Schema<any>} */ $d2) => renderedAttributions($d2, () => yRdt.delta),
+          // compat: flatten old-representation nested anonymous text
+          // containers. Must run AFTER renderedAttributions (which
+          // parallel-walks the structured yRdt.delta) and BEFORE custom
+          // transformers, which see the flattened space.
+          (/** @type {s.Schema<any>} */ $d2) => inlineAnonymousNodes($d2),
           ...(opts.transformers ?? []),
           (/** @type {s.Schema<any>} */ $d2) => dt.attributionToFormat($d2, conf)
           // `diffCompare` applies `customCompare` to the initial-state sync

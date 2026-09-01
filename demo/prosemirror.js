@@ -42,7 +42,7 @@ elemToggleConnect.checked && providerYdoc.connectBc()
 const suggestionDoc = new Y.Doc({ gc: false, isSuggestionDoc: true })
 const providerYdocSuggestions = new WebsocketProvider('wss://demos.yjs.dev/ws', roomName + '--suggestions', suggestionDoc, { connect: false })
 elemToggleConnect.checked && providerYdocSuggestions.connectBc()
-const renderer = Y.createDiffRenderer(ydoc, suggestionDoc, { attrs: new Y.Attributions() })
+const renderer = Y.createDiffRenderer(ydoc, suggestionDoc, { attributions: Y.createContentMap() })
 
 const yxmlFragment = ydoc.get()
 

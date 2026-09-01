@@ -55,16 +55,16 @@ const createSuggestionSetup = (opts = {}) => {
   const suggestionDoc = new Y.Doc({ isSuggestionDoc: true, gc: false, guid: 'suggestions' })
   const suggestionModeDoc = new Y.Doc({ isSuggestionDoc: true, gc: false, guid: 'suggestions-edit' })
 
-  const attrs = new Y.Attributions()
+  const attrs = Y.createContentMap()
   const suggestionRenderer = Y.createDiffRenderer(doc, suggestionDoc, {
-    attrs
+    attributions: attrs
   })
   suggestionRenderer.suggestionMode = false
 
   const suggestionModeRenderer = Y.createDiffRenderer(
     doc,
     suggestionModeDoc,
-    { attrs }
+    { attributions: attrs }
   )
   suggestionModeRenderer.suggestionMode = true
 
@@ -716,7 +716,7 @@ export const testReconfigureAfterDeletion = () => {
     )
   })
   t.group('reconfigure', () => {
-    YPM.configureYProsemirror({ ytype: doc.get('prosemirror'), renderer: Y.baseRenderer })(viewSuggestionMode.state, viewSuggestionMode.dispatch)
+    YPM.configureYProsemirror({ ytype: doc.get('prosemirror'), renderer: null })(viewSuggestionMode.state, viewSuggestionMode.dispatch)
     assertDocJSON(
       viewSuggestionMode.state.doc,
       baseDoc,
@@ -794,7 +794,7 @@ export const testReconfigureAfterDeletion2 = () => {
     // )
   })
   t.group('reconfigure', () => {
-    YPM.configureYProsemirror({ ytype: doc.get('prosemirror'), renderer: Y.baseRenderer })(viewSuggestionMode.state, viewSuggestionMode.dispatch)
+    YPM.configureYProsemirror({ ytype: doc.get('prosemirror'), renderer: null })(viewSuggestionMode.state, viewSuggestionMode.dispatch)
     assertDocJSON(
       viewSuggestionMode.state.doc,
       baseDoc,
@@ -834,7 +834,7 @@ export const testSuggestInsertIntoDeletion = () => {
   const suggestionModeRenderer2 = Y.createDiffRenderer(
     setup1.doc,
     suggestionModeDoc2,
-    { attrs: new Y.Attributions() }
+    { attributions: Y.createContentMap() }
   )
   suggestionModeRenderer2.suggestionMode = true
 
@@ -1016,10 +1016,10 @@ export const testTwoViewSuggestionsUsersDivergeOnSplit = () => {
   const suggDocB = new Y.Doc({ isSuggestionDoc: true, gc: false, guid: 'sugg-b' })
   setupTwoWaySync(suggDocA, suggDocB)
 
-  const attrs = new Y.Attributions()
-  const rendererA = Y.createDiffRenderer(baseDoc, suggDocA, { attrs })
+  const attrs = Y.createContentMap()
+  const rendererA = Y.createDiffRenderer(baseDoc, suggDocA, { attributions: attrs })
   rendererA.suggestionMode = false
-  const rendererB = Y.createDiffRenderer(baseDoc, suggDocB, { attrs })
+  const rendererB = Y.createDiffRenderer(baseDoc, suggDocB, { attributions: attrs })
   rendererB.suggestionMode = false
 
   const viewA = createPMView(suggDocA.get('prosemirror'), rendererA)
@@ -1081,12 +1081,12 @@ export const testTwoViewSuggestionsUsersDivergeOnFormatAcrossInsert = () => {
   setupTwoWaySync(suggDocS1, suggDocS2)
   setupTwoWaySync(suggDocS2, suggDocM)
 
-  const attrs = new Y.Attributions()
-  const rendererS1 = Y.createDiffRenderer(baseDoc, suggDocS1, { attrs })
+  const attrs = Y.createContentMap()
+  const rendererS1 = Y.createDiffRenderer(baseDoc, suggDocS1, { attributions: attrs })
   rendererS1.suggestionMode = false
-  const rendererS2 = Y.createDiffRenderer(baseDoc, suggDocS2, { attrs })
+  const rendererS2 = Y.createDiffRenderer(baseDoc, suggDocS2, { attributions: attrs })
   rendererS2.suggestionMode = false
-  const rendererM = Y.createDiffRenderer(baseDoc, suggDocM, { attrs })
+  const rendererM = Y.createDiffRenderer(baseDoc, suggDocM, { attributions: attrs })
   rendererM.suggestionMode = true
 
   const viewS1 = createPMView(suggDocS1.get('prosemirror'), rendererS1)

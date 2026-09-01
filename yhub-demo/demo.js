@@ -248,7 +248,7 @@ let suggestionOtherClientID = random.uint53()
 
 console.log({ suggestionDoc, suggestionProvider })
 
-const suggestionRenderer = Y.createDiffRenderer(ydoc, suggestionDoc, { attrs: new Y.Attributions() })
+const suggestionRenderer = Y.createDiffRenderer(ydoc, suggestionDoc, { attributions: Y.createContentMap() })
 
 const elemSelectSuggestionMode = /** @type {HTMLSelectElement} */ (document.querySelector('#select-suggestion-mode'))
 const btnAcceptChanges = /** @type {HTMLButtonElement} */ (document.querySelector('#btn-accept-changes'))
@@ -340,12 +340,12 @@ const initLiveEditor = () => {
 /**
  * @param {Y.Doc} prev
  * @param {Y.Doc} next
- * @param {Y.Attributions} attributions
+ * @param {Y.ContentMap} attributions
  */
 const initVersionDiffEditor = (prev, next, attributions) => {
   isVersionView = true
   currentView.setProps({ editable: () => !isVersionView })
-  const diffRenderer = Y.createDiffRenderer(prev, next, { attrs: attributions })
+  const diffRenderer = Y.createDiffRenderer(prev, next, { attributions })
   const versionFragment = next.get('prosemirror')
   configureYProsemirror({
     ytype: versionFragment,

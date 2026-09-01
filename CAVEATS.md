@@ -26,12 +26,12 @@ One refinement to "the ytype wins": a fresh editor is never truly empty, because
 
 ## Compatibility with older `y-prosemirror`
 
-The new binding is not yet update-compatible with documents produced by the old `y-prosemirror`:
+The new binding is not yet fully update-compatible with documents produced by the old `y-prosemirror`:
 
-1. **Inline text representation.** The old binding represented inline text as a nested `Y.Text`; the new binding represents it as inline text inside the parent type. A transparent on-load migration is possible but not yet implemented.
+1. **Inline text representation.** The old binding represented inline text as a nested `Y.Text` (which decodes to an anonymous, `name === null` child type); the new binding represents it as inline text inside the parent type. The default pipeline now includes a compat stage (`src/transformers/inline-anonymous-nodes.js`) that flattens anonymous text containers at every depth for rendering, so old documents render and round-trip: edits strictly inside a flattened container are routed back *into* the nested type (the old representation is preserved in Y), while newly inserted nodes are written flat - mixed documents are fine. Remaining gaps: there is no eager migration of the stored representation; relative-position mapping (`src/positions.js`) assumes the flat 1:1 structure and is wrong inside old-representation paragraphs (cursors, undo positions); the `fragmentToPm`/`pmToFragment` utilities bypass the pipeline and do not flatten.
 2. **Overlapping marks.** The old binding supported multiple concurrent instances of the same mark type carrying different values (e.g., two `bold` marks with different payloads). This is not yet migrated, but could be.
 
-**Status:** planned. We intend for old documents to remain loadable.
+**Status:** in progress. We intend for old documents to remain loadable.
 
 ## Node splitting, merging, and lifting
 

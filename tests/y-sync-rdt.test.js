@@ -26,7 +26,7 @@ const PLUGIN_ORIGIN = { name: 'sync-plugin-origin' }
 const setup = (suggestionMode) => {
   const doc = new Y.Doc({ gc: false })
   const suggestionDoc = new Y.Doc({ isSuggestionDoc: true, gc: false })
-  const renderer = Y.createDiffRenderer(doc, suggestionDoc, { attrs: new Y.Attributions() })
+  const renderer = Y.createDiffRenderer(doc, suggestionDoc, { attributions: Y.createContentMap() })
   renderer.suggestionMode = suggestionMode
   doc.get('prosemirror').applyDelta(delta.create().insert([delta.create('paragraph', {}, 'base para')]).done())
   const ytype = suggestionDoc.get('prosemirror')
@@ -188,8 +188,8 @@ export const testInitRaceWithRequiredDocContent = _tc => {
   const ydoc2 = new Y.Doc({ gc: false })
   ydoc2.clientID = 2
   // bind both editors while the docs are still offline from each other
-  const view1 = createPMView(ydoc1.get('prosemirror'), Y.baseRenderer, { schema: requiredBlockquoteSchema })
-  const view2 = createPMView(ydoc2.get('prosemirror'), Y.baseRenderer, { schema: requiredBlockquoteSchema })
+  const view1 = createPMView(ydoc1.get('prosemirror'), null, { schema: requiredBlockquoteSchema })
+  const view2 = createPMView(ydoc2.get('prosemirror'), null, { schema: requiredBlockquoteSchema })
   try {
     // the schema-default content is gated — nothing is written at bind time
     // (this also pins that the binding's initial sync diffs empty vs empty)
@@ -254,8 +254,8 @@ export const testInitRaceFirstRenderReplacesGatedSkeleton = _tc => {
   ydoc1.clientID = 1
   const ydoc2 = new Y.Doc({ gc: false })
   ydoc2.clientID = 2
-  const view1 = createPMView(ydoc1.get('prosemirror'), Y.baseRenderer, { schema: requiredParagraphSchema })
-  const view2 = createPMView(ydoc2.get('prosemirror'), Y.baseRenderer, { schema: requiredParagraphSchema })
+  const view1 = createPMView(ydoc1.get('prosemirror'), null, { schema: requiredParagraphSchema })
+  const view2 = createPMView(ydoc2.get('prosemirror'), null, { schema: requiredParagraphSchema })
   try {
     t.assert(ydoc1.get('prosemirror').length === 0, 'client 1 wrote nothing at bind time')
     t.assert(ydoc2.get('prosemirror').length === 0, 'client 2 wrote nothing at bind time')

@@ -56,7 +56,7 @@ const provider2 = {
 }
 provider2.awareness.setLocalStateField('user', { name: 'Client B', color: '#6eeb83' })
 
-const attrs = new Y.Attributions()
+const attrs = Y.createContentMap()
 
 const suggestingDoc = new Y.Doc({ isSuggestionDoc: true })
 const suggestingProvider = {
@@ -66,7 +66,7 @@ suggestingProvider.awareness.setLocalStateField('user', { name: 'View Suggestion
 const suggestingRenderer = Y.createDiffRenderer(
   doc,
   suggestingDoc,
-  { attrs }
+  { attributions: attrs }
 )
 suggestingRenderer.suggestionMode = false
 
@@ -78,7 +78,7 @@ suggestionModeProvider.awareness.setLocalStateField('user', { name: 'Suggestion 
 const suggestionModeRenderer = Y.createDiffRenderer(
   doc,
   suggestionModeDoc,
-  { attrs }
+  { attributions: attrs }
 )
 suggestionModeRenderer.suggestionMode = true
 

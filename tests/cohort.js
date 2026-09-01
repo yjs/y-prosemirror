@@ -71,7 +71,7 @@ const PM_KEY = 'prosemirror'
  * @param {typeof YPM.defaultMapAttributionToMark} [opts.mapAttributionToMark]
  * @returns {EditorView}
  */
-export const createPMView = (ytype, renderer = Y.baseRenderer, opts = {}) => {
+export const createPMView = (ytype, renderer = null, opts = {}) => {
   const s = opts.schema || defaultSchema
   const plugin = YPM.syncPlugin(opts.mapAttributionToMark ? { mapAttributionToMark: opts.mapAttributionToMark } : {})
   const view = new EditorView(
@@ -190,7 +190,7 @@ export class Cohort {
     // every suggestion doc the matching user's `idx + 1` - all unique, and
     // trivially mapped back to the user that produced the items.
     this.baseDoc.clientID = 0
-    this.attrs = new Y.Attributions()
+    this.attrs = Y.createContentMap()
     /** @type {Array<CohortUser>} */
     this.users = modes.map((mode, idx) => this._mkUser(idx, mode))
     // Chain-sync every suggestion-aware user.
@@ -214,13 +214,13 @@ export class Cohort {
         idx,
         mode,
         suggestionDoc: null,
-        renderer: Y.baseRenderer,
-        view: createPMView(this.baseDoc.get(PM_KEY), Y.baseRenderer, this.opts)
+        renderer: null,
+        view: createPMView(this.baseDoc.get(PM_KEY), null, this.opts)
       }
     }
     const suggestionDoc = new Y.Doc({ isSuggestionDoc: true, gc: false, guid: `sugg-${idx}` })
     suggestionDoc.clientID = idx + 1
-    const renderer = Y.createDiffRenderer(this.baseDoc, suggestionDoc, { attrs: this.attrs })
+    const renderer = Y.createDiffRenderer(this.baseDoc, suggestionDoc, { attributions: this.attrs })
     renderer.suggestionMode = mode === 'suggestion-mode'
     return {
       idx,

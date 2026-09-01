@@ -1,4 +1,4 @@
-import * as Y from '@y/y'
+/** @import * as Y from '@y/y' */
 import * as array from 'lib0/array'
 import * as delta from 'lib0/delta'
 import * as error from 'lib0/error'
@@ -368,7 +368,7 @@ export const nodesToDelta = ns => {
  * @param {Y.AbstractRenderer?} [opts.renderer]
  * @returns {Y.Type}
  */
-export function pmToFragment (node, fragment, { renderer = Y.baseRenderer } = {}) {
+export function pmToFragment (node, fragment, { renderer = null } = {}) {
   // Canonicalize so the Y document never stores an attributed-variant name
   // (`--attributed` is a reserved suffix - identity when no variant is present).
   const initialPDelta = nodeToDelta(node, undefined, true).done()
@@ -388,7 +388,7 @@ export function pmToFragment (node, fragment, { renderer = Y.baseRenderer } = {}
  * @returns {import('prosemirror-state').Transaction}
  */
 export function fragmentToTr (fragment, tr, {
-  renderer = Y.baseRenderer,
+  renderer = null,
   mapAttributionToMark = defaultMapAttributionToMark,
   attributedNodes = defaultAttributedNodes
 } = {}) {

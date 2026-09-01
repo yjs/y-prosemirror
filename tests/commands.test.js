@@ -36,11 +36,11 @@ const setup = (baseContent) => {
   const suggestionDoc = new Y.Doc({ isSuggestionDoc: true, gc: false, guid: 'suggestions' })
   const suggestionModeDoc = new Y.Doc({ isSuggestionDoc: true, gc: false, guid: 'suggestions-edit' })
 
-  const attrs = new Y.Attributions()
-  const suggestionRenderer = Y.createDiffRenderer(doc, suggestionDoc, { attrs })
+  const attrs = Y.createContentMap()
+  const suggestionRenderer = Y.createDiffRenderer(doc, suggestionDoc, { attributions: attrs })
   suggestionRenderer.suggestionMode = false
 
-  const suggestionModeRenderer = Y.createDiffRenderer(doc, suggestionModeDoc, { attrs })
+  const suggestionModeRenderer = Y.createDiffRenderer(doc, suggestionModeDoc, { attributions: attrs })
   suggestionModeRenderer.suggestionMode = true
 
   setupTwoWaySync(suggestionDoc, suggestionModeDoc)

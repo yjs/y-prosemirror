@@ -82,10 +82,10 @@ const setup = (attributedNodes, baseContent, seedDelta = delta.create().insert([
   const suggestionDoc = new Y.Doc({ isSuggestionDoc: true, gc: false, guid: 'suggestions' })
   const suggestionModeDoc = new Y.Doc({ isSuggestionDoc: true, gc: false, guid: 'suggestions-edit' })
 
-  const attrs = new Y.Attributions()
-  const suggestionRenderer = Y.createDiffRenderer(doc, suggestionDoc, { attrs })
+  const attrs = Y.createContentMap()
+  const suggestionRenderer = Y.createDiffRenderer(doc, suggestionDoc, { attributions: attrs })
   suggestionRenderer.suggestionMode = false
-  const suggestionModeRenderer = Y.createDiffRenderer(doc, suggestionModeDoc, { attrs })
+  const suggestionModeRenderer = Y.createDiffRenderer(doc, suggestionModeDoc, { attributions: attrs })
   suggestionModeRenderer.suggestionMode = true
 
   setupTwoWaySync(suggestionDoc, suggestionModeDoc)
@@ -94,7 +94,7 @@ const setup = (attributedNodes, baseContent, seedDelta = delta.create().insert([
    * @param {Y.Type} ytype
    * @param {Y.AbstractRenderer?} [renderer]
    */
-  const mkView = (ytype, renderer = Y.baseRenderer) => {
+  const mkView = (ytype, renderer = null) => {
     const view = new EditorView(
       { mount: document.createElement('div') },
       { state: EditorState.create({ schema, plugins: [YPM.syncPlugin({ attributedNodes })] }) }
@@ -238,7 +238,7 @@ export const testYStoresCanonicalName = _tc => {
   ))
 
   const yjson = JSON.stringify(
-    suggestionModeDoc.get('prosemirror').toDelta({ renderer: Y.baseRenderer, deep: true }).toJSON()
+    suggestionModeDoc.get('prosemirror').toDelta({ renderer: null, deep: true }).toJSON()
   )
   t.assert(yjson.includes('paragraph'), 'sanity: Y delta mentions the paragraph node')
   t.assert(!yjson.includes('--attributed'), 'Y never stores the attributed-variant name')

@@ -12,7 +12,7 @@ import * as s from 'lib0/schema'
 export const absolutePositionToRelativePosition = (resolvedPos, type, renderer) => {
   if (resolvedPos.pos === 0) {
     // if the type is later populated, we want to retain the 0 position (hence assoc=-1)
-    return Y.createRelativePositionFromTypeIndex(type, 0, type.length === 0 ? -1 : 0, renderer || Y.baseRenderer)
+    return Y.createRelativePositionFromTypeIndex(type, 0, type.length === 0 ? -1 : 0, renderer || null)
   }
   const depth = resolvedPos.depth
   // Navigate through the Y.js structure using the path from ResolvedPos.
@@ -38,7 +38,7 @@ export const absolutePositionToRelativePosition = (resolvedPos, type, renderer) 
   }
   if (traversedDepth !== depth || currentYType == null || currentYType.length == null) {
     return Y.createRelativePositionFromTypeIndex(
-      type, 0, type.length === 0 ? -1 : 0, renderer || Y.baseRenderer)
+      type, 0, type.length === 0 ? -1 : 0, renderer || null)
   }
   // Use the parent offset as the position within the target Y.js type.
   // For inline content (text containers), parentOffset equals the Y type index.
@@ -51,7 +51,7 @@ export const absolutePositionToRelativePosition = (resolvedPos, type, renderer) 
 
   return Y.createRelativePositionFromTypeIndex(currentYType, offset,
     // If we are at the end of a type, then we want to be associated to the end of the type
-    offset > 0 && offset === currentYType.length ? -1 : 0, renderer || Y.baseRenderer)
+    offset > 0 && offset === currentYType.length ? -1 : 0, renderer || null)
 }
 
 /**
@@ -68,7 +68,7 @@ export const relativePositionToAbsolutePosition = (relPos, documentType, pmDoc, 
     return null
   }
   // (1) decodedPos.index is the absolute position starting at the referred  prosemirror node.
-  const decodedPos = Y.createAbsolutePositionFromRelativePosition(relPos, /** @type {Y.Doc} */ (documentType.doc), undefined, renderer || Y.baseRenderer)
+  const decodedPos = Y.createAbsolutePositionFromRelativePosition(relPos, /** @type {Y.Doc} */ (documentType.doc), undefined, renderer || null)
   if (decodedPos === null || (decodedPos.type !== documentType && !Y.isParentOf(documentType, decodedPos.type._item))) {
     return null
   }

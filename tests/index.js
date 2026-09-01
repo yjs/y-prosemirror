@@ -7,6 +7,7 @@ import * as suggestionSimulation from './suggestion-simulation.test.js'
 import * as attributedNodes from './attributed-nodes.test.js'
 import * as overlappingMarks from './overlapping-marks.test.js'
 import * as customCompare from './custom-compare.test.js'
+import * as inlineNodes from './inline-nodes.test.js'
 // import * as tr from './tr.test.js'
 
 import { runTests } from 'lib0/testing'
@@ -24,7 +25,8 @@ runTests({
   suggestionSimulation,
   attributedNodes,
   overlappingMarks,
-  customCompare
+  customCompare,
+  inlineNodes
   // prosemirror,
   // tr
 }).then(success => {

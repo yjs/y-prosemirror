@@ -18,7 +18,7 @@ const schema = new Schema({
  * @param {Y.Type} ytype
  * @param {Y.AbstractRenderer?} renderer
  */
-const createProsemirrorView = (ytype, renderer = Y.baseRenderer) => {
+const createProsemirrorView = (ytype, renderer = null) => {
   const view = new EditorView({ mount: document.createElement('div') }, {
     state: EditorState.create({
       schema,
