@@ -638,12 +638,14 @@ const renderActivityList = () => {
 
 const fetchActivity = async () => {
   try {
-    const response = await fetch(`${yhubApiUrl}/api/activity/v1/${org}/${docid}?delta=true&order=desc&limit=50&customAttributions=true&group=true`)
+    // the panel only renders from/by/customAttributions, so don't request the expensive deltas
+    const response = await fetch(`${yhubApiUrl}/api/activity/v1/${org}/${docid}?order=desc&limit=50&customAttributions=true&group=true`)
     if (!response.ok) return
     const arrayBuffer = await response.arrayBuffer()
+    // /activity responds with `{ activity, ydoc? }` (yhub >= 0.3)
     const data = buffer.decodeAny(new Uint8Array(arrayBuffer))
-    if (!Array.isArray(data)) return
-    activityData = data
+    if (!Array.isArray(data?.activity)) return
+    activityData = data.activity
     renderActivityList()
   } catch (e) {
     console.error('Failed to fetch activity:', e)
