@@ -1,6 +1,5 @@
 import { Plugin } from 'prosemirror-state'
 import { relativePositionStoreMapping } from './positions.js'
-import { usableTransformer } from './sync-plugin.js'
 import { yUndoPluginKey, ySyncPluginKey } from './keys.js'
 
 /**
@@ -24,10 +23,10 @@ import { yUndoPluginKey, ySyncPluginKey } from './keys.js'
 const getRelativeSelectionBookmark = (state) => {
   const syncState = ySyncPluginKey.getState(state)
   if (!syncState?.ytype || syncState.ytype.length === 0) return null
-  const { captureMapping, restoreMapping } = relativePositionStoreMapping(syncState.ytype)
+  const { captureMapping, restoreMapping } = relativePositionStoreMapping()
   // map through the binding transformer so positions anchor where the content actually
   // lives in Y; unresolvable positions are simply not captured (restore then skips)
-  const mappable = captureMapping(state.doc, { renderer: syncState.renderer, transformer: usableTransformer(syncState) }, true)
+  const mappable = captureMapping(state, true)
   const bookmark = state.selection.getBookmark().map(mappable)
   return { bookmark, restoreMapping }
 }
@@ -142,9 +141,7 @@ const createStackHandlers = (view, getLatestPrevSel) => {
       const syncState = ySyncPluginKey.getState(view.state)
       if (!syncState?.ytype) return
       try {
-        const restoredBookmark = sel.bookmark.map(
-          sel.restoreMapping(syncState.ytype, view.state.doc, { renderer: syncState.renderer, transformer: usableTransformer(syncState) })
-        )
+        const restoredBookmark = sel.bookmark.map(sel.restoreMapping(view.state))
         const selection = restoredBookmark.resolve(view.state.doc)
         const tr = view.state.tr.setSelection(selection)
         tr.setMeta('addToHistory', false)

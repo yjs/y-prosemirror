@@ -1,5 +1,7 @@
 import * as Y from '@y/y'
 import * as dpos from 'lib0/delta/position'
+import { ySyncPluginKey } from './keys.js'
+import { usableTransformer } from './sync-plugin.js'
 
 /**
  * Content index (lib0 delta coordinates: 1 slot per character, 1 slot per element child)
@@ -115,45 +117,44 @@ export const deltaPositionToResolvedPosition = (pmDoc, pos) => {
 }
 
 /**
- * Transforms a Prosemirror resolved position to a {@link Y.RelativePosition}.
- * Returns null when the position cannot be anchored in the Y tree (mid-dispatch
- * divergence, or structurally transformed subtrees like old-representation anonymous
- * containers - map through the binding transformer via
- * {@link resolvedPositionsToRelativePositions} to bridge those).
+ * The slice of the sync plugin state that position mapping needs. Normally derived from
+ * the editor state (`ySyncPluginKey.getState(state)`) - callers only pass it explicitly
+ * to overlay an in-flight `configureYProsemirror` update (see the cursor plugin's
+ * `apply`, which may run before the sync plugin's).
  *
- * @param {import('prosemirror-model').ResolvedPos} resolvedPos
- * @param {Y.Node} type
- * @param {Y.AbstractRenderer | null} [renderer]
- * @return {Y.RelativePosition | null} relative position
- */
-export const resolvedPositionToRelativePosition = (resolvedPos, type, renderer) =>
-  Y.createRelativePositionFromDeltaPosition(
-    type, resolvedPositionToDeltaPosition(resolvedPos), { renderer: renderer ?? null })
-
-/**
- * @typedef {object} TransformerPositionCtx
- * @property {Y.Node} ytype The bound root type (the data side of the binding)
- * @property {Y.AbstractRenderer | null} [renderer] The renderer the binding renders the data side with (the sync plugin state's `renderer`)
- * @property {import('lib0/delta/transformer').Transformer<any, any> | null} [transformer] A live binding's transformer (`binding.t`). It must already have been fed the document state - a live binding always has. When null, positions resolve directly (only correct while the Y render and the PM doc are structurally identical).
+ * @typedef {{ytype: Y.Node | null, renderer: Y.AbstractRenderer | null, binding?: import('lib0/delta/rdt').Binding<any, any> | null} | undefined} MappingSyncState
  */
 
 /**
- * Maps {@link Y.RelativePosition}s to Prosemirror resolved positions through a live
- * binding transformer: Y render space → transformer (data→view) → PM doc. Batched - one
- * Y resolution and one transformer pass serve all positions. Results are 1:1 with the
- * input; `null` marks positions that could not be resolved or were dropped by the
- * transformer (`null` inputs stay `null`).
+ * Transaction-time machinery: maps {@link Y.RelativePosition}s to Prosemirror resolved
+ * positions against a specific editor state - Y render space → binding transformer
+ * (data→view) → `state.doc`. Used by plugin internals that run *during* state
+ * application (plugin `apply`), where no view exists yet; positions resolve against the
+ * state being applied. Application code should use the view-based
+ * {@link relativePositionsToResolvedPositions} instead - a held state reference can be
+ * stale, `view.state` cannot.
  *
+ * The bound ytype, its renderer, and the live binding transformer are derived from the
+ * sync plugin state. Batched - one Y resolution and one transformer pass serve all
+ * positions. Results are 1:1 with the input; `null` marks positions that could not be
+ * resolved or were dropped by the transformer (`null` inputs stay `null`). Without a
+ * bound ytype (no sync plugin, or not configured) every result is `null`. Never throws.
+ *
+ * @param {import('prosemirror-state').EditorState} state
  * @param {Array<Y.RelativePosition | null>} rposs
- * @param {TransformerPositionCtx} ctx
- * @param {import('prosemirror-model').Node} pmDoc
+ * @param {MappingSyncState} [ystate] sync plugin state override (mid-dispatch overlays)
  * @return {Array<import('prosemirror-model').ResolvedPos | null>}
  */
-export const relativePositionsToResolvedPositions = (rposs, { ytype, renderer = null, transformer = null }, pmDoc) => {
+export const mapRelativePositionsToResolvedPositions = (state, rposs, ystate = ySyncPluginKey.getState(state)) => {
+  const ytype = ystate?.ytype
+  if (ytype == null) {
+    return rposs.map(() => null)
+  }
   // `renderer` is passed explicitly (null = plain render, never undefined): the binding
   // renders the data side with exactly this renderer, so the delta positions must
   // resolve in the same coordinates
-  const deltaPoss = Y.createDeltaPositionsFromRelativePositions(ytype, rposs, { renderer })
+  const deltaPoss = Y.createDeltaPositionsFromRelativePositions(ytype, rposs, { renderer: ystate?.renderer ?? null })
+  const transformer = usableTransformer(ystate)
   // compact - mapPositionsA does not accept null entries
   /**
    * @type {Array<import('lib0/delta/position').Pos>}
@@ -176,24 +177,37 @@ export const relativePositionsToResolvedPositions = (rposs, { ytype, renderer = 
   const result = rposs.map(() => null)
   mapped.forEach((p, i) => {
     if (p != null) {
-      result[compactIndex[i]] = deltaPositionToResolvedPosition(pmDoc, p)
+      result[compactIndex[i]] = deltaPositionToResolvedPosition(state.doc, p)
     }
   })
   return result
 }
 
 /**
- * Maps Prosemirror positions to {@link Y.RelativePosition}s through a live binding
- * transformer: PM doc → transformer (view→data) → Y render space. Batched - one
- * transformer pass serves all positions. `null` marks positions the transformer dropped
- * or that could not be anchored in the Y document.
+ * Transaction-time machinery: maps Prosemirror resolved positions to
+ * {@link Y.RelativePosition}s against a specific editor state - PM doc → binding
+ * transformer (view→data) → Y render space. Used by plugin internals that run *during*
+ * state application; application code should use the view-based
+ * {@link resolvedPositionsToRelativePositions} instead.
  *
+ * The bound ytype, its renderer, and the live binding transformer are derived from the
+ * sync plugin state. Batched - one transformer pass serves all positions. `null` marks
+ * positions the transformer dropped or that could not be anchored in the Y document.
+ * Without a bound ytype (no sync plugin, or not configured) every result is `null`.
+ * Never throws.
+ *
+ * @param {import('prosemirror-state').EditorState} state
  * @param {Array<import('prosemirror-model').ResolvedPos>} resolvedPositions
- * @param {TransformerPositionCtx} ctx
+ * @param {MappingSyncState} [ystate] sync plugin state override (mid-dispatch overlays)
  * @return {Array<Y.RelativePosition | null>}
  */
-export const resolvedPositionsToRelativePositions = (resolvedPositions, { ytype, renderer = null, transformer = null }) => {
+export const mapResolvedPositionsToRelativePositions = (state, resolvedPositions, ystate = ySyncPluginKey.getState(state)) => {
+  const ytype = ystate?.ytype
+  if (ytype == null) {
+    return resolvedPositions.map(() => null)
+  }
   const deltaPoss = resolvedPositions.map(resolvedPositionToDeltaPosition)
+  const transformer = usableTransformer(ystate)
   const mapped = transformer == null ? deltaPoss : dpos.mapPositionsB(transformer, deltaPoss)
   /**
    * @type {Array<import('lib0/delta/position').Pos>}
@@ -209,7 +223,7 @@ export const resolvedPositionsToRelativePositions = (resolvedPositions, { ytype,
       compactIndex.push(i)
     }
   })
-  const rposs = Y.createRelativePositionsFromDeltaPositions(ytype, compact, { renderer })
+  const rposs = Y.createRelativePositionsFromDeltaPositions(ytype, compact, { renderer: ystate?.renderer ?? null })
   /**
    * @type {Array<Y.RelativePosition | null>}
    */
@@ -221,67 +235,108 @@ export const resolvedPositionsToRelativePositions = (resolvedPositions, { ytype,
 }
 
 /**
- * Renderer/transformer context for encoding and resolving positions - the ytype comes
- * from the utility itself.
+ * Maps {@link Y.RelativePosition}s to Prosemirror resolved positions in the view's
+ * current document (batched - one Y resolution and one transformer pass serve all
+ * positions). See {@link mapRelativePositionsToResolvedPositions} for the mapping
+ * semantics. Takes the view rather than a state: a Prosemirror position is only
+ * meaningful against the latest document, and that is bound to the view.
  *
- * @typedef {object} PositionCtx
- * @property {Y.AbstractRenderer | null} [renderer]
- * @property {import('lib0/delta/transformer').Transformer<any, any> | null} [transformer]
+ * @param {import('prosemirror-view').EditorView} view
+ * @param {Array<Y.RelativePosition | null>} rposs
+ * @return {Array<import('prosemirror-model').ResolvedPos | null>}
  */
+export const relativePositionsToResolvedPositions = (view, rposs) =>
+  mapRelativePositionsToResolvedPositions(view.state, rposs)
 
 /**
- * Creates a function that can be used to keep track of a position of a Prosemirror document, and restore it to a position (number) in a different Prosemirror document.
- * Throws when the position cannot be anchored in the Y tree.
- * @param {import('prosemirror-model').ResolvedPos} resolvedPos Absolute position in the Prosemirror document
- * @param {Y.Node} type Top level type that is bound to pView
- * @param {PositionCtx} [ctx] renderer/transformer to encode the relative position with
- * @returns {(doc: import('prosemirror-model').Node, documentType?: Y.Node, ctx?: PositionCtx) => number}
+ * Maps Prosemirror resolved positions from the view's current document to
+ * {@link Y.RelativePosition}s (batched - one transformer pass serves all positions).
+ * See {@link mapResolvedPositionsToRelativePositions} for the mapping semantics.
+ *
+ * @param {import('prosemirror-view').EditorView} view
+ * @param {Array<import('prosemirror-model').ResolvedPos>} resolvedPositions
+ * @return {Array<Y.RelativePosition | null>}
  */
-export const relativePositionStore = (resolvedPos, type, ctx = {}) => {
-  const relPos = resolvedPositionsToRelativePositions([resolvedPos], { ytype: type, ...ctx })[0]
+export const resolvedPositionsToRelativePositions = (view, resolvedPositions) =>
+  mapResolvedPositionsToRelativePositions(view.state, resolvedPositions)
+
+/**
+ * Maps a single Prosemirror resolved position to a {@link Y.RelativePosition} through
+ * the live binding transformer. Returns `null` when the position cannot be anchored.
+ * See {@link resolvedPositionsToRelativePositions}.
+ *
+ * @param {import('prosemirror-view').EditorView} view
+ * @param {import('prosemirror-model').ResolvedPos} resolvedPos
+ * @return {Y.RelativePosition | null}
+ */
+export const resolvedPositionToRelativePosition = (view, resolvedPos) =>
+  resolvedPositionsToRelativePositions(view, [resolvedPos])[0]
+
+/**
+ * Maps a single {@link Y.RelativePosition} to a Prosemirror resolved position through
+ * the live binding transformer. Returns `null` when the position cannot be resolved.
+ * See {@link relativePositionsToResolvedPositions}.
+ *
+ * @param {import('prosemirror-view').EditorView} view
+ * @param {Y.RelativePosition | null} rpos
+ * @return {import('prosemirror-model').ResolvedPos | null}
+ */
+export const relativePositionToResolvedPosition = (view, rpos) =>
+  relativePositionsToResolvedPositions(view, [rpos])[0]
+
+/**
+ * Keeps track of a position across document changes: encodes `resolvedPos` as a
+ * {@link Y.RelativePosition} and returns a function that resolves it in the view's
+ * (possibly changed) current document - pass another editor's view to restore the
+ * position there. Returns `null` when the position cannot be anchored in the Y tree;
+ * the restore function returns `null` when the position can no longer be resolved.
+ * Never throws.
+ *
+ * @param {import('prosemirror-view').EditorView} view
+ * @param {import('prosemirror-model').ResolvedPos} resolvedPos
+ * @returns {null | ((view: import('prosemirror-view').EditorView) => import('prosemirror-model').ResolvedPos | null)}
+ */
+export const relativePositionStore = (view, resolvedPos) => {
+  const relPos = resolvedPositionsToRelativePositions(view, [resolvedPos])[0]
   if (relPos == null) {
-    throw new Error('Failed to encode position')
+    return null
   }
-  return (doc, documentType = type, ctx = {}) => {
-    const resolved = relativePositionsToResolvedPositions([relPos], { ytype: documentType, ...ctx }, doc)[0]
-    if (resolved === null) {
-      throw new Error('Failed to resolve position')
-    }
-    return resolved.pos
-  }
+  return (view) => relativePositionsToResolvedPositions(view, [relPos])[0]
 }
 
 /**
  * @callback CaptureMapping
- * @param {import('prosemirror-model').Node} doc Prosemirror document used to resolve positions
- * @param {PositionCtx} [ctx] renderer/transformer to encode the relative positions with
+ * @param {import('prosemirror-state').EditorState} state Editor state used to resolve and encode positions
  * @param {boolean} [clear] If true, clears all previously stored positions and captures fresh values for the mapping
  * @returns {import('prosemirror-transform').Mappable}
  */
 
 /**
  * @callback RestoreMapping
- * @param {Y.Node} type Top level type that is bound to pView
- * @param {import('prosemirror-model').Node} pmDoc Prosemirror document
- * @param {PositionCtx} [ctx] renderer/transformer to resolve the relative positions with
+ * @param {import('prosemirror-state').EditorState} state Editor state to resolve the stored positions in
  * @returns {import('prosemirror-transform').Mappable}
  */
 
 /**
  * Creates a pair of Mappable-compatible objects for capturing and restoring positions
  * via Y.js relative positions. Designed to work with ProseMirror's SelectionBookmark.map().
+ * Unlike the view-based utilities this is transaction-time machinery and takes editor
+ * *states*: the undo plugin captures bookmarks inside its plugin `apply`, where no view
+ * exists. Also unlike the other position utilities, the restore mapping throws when a
+ * position was never captured or can no longer be resolved - PM's `Mappable` contract
+ * is number-based and has no null channel, so callers treat a throw as "skip
+ * restoration".
  *
- * @param {Y.Node} type
  * @returns {{captureMapping: CaptureMapping, restoreMapping: RestoreMapping}}
  */
-export const relativePositionStoreMapping = (type) => {
+export const relativePositionStoreMapping = () => {
   /**
    * @type {Map<number, Y.RelativePosition>}
    */
   const positionMapping = new Map()
 
   return {
-    captureMapping: (doc, ctx = {}, clear = false) => {
+    captureMapping: (state, clear = false) => {
       if (clear) {
         positionMapping.clear()
       }
@@ -293,7 +348,7 @@ export const relativePositionStoreMapping = (type) => {
           // Store the relative position using the position as the key. Unresolvable
           // positions are not stored - restoring them throws, which callers treat
           // as "skip restoration".
-          const relPos = resolvedPositionsToRelativePositions([doc.resolve(pos)], { ytype: type, ...ctx })[0]
+          const relPos = mapResolvedPositionsToRelativePositions(state, [state.doc.resolve(pos)])[0]
           if (relPos != null) {
             positionMapping.set(pos, relPos)
           }
@@ -310,14 +365,14 @@ export const relativePositionStoreMapping = (type) => {
         }
       }
     },
-    restoreMapping (type, pmDoc, ctx = {}) {
+    restoreMapping (state) {
       return {
         map (pos) {
           const relPos = positionMapping.get(pos)
           if (!relPos) {
             throw new Error('Relative position not set')
           }
-          const resolved = relativePositionsToResolvedPositions([relPos], { ytype: type, ...ctx }, pmDoc)[0]
+          const resolved = mapRelativePositionsToResolvedPositions(state, [relPos])[0]
           if (resolved === null) {
             throw new Error('Failed to resolve position')
           }

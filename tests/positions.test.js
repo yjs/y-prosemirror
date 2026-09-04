@@ -11,7 +11,9 @@ import {
   resolvedPositionsToRelativePositions,
   deltaPositionToResolvedPosition,
   resolvedPositionToDeltaPosition,
+  relativePositionToResolvedPosition,
   relativePositionsToResolvedPositions,
+  relativePositionStore,
   relativePositionStoreMapping
 } from '../src/positions.js'
 
@@ -86,7 +88,7 @@ const assertRoundTripAllPositions = (view, ytype) => {
   const failures = []
   for (let pos = 0; pos <= size; pos++) {
     const resolvedPos = doc.resolve(pos)
-    const relPos = resolvedPositionToRelativePosition(resolvedPos, ytype)
+    const relPos = resolvedPositionToRelativePosition(view, resolvedPos)
     const absPos = relPos == null ? null : relPosToPmPos(relPos, ytype, doc)
     if (absPos !== pos) {
       failures.push(`pos ${pos} → ${absPos} (depth=${resolvedPos.depth}, parentOffset=${resolvedPos.parentOffset})`)
@@ -480,7 +482,7 @@ export const testDeltaPositionStalePmDocReturnsNull = (_tc) => {
   // Capture a relative position into the 4th paragraph (PM index 3) using the up-to-date doc.
   const upToDateDoc = view.state.doc
   const posInFourthPara = upToDateDoc.resolve(upToDateDoc.content.size - 1)
-  const relPos = resolvedPositionToRelativePosition(posInFourthPara, ytype)
+  const relPos = resolvedPositionToRelativePosition(view, posInFourthPara)
   t.assert(relPos, 'position encodes against the up-to-date doc')
 
   const stalePmDoc = schema.node('doc', null, [
@@ -508,7 +510,7 @@ export const testDeltaPositionStalePmDocReturnsNull = (_tc) => {
  * @param {t.TestCase} _tc
  */
 export const testStoreMappingRoundTrip = (_tc) => {
-  const { view, ytype } = createSetup(
+  const { view } = createSetup(
     delta.create().insert([
       delta.create('heading', { level: 1 }, 'Title'),
       delta.create('paragraph', {}, 'hello world'),
@@ -518,14 +520,14 @@ export const testStoreMappingRoundTrip = (_tc) => {
     ]).done()
   )
   const doc = view.state.doc
-  const { captureMapping, restoreMapping } = relativePositionStoreMapping(ytype)
-  const capture = captureMapping(doc)
+  const { captureMapping, restoreMapping } = relativePositionStoreMapping()
+  const capture = captureMapping(view.state)
   // Capture all valid positions
   for (let pos = 0; pos <= doc.content.size; pos++) {
     capture.map(pos)
   }
   // Restore and verify round-trip
-  const restore = restoreMapping(ytype, doc)
+  const restore = restoreMapping(view.state)
   const failures = []
   for (let pos = 0; pos <= doc.content.size; pos++) {
     const restored = restore.map(pos)
@@ -542,17 +544,17 @@ export const testStoreMappingRoundTrip = (_tc) => {
  * @param {t.TestCase} _tc
  */
 export const testStoreMappingBookmarkTextSelection = (_tc) => {
-  const { view, ytype } = createSetup(
+  const { view } = createSetup(
     delta.create().insert([
       delta.create('paragraph', {}, 'hello world')
     ]).done()
   )
   // Create a text selection from pos 3 to pos 8 ("llo w")
   const sel = TextSelection.create(view.state.doc, 3, 8)
-  const { captureMapping, restoreMapping } = relativePositionStoreMapping(ytype)
-  const bookmark = sel.getBookmark().map(captureMapping(view.state.doc))
+  const { captureMapping, restoreMapping } = relativePositionStoreMapping()
+  const bookmark = sel.getBookmark().map(captureMapping(view.state))
   // Restore on the same doc
-  const restored = bookmark.map(restoreMapping(ytype, view.state.doc)).resolve(view.state.doc)
+  const restored = bookmark.map(restoreMapping(view.state)).resolve(view.state.doc)
   t.assert(restored.from === 3, `anchor should be 3, got ${restored.from}`)
   t.assert(restored.to === 8, `head should be 8, got ${restored.to}`)
 }
@@ -570,8 +572,8 @@ export const testStoreMappingAfterRemoteChange = (_tc) => {
   )
   // Capture selection at "world" (pos 7 to 12)
   const sel = TextSelection.create(view.state.doc, 7, 12)
-  const { captureMapping, restoreMapping } = relativePositionStoreMapping(ytype)
-  const bookmark = sel.getBookmark().map(captureMapping(view.state.doc))
+  const { captureMapping, restoreMapping } = relativePositionStoreMapping()
+  const bookmark = sel.getBookmark().map(captureMapping(view.state))
 
   // Simulate a remote insert at the beginning of the paragraph via Y.js
   const child = /** @type {Y.Node} */ (ytype.get(0))
@@ -579,7 +581,7 @@ export const testStoreMappingAfterRemoteChange = (_tc) => {
 
   // The PM doc should now have "abc hello world" — positions shifted by 4
   const newDoc = view.state.doc
-  const restored = bookmark.map(restoreMapping(ytype, newDoc)).resolve(newDoc)
+  const restored = bookmark.map(restoreMapping(view.state)).resolve(newDoc)
   t.assert(newDoc.textContent === 'abc hello world', `doc should be "abc hello world", got "${newDoc.textContent}"`)
   t.assert(restored.from === 11, `anchor should be 11 (7+4), got ${restored.from}`)
   t.assert(restored.to === 16, `head should be 16 (12+4), got ${restored.to}`)
@@ -591,7 +593,7 @@ export const testStoreMappingAfterRemoteChange = (_tc) => {
  * @param {t.TestCase} _tc
  */
 export const testStoreMappingBookmarkNodeSelection = (_tc) => {
-  const { view, ytype } = createSetup(
+  const { view } = createSetup(
     delta.create().insert([
       delta.create('paragraph', {}, 'before'),
       delta.create('horizontal_rule'),
@@ -601,10 +603,10 @@ export const testStoreMappingBookmarkNodeSelection = (_tc) => {
   // NodeSelection on the horizontal_rule (position 8 = after "before" paragraph)
   const hrPos = 8
   const sel = NodeSelection.create(view.state.doc, hrPos)
-  const { captureMapping, restoreMapping } = relativePositionStoreMapping(ytype)
-  const bookmark = sel.getBookmark().map(captureMapping(view.state.doc))
+  const { captureMapping, restoreMapping } = relativePositionStoreMapping()
+  const bookmark = sel.getBookmark().map(captureMapping(view.state))
   // Restore on the same doc
-  const restored = bookmark.map(restoreMapping(ytype, view.state.doc)).resolve(view.state.doc)
+  const restored = bookmark.map(restoreMapping(view.state)).resolve(view.state.doc)
   t.assert(restored instanceof NodeSelection, 'restored selection should be NodeSelection')
   t.assert(restored.from === hrPos, `from should be ${hrPos}, got ${restored.from}`)
 }
@@ -694,10 +696,9 @@ export const testDeltaPositionRelativeRoundTrip = (_tc) => {
  * @param {t.TestCase} _tc
  */
 export const testTransformerMappedRoundTripAllPositions = (_tc) => {
-  const { view, ytype } = complexFixture()
+  const { view } = complexFixture()
   const binding = YPM.ySyncPluginKey.getState(view.state)?.binding
   t.assert(binding, 'binding is exposed on the sync plugin state')
-  const transformer = binding.t
   const doc = view.state.doc
   /**
    * @type {Array<import('prosemirror-model').ResolvedPos>}
@@ -706,8 +707,8 @@ export const testTransformerMappedRoundTripAllPositions = (_tc) => {
   for (let pos = 0; pos <= doc.content.size; pos++) {
     resolved.push(doc.resolve(pos))
   }
-  const rposs = resolvedPositionsToRelativePositions(resolved, { ytype, renderer: null, transformer })
-  const back = relativePositionsToResolvedPositions(rposs, { ytype, renderer: null, transformer }, doc)
+  const rposs = resolvedPositionsToRelativePositions(view, resolved)
+  const back = relativePositionsToResolvedPositions(view, rposs)
   /**
    * @type {Array<string>}
    */
@@ -740,11 +741,9 @@ export const testTransformerMappedOldRepresentation = (_tc) => {
   t.compare(view.state.doc.textContent, 'hello world', 'old representation renders flattened')
   const binding = YPM.ySyncPluginKey.getState(view.state)?.binding
   t.assert(binding, 'binding is exposed on the sync plugin state')
-  const transformer = binding.t
   const doc = view.state.doc
   // PM pos 6 = 'hello |world' inside the flattened paragraph
-  const [rpos] = resolvedPositionsToRelativePositions(
-    [doc.resolve(6)], { ytype, renderer: null, transformer })
+  const [rpos] = resolvedPositionsToRelativePositions(view, [doc.resolve(6)])
   t.assert(rpos != null, 'PM position maps to a relative position')
   const anon = /** @type {Y.Node} */ (/** @type {Y.Node} */ (ytype.get(0)).get(0))
   t.assert(anon.name === null, 'first paragraph child is the anonymous container')
@@ -752,13 +751,11 @@ export const testTransformerMappedOldRepresentation = (_tc) => {
   t.assert(decoded != null && decoded.type === anon, 'relative position anchors INSIDE the anonymous container')
   t.compare(decoded && decoded.index, 5, 'at text offset 5 within the container')
   // ... and back
-  const [absBack] = relativePositionsToResolvedPositions(
-    [(rpos)], { ytype, renderer: null, transformer }, doc)
+  const [absBack] = relativePositionsToResolvedPositions(view, [rpos])
   t.compare(absBack?.pos, 6, 'round-trips back to PM pos 6')
   // Y → PM: a relative position created directly inside the container
   const rposInAnon = Y.createRelativePositionFromTypeIndex(anon, 5, 0)
-  const [absFromAnon] = relativePositionsToResolvedPositions(
-    [rposInAnon], { ytype, renderer: null, transformer }, doc)
+  const absFromAnon = relativePositionToResolvedPosition(view, rposInAnon)
   t.compare(absFromAnon?.pos, 6, 'position inside the anonymous container resolves to the flattened PM pos')
   // without the transformer, the Y-tree delta position descends into a PM text
   // node and cannot resolve - the transformer mapping is what bridges the structures
@@ -783,14 +780,13 @@ export const testTransformerMappedNullHandling = (_tc) => {
   )
   const binding = YPM.ySyncPluginKey.getState(view.state)?.binding
   t.assert(binding, 'binding is exposed on the sync plugin state')
-  const transformer = binding.t
   const doc = view.state.doc
   const foreignType = /** @type {Y.Doc} */ (ytype.doc).get('other')
-  const results = relativePositionsToResolvedPositions([
-    resolvedPositionsToRelativePositions([doc.resolve(3)], { ytype, renderer: null, transformer })[0],
+  const results = relativePositionsToResolvedPositions(view, [
+    resolvedPositionsToRelativePositions(view, [doc.resolve(3)])[0],
     null,
     Y.createRelativePositionFromTypeIndex(foreignType, 0, 0)
-  ], { ytype, renderer: null, transformer }, doc)
+  ])
   t.compare(results[0]?.pos, 3, 'valid entry resolves')
   t.assert(results[1] === null, 'null input stays null')
   t.assert(results[2] === null, 'position outside the bound type maps to null')
@@ -816,7 +812,8 @@ export const testAbsoluteToRelativeUnresolvableReturnsNull = (_tc) => {
     schema.node('paragraph', null, schema.text('extra'))
   ])
   t.assert(
-    resolvedPositionToRelativePosition(divergedDoc.resolve(7), ytype) === null,
+    Y.createRelativePositionFromDeltaPosition(
+      ytype, resolvedPositionToDeltaPosition(divergedDoc.resolve(7)), { renderer: null }) === null,
     'position inside content the Y tree does not have returns null'
   )
   // empty (init-gated) ytype: the selection inside the schema-minimum paragraph
@@ -829,11 +826,11 @@ export const testAbsoluteToRelativeUnresolvableReturnsNull = (_tc) => {
   YPM.configureYProsemirror({ ytype: ytype2 })(view2.state, view2.dispatch)
   t.assert(ytype2.length === 0, 'ytype stays empty (initial-content gate)')
   t.assert(
-    resolvedPositionToRelativePosition(view2.state.doc.resolve(1), ytype2) === null,
+    resolvedPositionToRelativePosition(view2, view2.state.doc.resolve(1)) === null,
     'selection inside the gated empty editor cannot anchor'
   )
   t.assert(
-    resolvedPositionToRelativePosition(view2.state.doc.resolve(0), ytype2) != null,
+    resolvedPositionToRelativePosition(view2, view2.state.doc.resolve(0)) != null,
     'doc-level position 0 still anchors (position-0 retention)'
   )
   view2.destroy()
@@ -849,16 +846,15 @@ export const testAbsoluteToRelativeUnresolvableReturnsNull = (_tc) => {
 export const testStoreMappingTransformerOldRepresentation = (_tc) => {
   const textContainer = delta.create().insert('hello ').insert('world', { em: {} })
   const paragraph = delta.create('paragraph', {}).insert(/** @type {any} */ ([textContainer]))
-  const { view, ytype } = createSetup(
+  const { view } = createSetup(
     delta.create().insert(/** @type {any} */ ([paragraph])).done()
   )
   const binding = YPM.ySyncPluginKey.getState(view.state)?.binding
   t.assert(binding, 'binding is exposed on the sync plugin state')
-  const ctx = { transformer: binding.t }
   const sel = TextSelection.create(view.state.doc, 2, 6)
-  const { captureMapping, restoreMapping } = relativePositionStoreMapping(ytype)
-  const bookmark = sel.getBookmark().map(captureMapping(view.state.doc, ctx, true))
-  const restored = bookmark.map(restoreMapping(ytype, view.state.doc, ctx)).resolve(view.state.doc)
+  const { captureMapping, restoreMapping } = relativePositionStoreMapping()
+  const bookmark = sel.getBookmark().map(captureMapping(view.state, true))
+  const restored = bookmark.map(restoreMapping(view.state)).resolve(view.state.doc)
   t.assert(
     restored.from === 2 && restored.to === 6,
     `restored ${restored.from}..${restored.to}, expected 2..6`
@@ -880,10 +876,90 @@ export const testStoreMappingUnresolvableSkips = (_tc) => {
   })
   YPM.configureYProsemirror({ ytype })(view.state, view.dispatch)
   const sel = TextSelection.create(view.state.doc, 1)
-  const { captureMapping, restoreMapping } = relativePositionStoreMapping(ytype)
-  const bookmark = sel.getBookmark().map(captureMapping(view.state.doc, {}, true))
+  const { captureMapping, restoreMapping } = relativePositionStoreMapping()
+  const bookmark = sel.getBookmark().map(captureMapping(view.state, true))
   t.fails(() => {
-    bookmark.map(restoreMapping(ytype, view.state.doc, {}))
+    bookmark.map(restoreMapping(view.state))
   })
+  view.destroy()
+}
+
+// === relativePositionStore & state-derivation ===
+
+/**
+ * `relativePositionStore` on an old-representation doc: the position is encoded through
+ * the binding transformer, survives a remote edit inside the anonymous container, and
+ * restores as a ResolvedPos.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testRelativePositionStore = (_tc) => {
+  const textContainer = delta.create().insert('hello ').insert('world', { em: {} })
+  const paragraph = delta.create('paragraph', {}).insert(/** @type {any} */ ([textContainer]))
+  const { view, ytype } = createSetup(
+    delta.create().insert(/** @type {any} */ ([paragraph])).done()
+  )
+  const restore = relativePositionStore(view, view.state.doc.resolve(6))
+  t.assert(restore, 'position encodes through the binding transformer')
+  t.compare(restore(view)?.pos, 6, 'restores in the unchanged doc')
+  // remote insert at the start of the anonymous container shifts the position
+  const anon = /** @type {Y.Node} */ (/** @type {Y.Node} */ (ytype.get(0)).get(0))
+  anon.insert(0, 'ab')
+  t.compare(view.state.doc.textContent, 'abhello world', 'remote change synced')
+  t.compare(restore(view)?.pos, 8, 'restored position follows the remote insert')
+}
+
+/**
+ * `relativePositionStore` returns null (never throws) when the position cannot be
+ * anchored, and the restore function returns null when the stored position cannot be
+ * resolved in the given state (e.g. an unrelated editor).
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testRelativePositionStoreUnresolvableReturnsNull = (_tc) => {
+  // gated empty ytype - the selection inside the schema-minimum paragraph cannot anchor
+  const ydoc = new Y.Doc()
+  const gatedYtype = ydoc.get('prosemirror')
+  const gatedView = new EditorView({ mount: document.createElement('div') }, {
+    state: EditorState.create({ schema, plugins: [YPM.syncPlugin()] })
+  })
+  YPM.configureYProsemirror({ ytype: gatedYtype })(gatedView.state, gatedView.dispatch)
+  t.assert(
+    relativePositionStore(gatedView, gatedView.state.doc.resolve(1)) === null,
+    'unencodable position returns null instead of a store function'
+  )
+  gatedView.destroy()
+  // a position stored in one editor does not resolve in an unrelated editor's state
+  const a = createSetup(delta.create().insert([delta.create('paragraph', {}, 'hello')]).done())
+  const b = createSetup(delta.create().insert([delta.create('paragraph', {}, 'x')]).done())
+  const restore = relativePositionStore(a.view, a.view.state.doc.resolve(3))
+  t.assert(restore, 'position encodes in its own editor')
+  t.compare(restore(a.view)?.pos, 3, 'resolves in its own editor')
+  t.assert(restore(b.view) === null, 'returns null in an unrelated editor state')
+}
+
+/**
+ * Position mapping derives everything from the sync plugin state - a state without a
+ * configured sync plugin maps every position to null instead of throwing.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testPositionsWithoutSyncPluginReturnNull = (_tc) => {
+  const view = new EditorView({ mount: document.createElement('div') }, {
+    state: EditorState.create({ schema })
+  })
+  t.assert(
+    resolvedPositionsToRelativePositions(view, [view.state.doc.resolve(0)])[0] === null,
+    'PM→Y maps to null without a bound ytype'
+  )
+  const rpos = Y.createRelativePositionFromTypeIndex(new Y.Doc().get('prosemirror'), 0, 0)
+  t.assert(
+    relativePositionToResolvedPosition(view, rpos) === null,
+    'Y→PM maps to null without a bound ytype'
+  )
+  t.assert(
+    relativePositionStore(view, view.state.doc.resolve(0)) === null,
+    'relativePositionStore returns null without a bound ytype'
+  )
   view.destroy()
 }

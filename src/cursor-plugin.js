@@ -3,12 +3,12 @@ import { Decoration, DecorationSet } from 'prosemirror-view'
 import { Plugin } from 'prosemirror-state'
 import {
   resolvedPositionsToRelativePositions,
-  relativePositionsToResolvedPositions
+  mapRelativePositionsToResolvedPositions
 } from './positions.js'
 import { yCursorPluginKey, ySyncPluginKey } from './keys.js'
 
 import * as math from 'lib0/math'
-import { $syncPluginStateUpdate, usableTransformer } from './sync-plugin.js'
+import { $syncPluginStateUpdate } from './sync-plugin.js'
 
 /**
  * @typedef {Object} User
@@ -121,17 +121,20 @@ export const createDecorations = (
   // Map all awareness positions through the binding transformer in one batch, so they
   // resolve in the coordinates of the transformed (view-side) document. Without a live
   // binding (headless usage, or the pre-setup/stale-binding window) the positions
-  // resolve directly against the Y render.
-  const ctx = { ytype: type, renderer: ystate.renderer ?? null, transformer: usableTransformer(ystate) }
+  // resolve directly against the Y render. `ystate` is passed through explicitly
+  // because this can run mid-dispatch with an overlaid sync state (see the plugin's
+  // `apply`).
   /**
    * @type {Array<import('prosemirror-model').ResolvedPos | null>}
    */
   let positions
   try {
-    positions = relativePositionsToResolvedPositions(rposs, ctx, state.doc)
+    positions = mapRelativePositionsToResolvedPositions(state, rposs, ystate)
   } catch (err) {
-    console.warn('y-prosemirror cursor-plugin: transformer position mapping failed, falling back to direct resolution', err)
-    positions = relativePositionsToResolvedPositions(rposs, { ...ctx, transformer: null }, state.doc)
+    // should not happen - drop the remote cursors for this render rather than tearing
+    // down the dispatch; decorations recompute on the next state change
+    console.warn('y-prosemirror cursor-plugin: position mapping failed, skipping remote cursors', err)
+    return DecorationSet.empty
   }
   /**
    * @type {Decoration[]}
@@ -289,10 +292,7 @@ export const yCursorPlugin = (
             const sel = view.state.selection
             // map the selection through the binding transformer (view→data) so the
             // published positions anchor where the content actually lives in Y
-            const mapped = resolvedPositionsToRelativePositions(
-              [sel.$anchor, sel.$head],
-              { ytype: ystate.ytype, renderer: ystate.renderer ?? null, transformer: usableTransformer(ystate) }
-            )
+            const mapped = resolvedPositionsToRelativePositions(view, [sel.$anchor, sel.$head])
             // An unresolvable endpoint leaves nextState null - the policy then clears
             // the published cursor. Never publish a half-mapped pair (it could invert
             // the selection).
