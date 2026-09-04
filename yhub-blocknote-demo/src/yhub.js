@@ -1,5 +1,6 @@
 /* eslint-env browser */
 import * as Y from '@y/y'
+import { mapAttributionToMark } from '@blocknote/core/y'
 import { configureYProsemirror, ySyncPluginKey } from '@y/prosemirror'
 import { attributionMapperToConf, deltaAttributionToFormat, deltaToPNode } from '../../src/sync-utils.js'
 import * as delta from 'lib0/delta'
@@ -47,71 +48,14 @@ const usercolors = [
   { color: '#1be7ff', light: '#1be7ff33' }
 ]
 
-const palette = usercolors.map(c => c.color)
-
 /**
- * @param {string} s
- * @return {number}
+ * BlockNote now maintains the attribution mapper alongside its
+ * `y-attributed-*` mark schema (both live in `@blocknote/core/y`), so the
+ * mapper and the mark attrs stay in lockstep by construction. The marks
+ * themselves are registered on the editor via `YAttributionMarksExtension`
+ * (see Editor.jsx).
  */
-const hashStr = (s) => {
-  let h = 0
-  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0
-  return h >>> 0
-}
-
-/**
- * @param {readonly string[] | undefined | null} userIds
- * @return {string}
- */
-const colorForUserIds = (userIds) => {
-  if (!userIds || userIds.length === 0) return palette[0]
-  return palette[hashStr(String(userIds[0])) % palette.length]
-}
-
-/**
- * Map a Y attribution to BlockNote's `y-attributed-*` mark attrs.
- *
- * BlockNote ships its own definitions of these marks (see
- * `@blocknote/core/src/extensions/tiptap-extensions/Suggestions/SuggestionMarks.ts`)
- * with attrs that differ from what y-prosemirror's `defaultMapAttributionToMark`
- * emits, so we have to hand-roll the translation here. The mapper must be
- * deterministic in `(format, attribution)`: any non-determinism makes the
- * PM <-> Y reconcile diff non-empty on every transaction and the sync plugin
- * fires phantom reconcile dispatches in a loop. See ATTRIBUTION.md.
- *
- * Note: ideally this mapper would be maintained by the BlockNote authors
- * alongside the mark schema in the same repo, because any change to the
- * declared attrs (rename, added required field, dropped attr) will silently
- * break sync from y-prosemirror's side and we have no shared types to catch
- * it at build time.
- *
- * @param {Record<string, unknown> | null} format
- * @param {import('lib0/delta').Attribution} attribution
- * @return {Record<string, unknown>}
- */
-export const mapAttributionToMark = (format, attribution) => {
-  const out = /** @type {Record<string, unknown>} */ ({ ...format })
-  if (attribution.insert) {
-    out['y-attributed-insert'] = {
-      id: attribution.insert[0] ?? null,
-      'user-color': colorForUserIds(attribution.insert)
-    }
-  }
-  if (attribution.delete) {
-    out['y-attributed-delete'] = {
-      id: attribution.delete[0] ?? null,
-      'user-color': colorForUserIds(attribution.delete)
-    }
-  }
-  if (attribution.format) {
-    const userIds = [...(new Set(Object.values(attribution.format).flat()))]
-    out['y-attributed-format'] = {
-      id: userIds[0] ?? null,
-      'user-color': colorForUserIds(userIds)
-    }
-  }
-  return out
-}
+export { mapAttributionToMark }
 
 const userColor = usercolors[random.uint32() % usercolors.length]
 const org = 'yhub-blocknote-demo'
@@ -271,27 +215,39 @@ const initLiveEditor = () => {
       renderer: suggestionRenderer
     })(currentView.state, currentView.dispatch)
   }
+  if (versionDoc !== null) {
+    versionDoc.destroy()
+    versionDoc = null
+  }
   updateSuggestionButtons()
 }
 
 /**
- * @param {Y.Doc} prev
- * @param {Y.Doc} next
+ * The doc currently shown in version-diff view; destroyed when the view is
+ * replaced or closed.
+ * @type {Y.Doc | null}
+ */
+let versionDoc = null
+
+/**
+ * Renders a historical diff from a /changeset response: `doc` is the document
+ * as it was at the range's `to` (partially gc'd, deletes in range restorable),
+ * so overlaying the `attributions` alone renders the diff. The attributions
+ * carry who/when authored each change, so downstream mark tooltips show real
+ * users and timestamps.
+ * @param {Y.Doc} doc
  * @param {Y.ContentMap} attributions
  */
-const initVersionDiffEditor = (prev, next, attributions) => {
+const initVersionDiffEditor = (doc, attributions) => {
   if (!currentView) return
   isViewingVersion = true
-  // Pass the contentmap so the diff renderer knows who/when authored each
-  // change. Without `attrs`, the renderer only produces "what changed" (empty
-  // userIds, null timestamp), and downstream mark tooltips show
-  // "unknown / unknown time".
-  const diffRenderer = Y.createDiffRenderer(prev, next, { attributions })
-  const versionFragment = next.get('blocknote')
+  const renderer = Y.createAttributionsRenderer(attributions)
   configureYProsemirror({
-    ytype: versionFragment,
-    renderer: diffRenderer
+    ytype: doc.get('blocknote'),
+    renderer
   })(currentView.state, currentView.dispatch)
+  if (versionDoc !== null) versionDoc.destroy()
+  versionDoc = doc
 }
 
 const statusEl = /** @type {HTMLElement} */ (document.querySelector('#status'))
@@ -332,13 +288,23 @@ const formatTime = (ts) => {
 const countDelta = (d) => {
   let inserted = 0
   let deleted = 0
-  for (const op of d.children) {
-    if (op.attribution?.insert != null) {
-      inserted += op.insert.length
-    } else if (op.attribution?.delete != null) {
-      deleted += op.insert.length
+  // The delta is the whole document as a nested tree (yhub >= 0.3): the
+  // entry's changes are insert ops carrying attribution metadata (deleted
+  // content shows up as inserts attributed `delete`), nested arbitrarily
+  // deep inside block nodes. Walk recursively and count attributed chars.
+  /** @param {any} delta */
+  const walk = (delta) => {
+    for (const op of delta?.children ?? []) {
+      if (op.insert == null) continue
+      if (op.attribution?.insert != null) {
+        inserted += op.insert.length
+      } else if (op.attribution?.delete != null) {
+        deleted += op.insert.length
+      }
+      if (Array.isArray(op.insert)) op.insert.forEach(walk)
     }
   }
+  walk(d)
   return { inserted, deleted }
 }
 
@@ -438,9 +404,10 @@ const fetchActivity = async () => {
     const response = await fetch(`${yhubApiUrl}/api/activity/v1/${org}/${docid}?delta=true&order=desc&limit=50&customAttributions=true&group=true`)
     if (!response.ok) return
     const arrayBuffer = await response.arrayBuffer()
+    // /activity responds with `{ activity, ydoc? }` (yhub >= 0.3)
     const data = buffer.decodeAny(new Uint8Array(arrayBuffer))
-    if (!Array.isArray(data)) return
-    activityData = data
+    if (!Array.isArray(data?.activity)) return
+    activityData = data.activity
     renderActivityList()
   } catch (e) {
     console.error('Failed to fetch activity:', e)
@@ -467,11 +434,15 @@ const renderVersions = async (from, to) => {
     const response = await fetch(`${yhubApiUrl}/api/changeset/v1/${org}/${docid}?from=${from}&to=${to}&ydoc=true&attributions=true`)
     if (!response.ok) return
     const arrayBuffer = await response.arrayBuffer()
+    // /changeset responds with `{ ydoc?, attributions?, delta? }` (yhub >= 0.3):
+    // a single doc at `to` plus the attributions to overlay, instead of the
+    // old `{ prevDoc, nextDoc }` pair.
     const history = buffer.decodeAny(new Uint8Array(arrayBuffer))
-    const prev = Y.createDocFromUpdate(history.prevDoc)
-    const next = Y.createDocFromUpdate(history.nextDoc)
+    // gc must stay off so deleted content in the diff range can be rendered
+    const doc = new Y.Doc({ gc: false })
+    Y.applyUpdate(doc, history.ydoc)
     const attrs = Y.decodeContentMap(history.attributions)
-    initVersionDiffEditor(prev, next, attrs)
+    initVersionDiffEditor(doc, attrs)
   } catch (e) {
     console.error('Failed to fetch changeset:', e)
   }

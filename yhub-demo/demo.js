@@ -342,23 +342,37 @@ const initLiveEditor = () => {
       renderer: suggestionRenderer
     })(currentView.state, currentView.dispatch)
   }
+  if (versionDoc !== null) {
+    versionDoc.destroy()
+    versionDoc = null
+  }
   updateSuggestionButtons()
 }
 
 /**
- * @param {Y.Doc} prev
- * @param {Y.Doc} next
+ * The doc currently shown in version-diff view; destroyed when the view is
+ * replaced or closed.
+ * @type {Y.Doc | null}
+ */
+let versionDoc = null
+
+/**
+ * Renders a historical diff from a /changeset response: `doc` is the document
+ * as it was at the range's `to` (partially gc'd, deletes in range restorable),
+ * so overlaying the `attributions` alone renders the diff.
+ * @param {Y.Doc} doc
  * @param {Y.ContentMap} attributions
  */
-const initVersionDiffEditor = (prev, next, attributions) => {
+const initVersionDiffEditor = (doc, attributions) => {
   isVersionView = true
   currentView.setProps({ editable: () => !isVersionView })
-  const diffRenderer = Y.createDiffRenderer(prev, next, { attributions })
-  const versionFragment = next.get('prosemirror')
+  const renderer = Y.createAttributionsRenderer(attributions)
   configureYProsemirror({
-    ytype: versionFragment,
-    renderer: diffRenderer
+    ytype: doc.get('prosemirror'),
+    renderer
   })(currentView.state, currentView.dispatch)
+  if (versionDoc !== null) versionDoc.destroy()
+  versionDoc = doc
 }
 
 initLiveEditor()
@@ -672,11 +686,11 @@ const fetchActivity = async () => {
  * NEWER end-state at fromArrayIdx.
  *
  * Off-by-one note: `/activity` reports `.to` as the timestamp of the LAST
- * Yjs item in the activity group (inclusive). `/changeset?from=T` builds
- * `prevDoc` from items with timestamp strictly less than T, so an item whose
- * server timestamp equals `acts[N+1].to` would be excluded from `prevDoc`
- * and end up *inside* the newer diff. We compensate by passing `+1` for the
- * older boundary so the cutoff falls in the gap between activities.
+ * Yjs item in the activity group (inclusive). `/changeset?from=T` includes
+ * attributions with timestamp >= T in the highlighted window, so an item
+ * whose server timestamp equals `acts[N+1].to` would end up *inside* the
+ * newer diff. We compensate by passing `+1` for the older boundary so the
+ * cutoff falls in the gap between activities.
  */
 const resolveDiffRange = () => {
   if (fromArrayIdx === null || toArrayIdx === null) return null
@@ -698,11 +712,15 @@ const renderVersions = async (from, to) => {
     const response = await fetch(`${yhubApiUrl}/api/changeset/v1/${org}/${docid}?from=${from}&to=${to}&ydoc=true&attributions=true`)
     if (!response.ok) return
     const arrayBuffer = await response.arrayBuffer()
+    // /changeset responds with `{ ydoc?, attributions?, delta? }` (yhub >= 0.3):
+    // a single doc at `to` plus the attributions to overlay, instead of the
+    // old `{ prevDoc, nextDoc }` pair.
     const history = buffer.decodeAny(new Uint8Array(arrayBuffer))
-    const prev = Y.createDocFromUpdate(history.prevDoc)
-    const next = Y.createDocFromUpdate(history.nextDoc)
+    // gc must stay off so deleted content in the diff range can be rendered
+    const doc = new Y.Doc({ gc: false })
+    Y.applyUpdate(doc, history.ydoc)
     const attrs = Y.decodeContentMap(history.attributions)
-    initVersionDiffEditor(prev, next, attrs)
+    initVersionDiffEditor(doc, attrs)
   } catch (e) {
     console.error('Failed to fetch changeset:', e)
   }

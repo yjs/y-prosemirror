@@ -1,5 +1,6 @@
 import { useCreateBlockNote } from '@blocknote/react'
 import { createExtension } from '@blocknote/core'
+import { YAttributionMarksExtension } from '@blocknote/core/y'
 import { BlockNoteView } from '@blocknote/mantine'
 import '@blocknote/mantine/style.css'
 import { syncPlugin, yCursorPlugin } from '@y/prosemirror'
@@ -19,6 +20,8 @@ const YCursorExtension = createExtension(() => ({
 export default function Editor () {
   const editor = useCreateBlockNote({
     extensions: [
+      // registers the y-attributed-* marks that the attribution mapper emits
+      YAttributionMarksExtension(),
       YSyncExtension(),
       YCursorExtension()
     ]

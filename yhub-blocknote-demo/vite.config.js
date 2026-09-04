@@ -9,7 +9,12 @@ export default defineConfig({
       'lib0',
       'prosemirror-state',
       'prosemirror-view',
-      'prosemirror-model'
+      'prosemirror-model',
+      // The pkg.pr.new snapshots nest their own (older) @blocknote copies
+      // under react/mantine; everything must resolve to the single top-level
+      // copy or the prebundle fails on missing exports.
+      '@blocknote/core',
+      '@blocknote/react'
     ]
   },
   server: {
