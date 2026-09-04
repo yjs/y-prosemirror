@@ -719,7 +719,15 @@ const renderVersions = async (from, to) => {
     // gc must stay off so deleted content in the diff range can be rendered
     const doc = new Y.Doc({ gc: false })
     Y.applyUpdate(doc, history.ydoc)
-    const attrs = Y.decodeContentMap(history.attributions)
+    let attrs = Y.decodeContentMap(history.attributions)
+    // Content inserted AND deleted inside the window is a net no-op; cancel it
+    // out of both sides (insertions' -= deletions, deletions' -= insertions) so
+    // changesets from servers without the yhub-side cancellation render the same.
+    const contentIds = Y.createContentIdsFromContentMap(attrs)
+    const transient = Y.intersectSets(contentIds.inserts, contentIds.deletes)
+    if (transient.clients.size > 0) {
+      attrs = Y.excludeContentMap(attrs, Y.createContentIds(transient, transient))
+    }
     initVersionDiffEditor(doc, attrs)
   } catch (e) {
     console.error('Failed to fetch changeset:', e)
