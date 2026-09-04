@@ -1,6 +1,6 @@
 import { ySyncPluginKey, yUndoPluginKey } from './keys.js'
 import * as Y from '@y/y'
-import { absolutePositionsToRelativePositions } from './positions.js'
+import { resolvedPositionsToRelativePositions } from './positions.js'
 import { usableTransformer } from './sync-plugin.js'
 
 /**
@@ -91,7 +91,7 @@ export const rejectChanges = (start, end = start) => (state, dispatch) => {
   if (dispatch) {
     // map through the binding transformer so the PM range anchors where the content
     // actually lives in Y (e.g. inside old-representation anonymous containers)
-    const [relStart, relEnd] = absolutePositionsToRelativePositions(
+    const [relStart, relEnd] = resolvedPositionsToRelativePositions(
       [state.doc.resolve(start), state.doc.resolve(end)],
       { ytype: pluginState.ytype, renderer: pluginState.renderer, transformer: usableTransformer(pluginState) }
     )
@@ -118,7 +118,7 @@ export const acceptChanges = (start, end = start) => (state, dispatch) => {
   if (dispatch) {
     // map through the binding transformer so the PM range anchors where the content
     // actually lives in Y (e.g. inside old-representation anonymous containers)
-    const [relStart, relEnd] = absolutePositionsToRelativePositions(
+    const [relStart, relEnd] = resolvedPositionsToRelativePositions(
       [state.doc.resolve(start), state.doc.resolve(end)],
       { ytype: pluginState.ytype, renderer: pluginState.renderer, transformer: usableTransformer(pluginState) }
     )

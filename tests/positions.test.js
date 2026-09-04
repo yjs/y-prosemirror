@@ -7,11 +7,11 @@ import { EditorState, TextSelection, NodeSelection } from 'prosemirror-state'
 import { Schema } from 'prosemirror-model'
 import { EditorView } from 'prosemirror-view'
 import {
-  absolutePositionToRelativePosition,
-  absolutePositionsToRelativePositions,
-  deltaPositionToProsemirrorPosition,
-  prosemirrorPositionToDeltaPosition,
-  relativePositionsToAbsolutePositions,
+  resolvedPositionToRelativePosition,
+  resolvedPositionsToRelativePositions,
+  deltaPositionToResolvedPosition,
+  resolvedPositionToDeltaPosition,
+  relativePositionsToResolvedPositions,
   relativePositionStoreMapping
 } from '../src/positions.js'
 
@@ -69,7 +69,8 @@ const createSetup = (initialContent) => {
  */
 const relPosToPmPos = (relPos, ytype, doc, renderer = null) => {
   const deltaPos = Y.createDeltaPositionFromRelativePosition(ytype, relPos, { renderer })
-  return deltaPos == null ? null : deltaPositionToProsemirrorPosition(doc, deltaPos)
+  const resolved = deltaPos == null ? null : deltaPositionToResolvedPosition(doc, deltaPos)
+  return resolved == null ? null : resolved.pos
 }
 
 /**
@@ -85,7 +86,7 @@ const assertRoundTripAllPositions = (view, ytype) => {
   const failures = []
   for (let pos = 0; pos <= size; pos++) {
     const resolvedPos = doc.resolve(pos)
-    const relPos = absolutePositionToRelativePosition(resolvedPos, ytype)
+    const relPos = resolvedPositionToRelativePosition(resolvedPos, ytype)
     const absPos = relPos == null ? null : relPosToPmPos(relPos, ytype, doc)
     if (absPos !== pos) {
       failures.push(`pos ${pos} → ${absPos} (depth=${resolvedPos.depth}, parentOffset=${resolvedPos.parentOffset})`)
@@ -479,7 +480,7 @@ export const testDeltaPositionStalePmDocReturnsNull = (_tc) => {
   // Capture a relative position into the 4th paragraph (PM index 3) using the up-to-date doc.
   const upToDateDoc = view.state.doc
   const posInFourthPara = upToDateDoc.resolve(upToDateDoc.content.size - 1)
-  const relPos = absolutePositionToRelativePosition(posInFourthPara, ytype)
+  const relPos = resolvedPositionToRelativePosition(posInFourthPara, ytype)
   t.assert(relPos, 'position encodes against the up-to-date doc')
 
   const stalePmDoc = schema.node('doc', null, [
@@ -645,9 +646,9 @@ export const testDeltaPositionPmRoundTrip = (_tc) => {
    */
   const failures = []
   for (let pos = 0; pos <= doc.content.size; pos++) {
-    const dpos = prosemirrorPositionToDeltaPosition(doc.resolve(pos))
-    const back = deltaPositionToProsemirrorPosition(doc, dpos)
-    if (back !== pos) {
+    const dpos = resolvedPositionToDeltaPosition(doc.resolve(pos))
+    const back = deltaPositionToResolvedPosition(doc, dpos)
+    if (back?.pos !== pos) {
       failures.push(`pos ${pos} → ${JSON.stringify(dpos)} → ${back}`)
     }
   }
@@ -669,7 +670,7 @@ export const testDeltaPositionRelativeRoundTrip = (_tc) => {
    */
   const dposs = []
   for (let pos = 0; pos <= doc.content.size; pos++) {
-    dposs.push(prosemirrorPositionToDeltaPosition(doc.resolve(pos)))
+    dposs.push(resolvedPositionToDeltaPosition(doc.resolve(pos)))
   }
   const rposs = Y.createRelativePositionsFromDeltaPositions(ytype, dposs, { renderer: null })
   const back = Y.createDeltaPositionsFromRelativePositions(ytype, rposs, { renderer: null })
@@ -678,7 +679,7 @@ export const testDeltaPositionRelativeRoundTrip = (_tc) => {
    */
   const failures = []
   back.forEach((dpos, pos) => {
-    const abs = dpos == null ? null : deltaPositionToProsemirrorPosition(doc, dpos)
+    const abs = dpos == null ? null : (deltaPositionToResolvedPosition(doc, dpos)?.pos ?? null)
     if (abs !== pos) {
       failures.push(`pos ${pos} → ${JSON.stringify(dposs[pos])} → ${JSON.stringify(dpos)} → ${abs}`)
     }
@@ -705,15 +706,15 @@ export const testTransformerMappedRoundTripAllPositions = (_tc) => {
   for (let pos = 0; pos <= doc.content.size; pos++) {
     resolved.push(doc.resolve(pos))
   }
-  const rposs = absolutePositionsToRelativePositions(resolved, { ytype, renderer: null, transformer })
-  const back = relativePositionsToAbsolutePositions(rposs, { ytype, renderer: null, transformer }, doc)
+  const rposs = resolvedPositionsToRelativePositions(resolved, { ytype, renderer: null, transformer })
+  const back = relativePositionsToResolvedPositions(rposs, { ytype, renderer: null, transformer }, doc)
   /**
    * @type {Array<string>}
    */
   const failures = []
-  back.forEach((abs, pos) => {
-    if (abs !== pos) {
-      failures.push(`pos ${pos} → ${abs}`)
+  back.forEach((resolved, pos) => {
+    if (resolved?.pos !== pos) {
+      failures.push(`pos ${pos} → ${resolved?.pos}`)
     }
   })
   t.assert(failures.length === 0, `transformer round-trip failures:\n  ${failures.join('\n  ')}`)
@@ -742,7 +743,7 @@ export const testTransformerMappedOldRepresentation = (_tc) => {
   const transformer = binding.t
   const doc = view.state.doc
   // PM pos 6 = 'hello |world' inside the flattened paragraph
-  const [rpos] = absolutePositionsToRelativePositions(
+  const [rpos] = resolvedPositionsToRelativePositions(
     [doc.resolve(6)], { ytype, renderer: null, transformer })
   t.assert(rpos != null, 'PM position maps to a relative position')
   const anon = /** @type {Y.Node} */ (/** @type {Y.Node} */ (ytype.get(0)).get(0))
@@ -751,14 +752,14 @@ export const testTransformerMappedOldRepresentation = (_tc) => {
   t.assert(decoded != null && decoded.type === anon, 'relative position anchors INSIDE the anonymous container')
   t.compare(decoded && decoded.index, 5, 'at text offset 5 within the container')
   // ... and back
-  const [absBack] = relativePositionsToAbsolutePositions(
+  const [absBack] = relativePositionsToResolvedPositions(
     [(rpos)], { ytype, renderer: null, transformer }, doc)
-  t.compare(absBack, 6, 'round-trips back to PM pos 6')
+  t.compare(absBack?.pos, 6, 'round-trips back to PM pos 6')
   // Y → PM: a relative position created directly inside the container
   const rposInAnon = Y.createRelativePositionFromTypeIndex(anon, 5, 0)
-  const [absFromAnon] = relativePositionsToAbsolutePositions(
+  const [absFromAnon] = relativePositionsToResolvedPositions(
     [rposInAnon], { ytype, renderer: null, transformer }, doc)
-  t.compare(absFromAnon, 6, 'position inside the anonymous container resolves to the flattened PM pos')
+  t.compare(absFromAnon?.pos, 6, 'position inside the anonymous container resolves to the flattened PM pos')
   // without the transformer, the Y-tree delta position descends into a PM text
   // node and cannot resolve - the transformer mapping is what bridges the structures
   t.assert(
@@ -785,12 +786,12 @@ export const testTransformerMappedNullHandling = (_tc) => {
   const transformer = binding.t
   const doc = view.state.doc
   const foreignType = /** @type {Y.Doc} */ (ytype.doc).get('other')
-  const results = relativePositionsToAbsolutePositions([
-    absolutePositionsToRelativePositions([doc.resolve(3)], { ytype, renderer: null, transformer })[0],
+  const results = relativePositionsToResolvedPositions([
+    resolvedPositionsToRelativePositions([doc.resolve(3)], { ytype, renderer: null, transformer })[0],
     null,
     Y.createRelativePositionFromTypeIndex(foreignType, 0, 0)
   ], { ytype, renderer: null, transformer }, doc)
-  t.compare(results[0], 3, 'valid entry resolves')
+  t.compare(results[0]?.pos, 3, 'valid entry resolves')
   t.assert(results[1] === null, 'null input stays null')
   t.assert(results[2] === null, 'position outside the bound type maps to null')
 }
@@ -815,7 +816,7 @@ export const testAbsoluteToRelativeUnresolvableReturnsNull = (_tc) => {
     schema.node('paragraph', null, schema.text('extra'))
   ])
   t.assert(
-    absolutePositionToRelativePosition(divergedDoc.resolve(7), ytype) === null,
+    resolvedPositionToRelativePosition(divergedDoc.resolve(7), ytype) === null,
     'position inside content the Y tree does not have returns null'
   )
   // empty (init-gated) ytype: the selection inside the schema-minimum paragraph
@@ -828,11 +829,11 @@ export const testAbsoluteToRelativeUnresolvableReturnsNull = (_tc) => {
   YPM.configureYProsemirror({ ytype: ytype2 })(view2.state, view2.dispatch)
   t.assert(ytype2.length === 0, 'ytype stays empty (initial-content gate)')
   t.assert(
-    absolutePositionToRelativePosition(view2.state.doc.resolve(1), ytype2) === null,
+    resolvedPositionToRelativePosition(view2.state.doc.resolve(1), ytype2) === null,
     'selection inside the gated empty editor cannot anchor'
   )
   t.assert(
-    absolutePositionToRelativePosition(view2.state.doc.resolve(0), ytype2) != null,
+    resolvedPositionToRelativePosition(view2.state.doc.resolve(0), ytype2) != null,
     'doc-level position 0 still anchors (position-0 retention)'
   )
   view2.destroy()

@@ -2,8 +2,8 @@ import * as Y from '@y/y'
 import { Decoration, DecorationSet } from 'prosemirror-view'
 import { Plugin } from 'prosemirror-state'
 import {
-  absolutePositionsToRelativePositions,
-  relativePositionsToAbsolutePositions
+  resolvedPositionsToRelativePositions,
+  relativePositionsToResolvedPositions
 } from './positions.js'
 import { yCursorPluginKey, ySyncPluginKey } from './keys.js'
 
@@ -124,25 +124,25 @@ export const createDecorations = (
   // resolve directly against the Y render.
   const ctx = { ytype: type, renderer: ystate.renderer ?? null, transformer: usableTransformer(ystate) }
   /**
-   * @type {Array<number | null>}
+   * @type {Array<import('prosemirror-model').ResolvedPos | null>}
    */
   let positions
   try {
-    positions = relativePositionsToAbsolutePositions(rposs, ctx, state.doc)
+    positions = relativePositionsToResolvedPositions(rposs, ctx, state.doc)
   } catch (err) {
     console.warn('y-prosemirror cursor-plugin: transformer position mapping failed, falling back to direct resolution', err)
-    positions = relativePositionsToAbsolutePositions(rposs, { ...ctx, transformer: null }, state.doc)
+    positions = relativePositionsToResolvedPositions(rposs, { ...ctx, transformer: null }, state.doc)
   }
   /**
    * @type {Decoration[]}
    */
   const decorations = []
   entries.forEach(({ clientId, user }, i) => {
-    let anchor = positions[i * 2]
-    let head = positions[i * 2 + 1]
-    if (anchor !== null && head !== null) {
-      anchor = math.min(anchor, maxsize)
-      head = math.min(head, maxsize)
+    const resolvedAnchor = positions[i * 2]
+    const resolvedHead = positions[i * 2 + 1]
+    if (resolvedAnchor !== null && resolvedHead !== null) {
+      const anchor = math.min(resolvedAnchor.pos, maxsize)
+      const head = math.min(resolvedHead.pos, maxsize)
       decorations.push(
         Decoration.widget(head, () => createCursor(user, clientId), {
           key: clientId + '',
@@ -289,7 +289,7 @@ export const yCursorPlugin = (
             const sel = view.state.selection
             // map the selection through the binding transformer (view→data) so the
             // published positions anchor where the content actually lives in Y
-            const mapped = absolutePositionsToRelativePositions(
+            const mapped = resolvedPositionsToRelativePositions(
               [sel.$anchor, sel.$head],
               { ytype: ystate.ytype, renderer: ystate.renderer ?? null, transformer: usableTransformer(ystate) }
             )

@@ -26,7 +26,7 @@ const pmContentIndex = (parent, childIndex) => {
  * @param {import('prosemirror-model').ResolvedPos} resolvedPos
  * @return {import('lib0/delta/position').Pos}
  */
-export const prosemirrorPositionToDeltaPosition = (resolvedPos) => {
+export const resolvedPositionToDeltaPosition = (resolvedPos) => {
   const depth = resolvedPos.depth
   /**
    * @type {Array<number>}
@@ -47,16 +47,16 @@ export const prosemirrorPositionToDeltaPosition = (resolvedPos) => {
 
 /**
  * Resolves a lib0 delta position (a tree position, PM-doc-rooted, view-side coordinates)
- * to a Prosemirror flat position. Returns null when the path cannot be followed
- * (attribute steps, descent into text/leaf nodes, out-of-range non-terminal steps). A
- * terminal offset beyond the parent's content is clamped to the parent's end
- * (end-of-type relative positions resolve there).
+ * to a Prosemirror {@link import('prosemirror-model').ResolvedPos}. Returns null when
+ * the path cannot be followed (attribute steps, descent into text/leaf nodes,
+ * out-of-range non-terminal steps). A terminal offset beyond the parent's content is
+ * clamped to the parent's end (end-of-type relative positions resolve there).
  *
  * @param {import('prosemirror-model').Node} pmDoc
  * @param {import('lib0/delta/position').Pos} pos
- * @return {number | null}
+ * @return {import('prosemirror-model').ResolvedPos | null}
  */
-export const deltaPositionToProsemirrorPosition = (pmDoc, pos) => {
+export const deltaPositionToResolvedPosition = (pmDoc, pos) => {
   let node = pmDoc
   let base = 0
   const path = pos.path
@@ -106,7 +106,8 @@ export const deltaPositionToProsemirrorPosition = (pmDoc, pos) => {
           rem = 0
         }
       }
-      return base + (rem > 0 ? node.content.size : off)
+      // the walk guarantees an in-range position, so `resolve` cannot throw
+      return pmDoc.resolve(base + (rem > 0 ? node.content.size : off))
     }
   }
   // an empty path addresses the root node itself, not a cursor gap
@@ -114,20 +115,20 @@ export const deltaPositionToProsemirrorPosition = (pmDoc, pos) => {
 }
 
 /**
- * Transforms a Prosemirror based absolute position to a {@link Y.RelativePosition}.
+ * Transforms a Prosemirror resolved position to a {@link Y.RelativePosition}.
  * Returns null when the position cannot be anchored in the Y tree (mid-dispatch
  * divergence, or structurally transformed subtrees like old-representation anonymous
  * containers - map through the binding transformer via
- * {@link absolutePositionsToRelativePositions} to bridge those).
+ * {@link resolvedPositionsToRelativePositions} to bridge those).
  *
  * @param {import('prosemirror-model').ResolvedPos} resolvedPos
  * @param {Y.Node} type
  * @param {Y.AbstractRenderer | null} [renderer]
  * @return {Y.RelativePosition | null} relative position
  */
-export const absolutePositionToRelativePosition = (resolvedPos, type, renderer) =>
+export const resolvedPositionToRelativePosition = (resolvedPos, type, renderer) =>
   Y.createRelativePositionFromDeltaPosition(
-    type, prosemirrorPositionToDeltaPosition(resolvedPos), { renderer: renderer ?? null })
+    type, resolvedPositionToDeltaPosition(resolvedPos), { renderer: renderer ?? null })
 
 /**
  * @typedef {object} TransformerPositionCtx
@@ -137,7 +138,7 @@ export const absolutePositionToRelativePosition = (resolvedPos, type, renderer) 
  */
 
 /**
- * Maps {@link Y.RelativePosition}s to Prosemirror absolute positions through a live
+ * Maps {@link Y.RelativePosition}s to Prosemirror resolved positions through a live
  * binding transformer: Y render space → transformer (data→view) → PM doc. Batched - one
  * Y resolution and one transformer pass serve all positions. Results are 1:1 with the
  * input; `null` marks positions that could not be resolved or were dropped by the
@@ -146,9 +147,9 @@ export const absolutePositionToRelativePosition = (resolvedPos, type, renderer) 
  * @param {Array<Y.RelativePosition | null>} rposs
  * @param {TransformerPositionCtx} ctx
  * @param {import('prosemirror-model').Node} pmDoc
- * @return {Array<number | null>}
+ * @return {Array<import('prosemirror-model').ResolvedPos | null>}
  */
-export const relativePositionsToAbsolutePositions = (rposs, { ytype, renderer = null, transformer = null }, pmDoc) => {
+export const relativePositionsToResolvedPositions = (rposs, { ytype, renderer = null, transformer = null }, pmDoc) => {
   // `renderer` is passed explicitly (null = plain render, never undefined): the binding
   // renders the data side with exactly this renderer, so the delta positions must
   // resolve in the same coordinates
@@ -170,12 +171,12 @@ export const relativePositionsToAbsolutePositions = (rposs, { ytype, renderer = 
   })
   const mapped = transformer == null ? compact : dpos.mapPositionsA(transformer, compact)
   /**
-   * @type {Array<number | null>}
+   * @type {Array<import('prosemirror-model').ResolvedPos | null>}
    */
   const result = rposs.map(() => null)
   mapped.forEach((p, i) => {
     if (p != null) {
-      result[compactIndex[i]] = deltaPositionToProsemirrorPosition(pmDoc, p)
+      result[compactIndex[i]] = deltaPositionToResolvedPosition(pmDoc, p)
     }
   })
   return result
@@ -191,8 +192,8 @@ export const relativePositionsToAbsolutePositions = (rposs, { ytype, renderer = 
  * @param {TransformerPositionCtx} ctx
  * @return {Array<Y.RelativePosition | null>}
  */
-export const absolutePositionsToRelativePositions = (resolvedPositions, { ytype, renderer = null, transformer = null }) => {
-  const deltaPoss = resolvedPositions.map(prosemirrorPositionToDeltaPosition)
+export const resolvedPositionsToRelativePositions = (resolvedPositions, { ytype, renderer = null, transformer = null }) => {
+  const deltaPoss = resolvedPositions.map(resolvedPositionToDeltaPosition)
   const mapped = transformer == null ? deltaPoss : dpos.mapPositionsB(transformer, deltaPoss)
   /**
    * @type {Array<import('lib0/delta/position').Pos>}
@@ -229,7 +230,7 @@ export const absolutePositionsToRelativePositions = (resolvedPositions, { ytype,
  */
 
 /**
- * Creates a function that can be used to keep track of an absolute position of a Prosemirror document, and restore it to an absolute position in a different Prosemirror document.
+ * Creates a function that can be used to keep track of a position of a Prosemirror document, and restore it to a position (number) in a different Prosemirror document.
  * Throws when the position cannot be anchored in the Y tree.
  * @param {import('prosemirror-model').ResolvedPos} resolvedPos Absolute position in the Prosemirror document
  * @param {Y.Node} type Top level type that is bound to pView
@@ -237,16 +238,16 @@ export const absolutePositionsToRelativePositions = (resolvedPositions, { ytype,
  * @returns {(doc: import('prosemirror-model').Node, documentType?: Y.Node, ctx?: PositionCtx) => number}
  */
 export const relativePositionStore = (resolvedPos, type, ctx = {}) => {
-  const relPos = absolutePositionsToRelativePositions([resolvedPos], { ytype: type, ...ctx })[0]
+  const relPos = resolvedPositionsToRelativePositions([resolvedPos], { ytype: type, ...ctx })[0]
   if (relPos == null) {
     throw new Error('Failed to encode position')
   }
   return (doc, documentType = type, ctx = {}) => {
-    const absPos = relativePositionsToAbsolutePositions([relPos], { ytype: documentType, ...ctx }, doc)[0]
-    if (absPos === null) {
-      throw new Error('Failed to resolve absolute position')
+    const resolved = relativePositionsToResolvedPositions([relPos], { ytype: documentType, ...ctx }, doc)[0]
+    if (resolved === null) {
+      throw new Error('Failed to resolve position')
     }
-    return absPos
+    return resolved.pos
   }
 }
 
@@ -292,7 +293,7 @@ export const relativePositionStoreMapping = (type) => {
           // Store the relative position using the position as the key. Unresolvable
           // positions are not stored - restoring them throws, which callers treat
           // as "skip restoration".
-          const relPos = absolutePositionsToRelativePositions([doc.resolve(pos)], { ytype: type, ...ctx })[0]
+          const relPos = resolvedPositionsToRelativePositions([doc.resolve(pos)], { ytype: type, ...ctx })[0]
           if (relPos != null) {
             positionMapping.set(pos, relPos)
           }
@@ -316,11 +317,12 @@ export const relativePositionStoreMapping = (type) => {
           if (!relPos) {
             throw new Error('Relative position not set')
           }
-          const absPos = relativePositionsToAbsolutePositions([relPos], { ytype: type, ...ctx }, pmDoc)[0]
-          if (absPos === null) {
-            throw new Error('Failed to resolve absolute position')
+          const resolved = relativePositionsToResolvedPositions([relPos], { ytype: type, ...ctx }, pmDoc)[0]
+          if (resolved === null) {
+            throw new Error('Failed to resolve position')
           }
-          return absPos
+          // PM's Mappable contract is number-based
+          return resolved.pos
         },
         mapResult (originalPos) {
           const mappedPos = this.map(originalPos)
