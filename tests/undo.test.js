@@ -22,7 +22,7 @@ const schema = new Schema({
 })
 
 /**
- * @param {Y.Type} ytype
+ * @param {Y.Node} ytype
  */
 const createProsemirrorView = (ytype) => {
   const undoManager = new Y.UndoManager(ytype)
@@ -37,7 +37,7 @@ const createProsemirrorView = (ytype) => {
 }
 
 /**
- * @param {Y.Type} ytype
+ * @param {Y.Node} ytype
  * @param {import('@y/y').UndoManager} undoManager
  */
 const createProsemirrorViewWithUm = (ytype, undoManager) => {
@@ -706,7 +706,7 @@ export const testUndoCommand = () => {
  * transaction (no addToHistory meta). This is the scenario from yjs/y-prosemirror#141.
  */
 /**
- * @param {Y.Type} ytype
+ * @param {Y.Node} ytype
  */
 const createViewWithAppendTransactionPlugin = (ytype) => {
   const undoManager = new Y.UndoManager(ytype)

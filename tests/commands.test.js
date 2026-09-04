@@ -190,3 +190,33 @@ export const testMixedAcceptAndReject = () => {
   assertDocJSON(viewer.state.doc, postAccept, 'viewer: second suggestion rejected')
   assertDocJSON(editor.state.doc, postAccept, 'editor: second suggestion rejected')
 }
+
+/**
+ * acceptChanges(from, to) on an OLD-representation doc: the flattened PM range is
+ * mapped through the binding transformer, so the anchors land inside the anonymous
+ * text container where the suggested change actually lives.
+ */
+export const testAcceptChangesRangeOldRepresentation = () => {
+  const doc = new Y.Doc({ gc: false, guid: 'base-old' })
+  const suggestionModeDoc = new Y.Doc({ isSuggestionDoc: true, gc: false, guid: 'suggestions-old' })
+  const attrs = Y.createContentMap()
+  const suggestionModeRenderer = Y.createDiffRenderer(doc, suggestionModeDoc, { attributions: attrs })
+  suggestionModeRenderer.suggestionMode = true
+
+  // OLD representation: doc > paragraph > <anonymous>"hello"
+  const textContainer = delta.create().insert('hello')
+  doc.get('prosemirror').applyDelta(
+    delta.create().insert([delta.create('paragraph', {}).insert(/** @type {any} */ ([textContainer]))]).done()
+  )
+
+  const base = createPMView(doc.get('prosemirror'))
+  const editor = createPMView(suggestionModeDoc.get('prosemirror'), suggestionModeRenderer)
+  t.assert(editor.state.doc.textContent === 'hello', 'old representation renders flattened')
+
+  // suggest deleting the interior 'el' (flattened PM positions 2..4)
+  editor.dispatch(editor.state.tr.delete(2, 4))
+  t.assert(YPM.acceptChanges(2, 4)(editor.state, editor.dispatch) === true, 'command applies')
+
+  t.assert(base.state.doc.textContent === 'hlo', `base merged the deletion, got "${base.state.doc.textContent}"`)
+  t.assert(editor.state.doc.textContent === 'hlo', `editor shows accepted result, got "${editor.state.doc.textContent}"`)
+}

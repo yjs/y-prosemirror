@@ -19,7 +19,7 @@ import { schema } from './complexSchema.js'
  * Seed the OLD y-prosemirror representation:
  * `doc > paragraph > <anonymous>"hello " + em("world")</>`
  *
- * @param {Y.Type} ytype
+ * @param {Y.Node} ytype
  */
 const seedOldRepresentation = (ytype) => {
   const textContainer = delta.create().insert('hello ').insert('world', { em: {} })
@@ -28,7 +28,7 @@ const seedOldRepresentation = (ytype) => {
 }
 
 /**
- * @param {Y.Type} ytype
+ * @param {Y.Node} ytype
  */
 const mkView = (ytype) => {
   const view = new EditorView({ mount: document.createElement('div') }, {

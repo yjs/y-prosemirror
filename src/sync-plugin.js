@@ -9,18 +9,18 @@ import { YSyncRdt } from './rdt/y-sync.js'
 import { ProsemirrorRdt } from './rdt/prosemirror.js'
 import { renderedAttributions } from './transformers/rendered-attributions.js'
 import { inlineAnonymousNodes } from './transformers/inline-anonymous-nodes.js'
-import { bind } from 'lib0/delta/rdt'
+import { bind, Binding } from 'lib0/delta/rdt'
 import * as dt from 'lib0/delta/transformer'
 import { ySyncPluginKey } from './keys.js'
 import * as s from 'lib0/schema'
 import * as object from 'lib0/object'
 
 /**
- * The y-prosemirror binding is a bi-directional synchronization with the provided Y.Type and the EditorView
- * Any change applied to the EditorView will be applied (via deltas) to the Y.Type, and vice versa.
+ * The y-prosemirror binding is a bi-directional synchronization with the provided Y.Node and the EditorView
+ * Any change applied to the EditorView will be applied (via deltas) to the Y.Node, and vice versa.
  */
 export const $syncPluginState = s.$object({
-  ytype: Y.$ytypeAny.nullable,
+  ytype: Y.$nodeAny.nullable,
   /**
    * If provided, will switch to the given renderer instead of the current renderer
    */
@@ -36,18 +36,45 @@ export const $syncPluginState = s.$object({
    * `lib0/delta.diff` as its `compare` option). `null` keeps lib0's name-only
    * default. See {@link NodeCompare} and {@link syncPlugin}.
    */
-  customCompare: /** @type {s.Schema<NodeCompare>} */ (s.$function).nullable
+  customCompare: /** @type {s.Schema<NodeCompare>} */ (s.$function).nullable,
+  /**
+   * The live RDT binding (null while paused / before the first setup). `binding.t` is the
+   * data(Y render)⇄view(PM doc) transformer that cursor positions are mapped through.
+   */
+  binding: /** @type {s.Schema<import('lib0/delta/rdt').Binding<any, any>>} */ (s.$instanceOf(Binding)).nullable
 })
 
 export const $syncPluginStateUpdate = s.$object({
-  ytype: Y.$ytypeAny.nullable.optional,
+  ytype: Y.$nodeAny.nullable.optional,
   renderer: Y.$renderer.nullable.optional,
   attributionMapper: /** @type {s.Schema<AttributionMapper>} */ (s.$function).nullable.optional,
   attributedNodes: /** @type {s.Schema<AttributedNodesPredicate>} */ (s.$function).nullable.optional,
   customCompare: /** @type {s.Schema<NodeCompare>} */ (s.$function).nullable.optional,
+  binding: /** @type {s.Schema<import('lib0/delta/rdt').Binding<any, any>>} */ (s.$instanceOf(Binding)).nullable.optional,
   change: /** @type {s.Schema<Y.YEvent<any>>} */ (s.$any).nullable.optional
 })
 const $maybeSyncPluginStateUpdate = $syncPluginStateUpdate.nullable
+
+/**
+ * The binding transformer for a sync plugin state, but only when the binding actually
+ * belongs to the state's current ytype/renderer. During a `configureYProsemirror`
+ * dispatch a plugin-state overlay can pair a NEW ytype with the not-yet-replaced OLD
+ * binding (`setup()` runs later, in the sync plugin's view update) - mapping positions
+ * through it would resolve them against the wrong render.
+ *
+ * @param {{ytype: Y.Node | null, renderer: Y.AbstractRenderer | null, binding?: import('lib0/delta/rdt').Binding<any, any> | null} | undefined} ystate
+ * @return {import('lib0/delta/transformer').Transformer<any, any> | null}
+ */
+export const usableTransformer = (ystate) => {
+  const binding = ystate?.binding
+  if (binding == null) {
+    return null
+  }
+  const yRdt = /** @type {import('./rdt/y-sync.js').YSyncRdt} */ (binding.a)
+  return (yRdt.ytype === ystate?.ytype && (yRdt.renderer ?? null) === (ystate?.renderer ?? null))
+    ? binding.t
+    : null
+}
 
 /**
  * This Prosemirror {@link Plugin} is responsible for synchronizing the prosemirror {@link EditorState} with a {@link Y.XmlFragment}
@@ -91,7 +118,8 @@ export const syncPlugin = (opts = {}) => {
           renderer: null,
           attributionMapper: opts.mapAttributionToMark || defaultMapAttributionToMark,
           attributedNodes: opts.attributedNodes || defaultAttributedNodes,
-          customCompare: opts.customCompare || null
+          customCompare: opts.customCompare || null,
+          binding: null
         })
       },
       apply: (tr, prevPluginState) => {
@@ -126,7 +154,17 @@ export const syncPlugin = (opts = {}) => {
       const setup = (view, pluginState) => {
         teardown()
         const ytype = pluginState.ytype
-        if (ytype == null) return // paused
+        if (ytype == null) {
+          // paused - clear the exposed binding. `renderer` must ride along on every
+          // state-update meta: `apply` force-nulls it when omitted.
+          if (pluginState.binding != null) {
+            view.dispatch(view.state.tr.setMeta(ySyncPluginKey, $syncPluginStateUpdate.expect({
+              binding: null,
+              renderer: pluginState.renderer
+            })).setMeta('addToHistory', false))
+          }
+          return
+        }
         const renderer = pluginState.renderer || null
         const compare = pluginState.customCompare
         const conf = attributionMapperToConf(pluginState.attributionMapper)
@@ -183,6 +221,15 @@ export const syncPlugin = (opts = {}) => {
           // as it actually happened — which are never re-paired by `diff`,
           // so `customCompare` does not apply there (see YSyncRdt).
         ), { diffCompare: compare ?? undefined })
+        // Expose the live binding on the plugin state so the cursor plugin can map
+        // positions through its transformer. `renderer` must ride along: `apply`
+        // force-nulls it when omitted, which would tear down an active renderer (and
+        // re-trigger setup, forever). The re-entrant dispatch is safe - `binding` is
+        // not part of the identity comparison in `update` below.
+        view.dispatch(view.state.tr.setMeta(ySyncPluginKey, $syncPluginStateUpdate.expect({
+          binding: rdts.binding,
+          renderer: pluginState.renderer
+        })).setMeta('addToHistory', false))
       }
       return {
         update (view, prevState) {

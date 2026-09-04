@@ -64,7 +64,7 @@ const PM_KEY = 'prosemirror'
  * Build a PM EditorView wired through the y-prosemirror sync-plugin to a Y
  * type and an Renderer.
  *
- * @param {Y.Type} ytype
+ * @param {Y.Node} ytype
  * @param {Y.AbstractRenderer?} [renderer]
  * @param {Object} [opts]
  * @param {import('prosemirror-model').Schema} [opts.schema]

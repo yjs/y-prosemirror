@@ -1,6 +1,7 @@
 import { ySyncPluginKey, yUndoPluginKey } from './keys.js'
 import * as Y from '@y/y'
-import { absolutePositionToRelativePosition } from './positions.js'
+import { absolutePositionsToRelativePositions } from './positions.js'
+import { usableTransformer } from './sync-plugin.js'
 
 /**
  * Switch to pause mode (stop synchronization between prosemirror and ytype)
@@ -88,10 +89,17 @@ export const rejectChanges = (start, end = start) => (state, dispatch) => {
     return false
   }
   if (dispatch) {
-    const relStart = absolutePositionToRelativePosition(state.doc.resolve(start), pluginState.ytype, pluginState.renderer)
-    const relEnd = absolutePositionToRelativePosition(state.doc.resolve(end), pluginState.ytype, pluginState.renderer)
-
-    pluginState.renderer.rejectChanges(/** @type {NonNullable<typeof relStart.item>} */ (relStart.item), /** @type {NonNullable<typeof relEnd.item>} */ (relEnd.item))
+    // map through the binding transformer so the PM range anchors where the content
+    // actually lives in Y (e.g. inside old-representation anonymous containers)
+    const [relStart, relEnd] = absolutePositionsToRelativePositions(
+      [state.doc.resolve(start), state.doc.resolve(end)],
+      { ytype: pluginState.ytype, renderer: pluginState.renderer, transformer: usableTransformer(pluginState) }
+    )
+    if (relStart?.item == null || relEnd?.item == null) {
+      // unresolvable range - don't operate on a fabricated one
+      return false
+    }
+    pluginState.renderer.rejectChanges(relStart.item, relEnd.item)
   }
   return true
 }
@@ -108,10 +116,17 @@ export const acceptChanges = (start, end = start) => (state, dispatch) => {
     return false
   }
   if (dispatch) {
-    const relStart = absolutePositionToRelativePosition(state.doc.resolve(start), pluginState.ytype, pluginState.renderer)
-    const relEnd = absolutePositionToRelativePosition(state.doc.resolve(end), pluginState.ytype, pluginState.renderer)
-
-    pluginState.renderer.acceptChanges(/** @type {NonNullable<typeof relStart.item>} */ (relStart.item), /** @type {NonNullable<typeof relEnd.item>} */ (relEnd.item))
+    // map through the binding transformer so the PM range anchors where the content
+    // actually lives in Y (e.g. inside old-representation anonymous containers)
+    const [relStart, relEnd] = absolutePositionsToRelativePositions(
+      [state.doc.resolve(start), state.doc.resolve(end)],
+      { ytype: pluginState.ytype, renderer: pluginState.renderer, transformer: usableTransformer(pluginState) }
+    )
+    if (relStart?.item == null || relEnd?.item == null) {
+      // unresolvable range - don't operate on a fabricated one
+      return false
+    }
+    pluginState.renderer.acceptChanges(relStart.item, relEnd.item)
   }
   return true
 }

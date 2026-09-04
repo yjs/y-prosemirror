@@ -1,129 +1,248 @@
 import * as Y from '@y/y'
-import * as s from 'lib0/schema'
+import * as dpos from 'lib0/delta/position'
+
+/**
+ * Content index (lib0 delta coordinates: 1 slot per character, 1 slot per element child)
+ * of the child at `childIndex` within `parent`. This mirrors how `nodeToDelta` renders a
+ * PM node - text as strings, every other child as a single embed.
+ *
+ * @param {import('prosemirror-model').Node} parent
+ * @param {number} childIndex
+ * @return {number}
+ */
+const pmContentIndex = (parent, childIndex) => {
+  let idx = 0
+  for (let i = 0; i < childIndex; i++) {
+    const child = parent.child(i)
+    idx += child.isText ? child.nodeSize : 1
+  }
+  return idx
+}
+
+/**
+ * Transforms a Prosemirror position to a lib0 delta position (a tree position) rooted at
+ * the PM doc - the coordinate space of the binding's view side.
+ *
+ * @param {import('prosemirror-model').ResolvedPos} resolvedPos
+ * @return {import('lib0/delta/position').Pos}
+ */
+export const prosemirrorPositionToDeltaPosition = (resolvedPos) => {
+  const depth = resolvedPos.depth
+  /**
+   * @type {Array<number>}
+   */
+  const path = []
+  for (let d = 0; d < depth; d++) {
+    path.push(pmContentIndex(resolvedPos.node(d), resolvedPos.index(d)))
+  }
+  const parent = resolvedPos.node(depth)
+  const terminal = pmContentIndex(parent, resolvedPos.index(depth)) + resolvedPos.textOffset
+  path.push(terminal)
+  const contentLength = pmContentIndex(parent, parent.childCount)
+  // End-of-parent binds left; position 0 in an empty parent also binds left so the
+  // position is retained if content is inserted later.
+  const assoc = (terminal > 0 && terminal === contentLength) || (resolvedPos.pos === 0 && contentLength === 0) ? -1 : 1
+  return dpos.create(path, assoc)
+}
+
+/**
+ * Resolves a lib0 delta position (a tree position, PM-doc-rooted, view-side coordinates)
+ * to a Prosemirror flat position. Returns null when the path cannot be followed
+ * (attribute steps, descent into text/leaf nodes, out-of-range non-terminal steps). A
+ * terminal offset beyond the parent's content is clamped to the parent's end
+ * (end-of-type relative positions resolve there).
+ *
+ * @param {import('prosemirror-model').Node} pmDoc
+ * @param {import('lib0/delta/position').Pos} pos
+ * @return {number | null}
+ */
+export const deltaPositionToProsemirrorPosition = (pmDoc, pos) => {
+  let node = pmDoc
+  let base = 0
+  const path = pos.path
+  for (let i = 0; i < path.length; i++) {
+    const step = path[i]
+    if (typeof step === 'string') {
+      // attribute step - no PM position equivalent
+      return null
+    }
+    if (i < path.length - 1) {
+      // non-terminal: descend into the element child at content index `step`
+      let rem = step
+      let sizeBefore = 0
+      /**
+       * @type {import('prosemirror-model').Node | null}
+       */
+      let target = null
+      for (let j = 0; j < node.childCount; j++) {
+        const child = node.child(j)
+        const width = child.isText ? child.nodeSize : 1
+        if (rem >= width) {
+          rem -= width
+          sizeBefore += child.nodeSize
+        } else {
+          target = child
+          break
+        }
+      }
+      if (target == null || rem !== 0 || target.isText || target.isLeaf) {
+        return null
+      }
+      base += sizeBefore + 1 // + 1 enters the node
+      node = target
+    } else {
+      // terminal: cursor gap at content index `step` within `node`
+      let rem = step
+      let off = 0
+      for (let j = 0; j < node.childCount && rem > 0; j++) {
+        const child = node.child(j)
+        const width = child.isText ? child.nodeSize : 1
+        if (rem >= width) {
+          rem -= width
+          off += child.nodeSize
+        } else {
+          // the gap sits inside a text node - the remainder is a character offset
+          off += rem
+          rem = 0
+        }
+      }
+      return base + (rem > 0 ? node.content.size : off)
+    }
+  }
+  // an empty path addresses the root node itself, not a cursor gap
+  return null
+}
 
 /**
  * Transforms a Prosemirror based absolute position to a {@link Y.RelativePosition}.
+ * Returns null when the position cannot be anchored in the Y tree (mid-dispatch
+ * divergence, or structurally transformed subtrees like old-representation anonymous
+ * containers - map through the binding transformer via
+ * {@link absolutePositionsToRelativePositions} to bridge those).
  *
  * @param {import('prosemirror-model').ResolvedPos} resolvedPos
- * @param {Y.Type} type
+ * @param {Y.Node} type
  * @param {Y.AbstractRenderer | null} [renderer]
- * @return {Y.RelativePosition} relative position
+ * @return {Y.RelativePosition | null} relative position
  */
-export const absolutePositionToRelativePosition = (resolvedPos, type, renderer) => {
-  if (resolvedPos.pos === 0) {
-    // if the type is later populated, we want to retain the 0 position (hence assoc=-1)
-    return Y.createRelativePositionFromTypeIndex(type, 0, type.length === 0 ? -1 : 0, renderer || null)
-  }
-  const depth = resolvedPos.depth
-  // Navigate through the Y.js structure using the path from ResolvedPos.
-  // The PM resolved-pos can transiently disagree with the Y type when this
-  // runs mid-dispatch (the cursor-plugin's view.update may observe the PM
-  // doc before sync-plugin's view.update has flushed the PM->Y commit and
-  // reconcile; renderer-filtered subtrees can also shift child indices). If
-  // traversal can't follow the PM path all the way, fall back to a
-  // relative position at the start of the bound type rather than throwing
-  // - the contract here is non-nullable.
-  let currentYType = type
-  let traversedDepth = 0
-  for (let d = 0; d < depth; d++) {
-    if (currentYType == null || typeof (/** @type {any} */ (currentYType).get) !== 'function') break
-    const childIndex = resolvedPos.index(d)
-    if (currentYType.length == null || childIndex >= currentYType.length) break
-    // @TODO
-    // @ts-ignore
-    const next = currentYType.get(childIndex, renderer) // @todo get method should support renderer
-    if (next == null) break
-    currentYType = next
-    traversedDepth = d + 1
-  }
-  if (traversedDepth !== depth || currentYType == null || currentYType.length == null) {
-    return Y.createRelativePositionFromTypeIndex(
-      type, 0, type.length === 0 ? -1 : 0, renderer || null)
-  }
-  // Use the parent offset as the position within the target Y.js type.
-  // For inline content (text containers), parentOffset equals the Y type index.
-  // For block content (containers like doc, blockquote, lists), parentOffset is a
-  // cumulative nodeSize sum, so we use the child index instead.
-  const parentNode = resolvedPos.node(depth)
-  const offset = parentNode.inlineContent
-    ? resolvedPos.parentOffset
-    : resolvedPos.index(depth)
+export const absolutePositionToRelativePosition = (resolvedPos, type, renderer) =>
+  Y.createRelativePositionFromDeltaPosition(
+    type, prosemirrorPositionToDeltaPosition(resolvedPos), { renderer: renderer ?? null })
 
-  return Y.createRelativePositionFromTypeIndex(currentYType, offset,
-    // If we are at the end of a type, then we want to be associated to the end of the type
-    offset > 0 && offset === currentYType.length ? -1 : 0, renderer || null)
+/**
+ * @typedef {object} TransformerPositionCtx
+ * @property {Y.Node} ytype The bound root type (the data side of the binding)
+ * @property {Y.AbstractRenderer | null} [renderer] The renderer the binding renders the data side with (the sync plugin state's `renderer`)
+ * @property {import('lib0/delta/transformer').Transformer<any, any> | null} [transformer] A live binding's transformer (`binding.t`). It must already have been fed the document state - a live binding always has. When null, positions resolve directly (only correct while the Y render and the PM doc are structurally identical).
+ */
+
+/**
+ * Maps {@link Y.RelativePosition}s to Prosemirror absolute positions through a live
+ * binding transformer: Y render space → transformer (data→view) → PM doc. Batched - one
+ * Y resolution and one transformer pass serve all positions. Results are 1:1 with the
+ * input; `null` marks positions that could not be resolved or were dropped by the
+ * transformer (`null` inputs stay `null`).
+ *
+ * @param {Array<Y.RelativePosition | null>} rposs
+ * @param {TransformerPositionCtx} ctx
+ * @param {import('prosemirror-model').Node} pmDoc
+ * @return {Array<number | null>}
+ */
+export const relativePositionsToAbsolutePositions = (rposs, { ytype, renderer = null, transformer = null }, pmDoc) => {
+  // `renderer` is passed explicitly (null = plain render, never undefined): the binding
+  // renders the data side with exactly this renderer, so the delta positions must
+  // resolve in the same coordinates
+  const deltaPoss = Y.createDeltaPositionsFromRelativePositions(ytype, rposs, { renderer })
+  // compact - mapPositionsA does not accept null entries
+  /**
+   * @type {Array<import('lib0/delta/position').Pos>}
+   */
+  const compact = []
+  /**
+   * @type {Array<number>}
+   */
+  const compactIndex = []
+  deltaPoss.forEach((p, i) => {
+    if (p != null) {
+      compact.push(p)
+      compactIndex.push(i)
+    }
+  })
+  const mapped = transformer == null ? compact : dpos.mapPositionsA(transformer, compact)
+  /**
+   * @type {Array<number | null>}
+   */
+  const result = rposs.map(() => null)
+  mapped.forEach((p, i) => {
+    if (p != null) {
+      result[compactIndex[i]] = deltaPositionToProsemirrorPosition(pmDoc, p)
+    }
+  })
+  return result
 }
 
 /**
- * Transforms a {@link Y.RelativePosition} to a Prosemirror based absolute position.
- * @param {Y.RelativePosition} relPos Encoded Yjs based relative position
- * @param {Y.Type} documentType Top level type that is bound to pView
- * @param {import('prosemirror-model').Node} pmDoc
- * @param {Y.AbstractRenderer | null} [renderer]
- * @return {null|number} Prosemirror based absolute position
+ * Maps Prosemirror positions to {@link Y.RelativePosition}s through a live binding
+ * transformer: PM doc → transformer (view→data) → Y render space. Batched - one
+ * transformer pass serves all positions. `null` marks positions the transformer dropped
+ * or that could not be anchored in the Y document.
+ *
+ * @param {Array<import('prosemirror-model').ResolvedPos>} resolvedPositions
+ * @param {TransformerPositionCtx} ctx
+ * @return {Array<Y.RelativePosition | null>}
  */
-export const relativePositionToAbsolutePosition = (relPos, documentType, pmDoc, renderer) => {
-  const doc = documentType.doc
-  if (!doc) {
-    return null
-  }
-  // (1) decodedPos.index is the absolute position starting at the referred  prosemirror node.
-  const decodedPos = Y.createAbsolutePositionFromRelativePosition(relPos, /** @type {Y.Doc} */ (documentType.doc), undefined, renderer || null)
-  if (decodedPos === null || (decodedPos.type !== documentType && !Y.isParentOf(documentType, decodedPos.type._item))) {
-    return null
-  }
-  /*
-   * Now, we need to compute the nested position.
-   * - Compute the path of the targeted type Y.getPathTo(decodedPos.type).
-   * - (2) Use that path to calculate the absolute prosemirror position based on the prosemirror state.
-   * result = (1) + (2)
+export const absolutePositionsToRelativePositions = (resolvedPositions, { ytype, renderer = null, transformer = null }) => {
+  const deltaPoss = resolvedPositions.map(prosemirrorPositionToDeltaPosition)
+  const mapped = transformer == null ? deltaPoss : dpos.mapPositionsB(transformer, deltaPoss)
+  /**
+   * @type {Array<import('lib0/delta/position').Pos>}
    */
-  const path = s.$array(s.$number).cast(Y.getPathTo(documentType, decodedPos.type))
-  // TODO what if the ytype is a grandchild of the documentType? I think this assumes a direct child relationship
-  let pos = 0 // Start at the beginning of the document
-  let currentNode = pmDoc
-  // Traverse the path to find the nested position
-  for (let i = 0; i < path.length; i++) {
-    const childIndex = path[i]
-    // Add sizes of all previous siblings
-    if (childIndex >= currentNode.childCount) {
-      return null
+  const compact = []
+  /**
+   * @type {Array<number>}
+   */
+  const compactIndex = []
+  mapped.forEach((p, i) => {
+    if (p != null) {
+      compact.push(p)
+      compactIndex.push(i)
     }
-    for (let j = 0; j < childIndex; j++) {
-      pos += currentNode.child(j).nodeSize
-    }
-    // enter node
-    pos += 1
-    currentNode = currentNode.child(childIndex)
-  }
-  // Add the offset within the target node.
-  // For inline content (text containers), decodedPos.index equals the PM parentOffset.
-  // For block content (containers like doc, blockquote, lists), decodedPos.index is a
-  // child count, so we convert it to a PM offset by summing preceding children's node sizes.
-  if (currentNode.inlineContent) {
-    return pos + decodedPos.index
-  }
-  if (decodedPos.index > currentNode.childCount) {
-    return null
-  }
-  let blockOffset = 0
-  for (let j = 0; j < decodedPos.index; j++) {
-    blockOffset += currentNode.child(j).nodeSize
-  }
-  return pos + blockOffset
+  })
+  const rposs = Y.createRelativePositionsFromDeltaPositions(ytype, compact, { renderer })
+  /**
+   * @type {Array<Y.RelativePosition | null>}
+   */
+  const result = resolvedPositions.map(() => null)
+  rposs.forEach((rpos, i) => {
+    result[compactIndex[i]] = rpos
+  })
+  return result
 }
+
+/**
+ * Renderer/transformer context for encoding and resolving positions - the ytype comes
+ * from the utility itself.
+ *
+ * @typedef {object} PositionCtx
+ * @property {Y.AbstractRenderer | null} [renderer]
+ * @property {import('lib0/delta/transformer').Transformer<any, any> | null} [transformer]
+ */
 
 /**
  * Creates a function that can be used to keep track of an absolute position of a Prosemirror document, and restore it to an absolute position in a different Prosemirror document.
+ * Throws when the position cannot be anchored in the Y tree.
  * @param {import('prosemirror-model').ResolvedPos} resolvedPos Absolute position in the Prosemirror document
- * @param {Y.Type} type Top level type that is bound to pView
- * @param {Y.AbstractRenderer?} [renderer] renderer to use for the relative position
- * @returns {(doc: import('prosemirror-model').Node, documentType?: Y.Type, renderer?: Y.AbstractRenderer) => number}
+ * @param {Y.Node} type Top level type that is bound to pView
+ * @param {PositionCtx} [ctx] renderer/transformer to encode the relative position with
+ * @returns {(doc: import('prosemirror-model').Node, documentType?: Y.Node, ctx?: PositionCtx) => number}
  */
-export const relativePositionStore = (resolvedPos, type, renderer) => {
-  const relPos = absolutePositionToRelativePosition(resolvedPos, type, renderer)
-  return (doc, documentType = type, renderer) => {
-    const absPos = relativePositionToAbsolutePosition(relPos, documentType, doc, renderer)
+export const relativePositionStore = (resolvedPos, type, ctx = {}) => {
+  const relPos = absolutePositionsToRelativePositions([resolvedPos], { ytype: type, ...ctx })[0]
+  if (relPos == null) {
+    throw new Error('Failed to encode position')
+  }
+  return (doc, documentType = type, ctx = {}) => {
+    const absPos = relativePositionsToAbsolutePositions([relPos], { ytype: documentType, ...ctx }, doc)[0]
     if (absPos === null) {
       throw new Error('Failed to resolve absolute position')
     }
@@ -134,16 +253,16 @@ export const relativePositionStore = (resolvedPos, type, renderer) => {
 /**
  * @callback CaptureMapping
  * @param {import('prosemirror-model').Node} doc Prosemirror document used to resolve positions
- * @param {Y.AbstractRenderer | null} [renderer] renderer to use for the relative position
+ * @param {PositionCtx} [ctx] renderer/transformer to encode the relative positions with
  * @param {boolean} [clear] If true, clears all previously stored positions and captures fresh values for the mapping
  * @returns {import('prosemirror-transform').Mappable}
  */
 
 /**
  * @callback RestoreMapping
- * @param {Y.Type} type Top level type that is bound to pView
+ * @param {Y.Node} type Top level type that is bound to pView
  * @param {import('prosemirror-model').Node} pmDoc Prosemirror document
- * @param {Y.AbstractRenderer | null} [renderer] renderer to use for the relative position
+ * @param {PositionCtx} [ctx] renderer/transformer to resolve the relative positions with
  * @returns {import('prosemirror-transform').Mappable}
  */
 
@@ -151,7 +270,7 @@ export const relativePositionStore = (resolvedPos, type, renderer) => {
  * Creates a pair of Mappable-compatible objects for capturing and restoring positions
  * via Y.js relative positions. Designed to work with ProseMirror's SelectionBookmark.map().
  *
- * @param {Y.Type} type
+ * @param {Y.Node} type
  * @returns {{captureMapping: CaptureMapping, restoreMapping: RestoreMapping}}
  */
 export const relativePositionStoreMapping = (type) => {
@@ -161,7 +280,7 @@ export const relativePositionStoreMapping = (type) => {
   const positionMapping = new Map()
 
   return {
-    captureMapping: (doc, renderer, clear = false) => {
+    captureMapping: (doc, ctx = {}, clear = false) => {
       if (clear) {
         positionMapping.clear()
       }
@@ -170,9 +289,13 @@ export const relativePositionStoreMapping = (type) => {
          * @param {number} pos
          */
         map (pos) {
-          const resolvedPos = doc.resolve(pos)
-          // Store the relative position using the position as the key
-          positionMapping.set(pos, absolutePositionToRelativePosition(resolvedPos, type, renderer))
+          // Store the relative position using the position as the key. Unresolvable
+          // positions are not stored - restoring them throws, which callers treat
+          // as "skip restoration".
+          const relPos = absolutePositionsToRelativePositions([doc.resolve(pos)], { ytype: type, ...ctx })[0]
+          if (relPos != null) {
+            positionMapping.set(pos, relPos)
+          }
 
           // Pass through the position unchanged, since we are just using it to store the relative position
           return pos
@@ -186,14 +309,14 @@ export const relativePositionStoreMapping = (type) => {
         }
       }
     },
-    restoreMapping (type, pmDoc, renderer) {
+    restoreMapping (type, pmDoc, ctx = {}) {
       return {
         map (pos) {
           const relPos = positionMapping.get(pos)
           if (!relPos) {
             throw new Error('Relative position not set')
           }
-          const absPos = relativePositionToAbsolutePosition(relPos, type, pmDoc, renderer)
+          const absPos = relativePositionsToAbsolutePositions([relPos], { ytype: type, ...ctx }, pmDoc)[0]
           if (absPos === null) {
             throw new Error('Failed to resolve absolute position')
           }

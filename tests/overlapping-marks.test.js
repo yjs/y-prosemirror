@@ -30,7 +30,7 @@ const marks = {
 const schema = new Schema({ nodes: basicSchema.nodes, marks })
 
 /**
- * @param {Y.Type} ytype
+ * @param {Y.Node} ytype
  * @return {EditorView}
  */
 const createView = ytype => {
@@ -46,7 +46,7 @@ const createView = ytype => {
  * two overlapping comments: id 4 over "he" and id 5 over "el" - so "e" carries
  * both.
  *
- * @return {{ ytype1: Y.Type, view1: EditorView, view2: EditorView }}
+ * @return {{ ytype1: Y.Node, view1: EditorView, view2: EditorView }}
  */
 const setup = () => {
   const ydoc1 = new Y.Doc()

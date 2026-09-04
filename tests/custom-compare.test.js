@@ -112,7 +112,7 @@ export const testCustomCompareSyncsConvergently = (_tc) => {
   const blockquote = delta.create('blockquote', {}).insert(/** @type {any} */ ([delta.create('paragraph', {}, 'hello')]))
   ytype1.applyDelta(delta.create().insert(/** @type {any} */ ([blockquote])).done())
 
-  /** @param {Y.Type} ytype */
+  /** @param {Y.Node} ytype */
   const mkView = (ytype) => {
     const view = new EditorView({ mount: document.createElement('div') }, {
       state: EditorState.create({ schema, plugins: [YPM.syncPlugin({ customCompare: strictBlockquoteCompare })] })

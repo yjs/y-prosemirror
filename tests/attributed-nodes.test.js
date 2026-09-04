@@ -91,7 +91,7 @@ const setup = (attributedNodes, baseContent, seedDelta = delta.create().insert([
   setupTwoWaySync(suggestionDoc, suggestionModeDoc)
 
   /**
-   * @param {Y.Type} ytype
+   * @param {Y.Node} ytype
    * @param {Y.AbstractRenderer?} [renderer]
    */
   const mkView = (ytype, renderer = null) => {

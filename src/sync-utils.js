@@ -507,10 +507,10 @@ export const nodesToDelta = ns => {
 /**
  * Transforms a {@link Node} into a {@link Y.XmlFragment}
  * @param {Node} node
- * @param {Y.Type} fragment
+ * @param {Y.Node} fragment
  * @param {Object} [opts]
  * @param {Y.AbstractRenderer?} [opts.renderer]
- * @returns {Y.Type}
+ * @returns {Y.Node}
  */
 export function pmToFragment (node, fragment, { renderer = null } = {}) {
   // Canonicalize so the Y document never stores an attributed-variant name
@@ -523,7 +523,7 @@ export function pmToFragment (node, fragment, { renderer = null } = {}) {
 
 /**
  * Applies a {@link Y.XmlFragment}'s content as a ProseMirror {@link Transaction}
- * @param {Y.Type} fragment
+ * @param {Y.Node} fragment
  * @param {import('prosemirror-state').Transaction} tr
  * @param {object} ctx
  * @param {Y.AbstractRenderer?} [ctx.renderer]
@@ -552,7 +552,7 @@ export function fragmentToTr (fragment, tr, {
 
 /**
  * Transforms a {@link Y.XmlFragment} into a {@link Node}
- * @param {Y.Type} fragment
+ * @param {Y.Node} fragment
  * @param {import('prosemirror-state').Transaction} tr
  * @return {Node}
  */

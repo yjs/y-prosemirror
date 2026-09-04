@@ -15,7 +15,7 @@ const schema = new Schema({
 })
 
 /**
- * @param {Y.Type} ytype
+ * @param {Y.Node} ytype
  * @param {Y.AbstractRenderer?} renderer
  */
 const createProsemirrorView = (ytype, renderer = null) => {
@@ -48,10 +48,10 @@ const validate = pm => {
  * @typedef {object} YPMTestConf
  * @property {import('prosemirror-state').Transaction} YPMTest.tr
  * @property {EditorView} YPMTest.view
- * @property {Y.Type} YPMTest.ytype
+ * @property {Y.Node} YPMTest.ytype
  * @property {import('prosemirror-state').Transaction} YPMTest.tr2
  * @property {EditorView} YPMTest.view2
- * @property {Y.Type} YPMTest.ytype2
+ * @property {Y.Node} YPMTest.ytype2
  */
 
 /**

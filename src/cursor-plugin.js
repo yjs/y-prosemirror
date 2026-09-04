@@ -2,13 +2,13 @@ import * as Y from '@y/y'
 import { Decoration, DecorationSet } from 'prosemirror-view'
 import { Plugin } from 'prosemirror-state'
 import {
-  absolutePositionToRelativePosition,
-  relativePositionToAbsolutePosition
+  absolutePositionsToRelativePositions,
+  relativePositionsToAbsolutePositions
 } from './positions.js'
 import { yCursorPluginKey, ySyncPluginKey } from './keys.js'
 
 import * as math from 'lib0/math'
-import { $syncPluginStateUpdate } from './sync-plugin.js'
+import { $syncPluginStateUpdate, usableTransformer } from './sync-plugin.js'
 
 /**
  * @typedef {Object} User
@@ -63,13 +63,17 @@ export const defaultSelectionBuilder = (user) => {
 }
 
 /**
+ * @typedef {{ytype: Y.Node | null, renderer: Y.AbstractRenderer | null, binding?: import('lib0/delta/rdt').Binding<any, any> | null} | undefined} CursorSyncState
+ */
+
+/**
  * @param {import('prosemirror-state').EditorState} state
  * @param {import('@y/protocols/awareness').Awareness} awareness
  * @param {AwarenessFilter} awarenessFilter
  * @param {(user: User, clientId: number) => Element} createCursor
  * @param {(user: User, clientId: number) => import('prosemirror-view').DecorationAttrs} createSelection
  * @param {string} cursorStateField
- * @param {{ytype: Y.Type | null, renderer: Y.AbstractRenderer | null} | undefined} ystate
+ * @param {CursorSyncState} ystate
  * @return {DecorationSet}
  */
 export const createDecorations = (
@@ -89,9 +93,9 @@ export const createDecorations = (
   }
   const maxsize = math.max(state.doc.content.size - 1, 0)
   /**
-   * @type {Decoration[]}
+   * @type {Array<{clientId: number, user: User, anchor: Y.RelativePosition, head: Y.RelativePosition}>}
    */
-  const decorations = []
+  const entries = []
   awareness.getStates().forEach((aw, clientId) => {
     const cursor = aw[cursorStateField]
 
@@ -106,18 +110,36 @@ export const createDecorations = (
     if (user.name == null) {
       user.name = `User: ${clientId}`
     }
-    let anchor = relativePositionToAbsolutePosition(
-      Y.createRelativePositionFromJSON(cursor.anchor),
-      type,
-      state.doc,
-      ystate.renderer
-    )
-    let head = relativePositionToAbsolutePosition(
-      Y.createRelativePositionFromJSON(cursor.head),
-      type,
-      state.doc,
-      ystate.renderer
-    )
+    entries.push({
+      clientId,
+      user,
+      anchor: Y.createRelativePositionFromJSON(cursor.anchor),
+      head: Y.createRelativePositionFromJSON(cursor.head)
+    })
+  })
+  const rposs = entries.flatMap(e => [e.anchor, e.head])
+  // Map all awareness positions through the binding transformer in one batch, so they
+  // resolve in the coordinates of the transformed (view-side) document. Without a live
+  // binding (headless usage, or the pre-setup/stale-binding window) the positions
+  // resolve directly against the Y render.
+  const ctx = { ytype: type, renderer: ystate.renderer ?? null, transformer: usableTransformer(ystate) }
+  /**
+   * @type {Array<number | null>}
+   */
+  let positions
+  try {
+    positions = relativePositionsToAbsolutePositions(rposs, ctx, state.doc)
+  } catch (err) {
+    console.warn('y-prosemirror cursor-plugin: transformer position mapping failed, falling back to direct resolution', err)
+    positions = relativePositionsToAbsolutePositions(rposs, { ...ctx, transformer: null }, state.doc)
+  }
+  /**
+   * @type {Decoration[]}
+   */
+  const decorations = []
+  entries.forEach(({ clientId, user }, i) => {
+    let anchor = positions[i * 2]
+    let head = positions[i * 2 + 1]
     if (anchor !== null && head !== null) {
       anchor = math.min(anchor, maxsize)
       head = math.min(head, maxsize)
@@ -143,7 +165,7 @@ export const createDecorations = (
  * @param {object} ctx - The context object
  * @param {import('prosemirror-view').EditorView} ctx.view - The editor view
  * @param {{anchor: Y.RelativePosition, head: Y.RelativePosition} | null} ctx.prevState - The previous local cursor state currently published in awareness for this client (decoded to Y.RelativePosition), or null if not set
- * @param {{anchor: Y.RelativePosition, head: Y.RelativePosition} | null} ctx.nextState - The candidate next cursor state, freshly derived from the editor's current selection (not yet published to awareness), or null if no Y type is bound
+ * @param {{anchor: Y.RelativePosition, head: Y.RelativePosition} | null} ctx.nextState - The candidate next cursor state, freshly derived from the editor's current selection (not yet published to awareness), or null if no Y type is bound or the selection could not be anchored in the Y document
  * @param {boolean} ctx.isOwnState - Whether `prevState` resolves inside this editor binding's bound type (i.e. this binding is the source of truth for the published cursor state)
  * @param {'update' | 'focus' | 'blur'} ctx.reason - What triggered this invocation: 'update' (PM view.update tick), 'focus' (focusin on view.dom; only fires when no `setSelection` transaction is pending — see `selectionUpdateIsPending` in cursor-plugin.js), or 'blur' (focusout on view.dom)
  * @returns {{anchor: Y.RelativePosition, head: Y.RelativePosition} | null} The next local cursor state to publish under `cursorStateField` in awareness, or null to clear it
@@ -264,17 +286,18 @@ export const yCursorPlugin = (
         let nextState = null
         if (ystate?.ytype) {
           try {
-            nextState = {
-              anchor: absolutePositionToRelativePosition(
-                view.state.selection.$anchor,
-                ystate.ytype,
-                ystate.renderer
-              ),
-              head: absolutePositionToRelativePosition(
-                view.state.selection.$head,
-                ystate.ytype,
-                ystate.renderer
-              )
+            const sel = view.state.selection
+            // map the selection through the binding transformer (view→data) so the
+            // published positions anchor where the content actually lives in Y
+            const mapped = absolutePositionsToRelativePositions(
+              [sel.$anchor, sel.$head],
+              { ytype: ystate.ytype, renderer: ystate.renderer ?? null, transformer: usableTransformer(ystate) }
+            )
+            // An unresolvable endpoint leaves nextState null - the policy then clears
+            // the published cursor. Never publish a half-mapped pair (it could invert
+            // the selection).
+            if (mapped[0] != null && mapped[1] != null) {
+              nextState = { anchor: mapped[0], head: mapped[1] }
             }
           } catch (err) {
             console.warn('y-prosemirror cursor-plugin: failed to encode selection, skipping awareness update', err)
@@ -287,12 +310,13 @@ export const yCursorPlugin = (
           nextState,
           reason,
           get isOwnState () {
-            return prevState != null && ystate?.ytype != null && relativePositionToAbsolutePosition(
-              prevState.anchor,
+            // a pure containment check ("does the published rpos resolve inside the
+            // bound type") - Y-side resolution suffices, no transformer pass needed
+            return prevState != null && ystate?.ytype != null && Y.createDeltaPositionFromRelativePosition(
               ystate.ytype,
-              view.state.doc,
-              ystate.renderer
-            ) !== null
+              prevState.anchor,
+              { renderer: ystate.renderer ?? null }
+            ) != null
           }
         })
 
