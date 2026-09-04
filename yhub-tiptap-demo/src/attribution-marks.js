@@ -116,3 +116,26 @@ export const AttributedFormat = Mark.create({
     return ['y-fmt', colorAttrs(primaryUserId(ids), title), 0]
   }
 })
+
+// Node-level mark for suggested ATTRIBUTE changes (e.g. heading level).
+// Deliberately keeps the DEFAULT `excludes` (unlike the marks above): its
+// `changes` payload differs between renders and a re-render must REPLACE the
+// mark instead of stacking a second instance.
+export const AttributedAttrs = Mark.create({
+  name: 'y-attributed-attrs',
+  inclusive: false,
+  addAttributes () {
+    return {
+      changes: { default: null, rendered: false }
+    }
+  },
+  parseHTML () { return [{ tag: 'y-attr' }] },
+  renderHTML ({ mark }) {
+    const changes = /** @type {Record<string, { userIds?: string[], timestamp?: number|null }>|null} */ (mark.attrs.changes) ?? {}
+    const keys = Object.keys(changes)
+    const ids = [...new Set(keys.flatMap(k => changes[k]?.userIds ?? []))]
+    const timestamp = keys.map(k => changes[k]?.timestamp).find(ts => ts != null) ?? null
+    const title = formatAttributionTitle('Attribute changed (' + keys.join(', ') + ')', ids, timestamp)
+    return ['y-attr', colorAttrs(primaryUserId(ids), title), 0]
+  }
+})

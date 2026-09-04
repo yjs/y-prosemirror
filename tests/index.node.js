@@ -15,6 +15,7 @@ import * as commands from './commands.test.js'
 import * as overlappingMarks from './overlapping-marks.test.js'
 import * as customCompare from './custom-compare.test.js'
 import * as inlineNodes from './inline-nodes.test.js'
+import * as attrAttribution from './attr-attribution.test.js'
 import * as ySyncRdt from './y-sync-rdt.test.js'
 // import * as tr from './tr.test.js'
 
@@ -69,6 +70,7 @@ runTests({
   overlappingMarks,
   customCompare,
   inlineNodes,
+  attrAttribution,
   ySyncRdt
   // prosemirror,
   // tr

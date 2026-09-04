@@ -134,6 +134,17 @@
         background-color: #fff3cd;
         border-bottom: 2px dotted #ffc107;
       }
+
+      /* Attribution marks: node attribute changes (e.g. heading level) */
+      y-attr {
+        display: block;
+      }
+      y-attr > h1, y-attr > h2, y-attr > h3, y-attr > h4, y-attr > h5, y-attr > h6,
+      y-attr > p, y-attr > blockquote, y-attr > pre, y-attr > img {
+        background-color: #ede7f6;
+        outline: 2px dashed #7e57c2;
+        outline-offset: -2px;
+      }
       /* Demo UI Styles */
       body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,

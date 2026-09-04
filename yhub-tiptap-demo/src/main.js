@@ -6,7 +6,7 @@ import { Editor } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { Image } from '@tiptap/extension-image'
 import { TableKit } from '@tiptap/extension-table'
-import { AttributedInsert, AttributedDelete, AttributedFormat } from './attribution-marks.js'
+import { AttributedInsert, AttributedDelete, AttributedFormat, AttributedAttrs } from './attribution-marks.js'
 import { createYSyncExtension, createYCursorExtension, BlockAttributionExtension } from './extensions.js'
 import { setupToolbar } from './toolbar.js'
 import { userColorForId } from './user-colors.js'
@@ -63,6 +63,7 @@ const editor = new Editor({
     AttributedInsert,
     AttributedDelete,
     AttributedFormat,
+    AttributedAttrs,
     createYSyncExtension(),
     createYCursorExtension(provider.awareness),
     BlockAttributionExtension
@@ -85,7 +86,7 @@ const view = editor.view
 // recommends extending the affected node types' markSet after construction.
 // Textblocks already allow all marks (markSet === null); for every other node
 // type we add the three attribution marks.
-const attributionMarkTypes = ['y-attributed-insert', 'y-attributed-delete', 'y-attributed-format']
+const attributionMarkTypes = ['y-attributed-insert', 'y-attributed-delete', 'y-attributed-format', 'y-attributed-attrs']
   .map(name => editor.schema.marks[name])
 for (const nodeName in editor.schema.nodes) {
   const nodeType = editor.schema.nodes[nodeName]

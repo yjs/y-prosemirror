@@ -166,8 +166,25 @@ const buildFull = (d, state) => {
     } else { // $modifyOp
       const { attr, el } = readRun(1)
       const stateChild = delta.$deltaAny.check(el) ? el : null
+      const sub = buildFull(op.value, stateChild)
+      // Attr-attribution completion: when the change touches the node's
+      // attr-attribution space, inject a `setAttr` (value + attribution from
+      // the post-change render) for every *other* currently-attributed attr
+      // absent from the change. The downstream `attributionToFormat` lift
+      // (`attrsFmt`) sees per-op data only, so without this a change touching
+      // one of two attributed attrs would emit a partial `y-attributed-attrs`
+      // map and the consumer's wholesale mark replacement would drop the
+      // other entry. Injected ops re-set the state's own value - a no-op on
+      // the view's attrs, carrying only the attribution.
+      if (stateChild != null && changeTouchesAttrAttribution(op.value)) {
+        for (const sop of stateChild.attrs) {
+          if (delta.$setAttrOp.check(sop) && sop.attribution != null && !hasAttrOp(op.value, sop.key)) {
+            sub.setAttr(sop.key, sop.value, sop.attribution)
+          }
+        }
+      }
       full.modify(
-        buildFull(op.value, stateChild),
+        sub,
         undefined,
         op.attribution === undefined ? undefined : resolveAttr(attr, op.attribution)
       )
@@ -175,6 +192,32 @@ const buildFull = (d, state) => {
   }
   full.done(false)
   return full
+}
+
+/**
+ * Whether a change delta carries any attr op with attribution information
+ * (`undefined` = untouched; `null` = "attribution removed" is information).
+ *
+ * @param {delta.DeltaAny} d
+ */
+const changeTouchesAttrAttribution = (d) => {
+  for (const op of d.attrs) {
+    if (op.attribution !== undefined) return true
+  }
+  return false
+}
+
+/**
+ * Whether the change delta already carries an attr op for `key`.
+ *
+ * @param {delta.DeltaAny} d
+ * @param {string|number} key
+ */
+const hasAttrOp = (d, key) => {
+  for (const op of d.attrs) {
+    if (op.key === key) return true
+  }
+  return false
 }
 
 /**

@@ -5,7 +5,7 @@ import { Schema } from 'prosemirror-model'
  */
 const brDOM = ['br']
 
-const attributionMarkNames = 'y-attributed-insert y-attributed-delete y-attributed-format'
+const attributionMarkNames = 'y-attributed-insert y-attributed-delete y-attributed-format y-attributed-attrs'
 
 // :: Object
 // [Specs](#model.NodeSpec) for the nodes defined in this schema.
@@ -196,6 +196,20 @@ export const marks = {
     parseDOM: [{ tag: 'y-fmt' }],
     toDOM () {
       return /** @type {const} */ (['y-fmt', 0])
+    }
+  },
+
+  // Node-level mark for suggested ATTRIBUTE changes (e.g. heading level).
+  // Deliberately keeps the DEFAULT `excludes` (unlike the marks above): its
+  // `changes` payload differs between renders and a re-render must REPLACE
+  // the mark instead of stacking a second instance.
+  'y-attributed-attrs': {
+    attrs: { changes: { default: null } },
+    parseDOM: [{ tag: 'y-attr' }],
+    toDOM (mark) {
+      return /** @type {const} */ (['y-attr', {
+        title: 'Attribute changed: ' + Object.keys(mark.attrs.changes ?? {}).join(', ')
+      }, 0])
     }
   }
 }

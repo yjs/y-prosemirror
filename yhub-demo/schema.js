@@ -33,7 +33,7 @@ const attributionMarkAttrs = (mark, title) => {
  */
 const brDOM = ['br']
 
-const attributionMarkNames = 'y-attributed-insert y-attributed-delete y-attributed-format'
+const attributionMarkNames = 'y-attributed-insert y-attributed-delete y-attributed-format y-attributed-attrs'
 
 // :: Object
 // [Specs](#model.NodeSpec) for the nodes defined in this schema.
@@ -233,6 +233,27 @@ export const marks = {
         ? { title, 'data-userid': uid, style: `--user-color: ${userColorForId(uid)}` }
         : { title }
       return /** @type {const} */ (['y-fmt', attrs, 0])
+    }
+  },
+
+  // Node-level mark for suggested ATTRIBUTE changes (e.g. heading level).
+  // Deliberately keeps the DEFAULT `excludes` (unlike the marks above): its
+  // `changes` payload differs between renders and a re-render must REPLACE
+  // the mark instead of stacking a second instance.
+  'y-attributed-attrs': {
+    attrs: { changes: { default: null } },
+    parseDOM: [{ tag: 'y-attr' }],
+    toDOM (mark) {
+      const changes = /** @type {Record<string, { userIds?: string[], timestamp?: number|null }>|null} */ (mark.attrs.changes) ?? {}
+      const keys = Object.keys(changes)
+      const ids = [...new Set(keys.flatMap(k => changes[k]?.userIds ?? []))]
+      const timestamp = keys.map(k => changes[k]?.timestamp).find(ts => ts != null) ?? null
+      const title = formatAttributionTitle('Attribute changed (' + keys.join(', ') + ')', ids, timestamp)
+      const uid = primaryUserId(ids)
+      const attrs = uid
+        ? { title, 'data-userid': uid, style: `--user-color: ${userColorForId(uid)}` }
+        : { title }
+      return /** @type {const} */ (['y-attr', attrs, 0])
     }
   }
 }

@@ -157,6 +157,21 @@
         text-decoration-style: wavy;
         text-decoration-color: var(--user-color, #7ce24d);
       }
+      /* Node attribute changes (e.g. heading level): y-attr wraps the whole
+         block - tint it and paint a per-user bar on the left edge. */
+      y-attr:has(> p, > h1, > h2, > h3, > h4, > h5, > h6, > blockquote, > pre, > ul, > ol, > div) {
+        display: block;
+      }
+      y-attr > p, y-attr > h1, y-attr > h2, y-attr > h3, y-attr > h4, y-attr > h5, y-attr > h6,
+      y-attr > blockquote, y-attr > pre, y-attr > ul, y-attr > ol, y-attr > div {
+        background-color: color-mix(in srgb, var(--user-color, #7e57c2) 10%, transparent);
+        box-shadow: inset 3px 0 0 var(--user-color, #7e57c2);
+      }
+      /* inline nodes (e.g. an image with a changed attribute) */
+      y-attr > img {
+        outline: 2px dashed var(--user-color, #7e57c2);
+        outline-offset: -2px;
+      }
 
       /* PM allows attribution marks on doc-level too, so a wholly-inserted
          <p> ends up wrapped in a sibling-level <y-ins>. That wrapper must not

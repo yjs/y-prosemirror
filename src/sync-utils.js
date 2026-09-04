@@ -181,16 +181,45 @@ const dropNullLeaves = (map) => {
 }
 
 /**
+ * Reserved node-level mark carrying attr-change attribution. The name is fixed
+ * by lib0's `attributionToFormat` transformer (its `Y_ATTRS` constant): the
+ * transformer lifts attr-op attribution onto the *parent* insert/modify op's
+ * format under this key, as `{ <attrKey>: conf.attrs(attribution) }`.
+ * ProseMirror still has no model for per-attribute attribution — the mark on
+ * the node is the rendering of "some of this node's attributes are
+ * suggested/attributed changes".
+ */
+const Y_ATTRS_MARK = 'y-attributed-attrs'
+
+/**
+ * Default per-attr-key payload stored inside the {@link Y_ATTRS_MARK} mark's
+ * `changes` attr: `{ userIds, timestamp }`, aligned with the sibling
+ * attribution-mark payloads. Empty `userIds` arrays are preserved — anonymous
+ * suggestions (`{ insert: [] }`) are the norm when the DiffRenderer is used
+ * without an `attributions` option.
+ *
+ * @param {import('lib0/delta').Attribution} a
+ * @return {{ userIds: Array<any>, timestamp: number|null } | null}
+ */
+export const defaultMapAttrAttribution = (a) => {
+  const r = resolveAttribution(a)
+  const userIds = r.insert ?? r.delete
+  if (userIds == null) return null
+  return { userIds: [...userIds], timestamp: r.insertAt ?? r.deleteAt ?? null }
+}
+
+/**
  * The conf handed to lib0's `attributionToFormat` transformer: one handler per
  * attribution dimension, mapping the op's (complete, instruction-form)
  * attribution to the value stored under the corresponding reserved mark name
- * (`y-attributed-insert` / `y-attributed-delete` / `y-attributed-format`).
- * Returning `null` clears the mark (on retain/modify instructions) or renders
- * nothing (on inserted data).
+ * (`y-attributed-insert` / `y-attributed-delete` / `y-attributed-format` /
+ * `y-attributed-attrs`). Returning `null` clears the mark (on retain/modify
+ * instructions) or renders nothing (on inserted data).
  *
- * There is deliberately no `attrs` handler: ProseMirror has no model for
- * per-attribute attribution, so attr-op attribution is dropped — the same
- * decision {@link deltaAttributionToFormat} documents.
+ * The `attrs` handler feeds lib0's attr-attribution lift ({@link Y_ATTRS_MARK}).
+ * It is schema-gated in sync-plugin: when the editor schema does not declare
+ * the `y-attributed-attrs` mark the handler is removed from the conf, and attr
+ * attribution is dropped exactly as before.
  *
  * @typedef {(a: import('lib0/delta').Attribution) => any} AttributionConfHandler
  * @typedef {{ insert?: AttributionConfHandler, delete?: AttributionConfHandler, format?: AttributionConfHandler, attrs?: AttributionConfHandler }} AttributionConf
@@ -211,7 +240,15 @@ const dropNullLeaves = (map) => {
 export const attributionMapperToConf = (mapper) => ({
   insert: a => mapper(null, resolveAttribution(a))?.['y-attributed-insert'] ?? null,
   delete: a => mapper(null, resolveAttribution(a))?.['y-attributed-delete'] ?? null,
-  format: a => mapper(null, resolveAttribution(a))?.['y-attributed-format'] ?? null
+  format: a => mapper(null, resolveAttribution(a))?.['y-attributed-format'] ?? null,
+  // A mapper may control the attr-change payload by emitting the reserved
+  // `y-attributed-attrs` key (the default mapper does not - its output doubles
+  // as content-op format in `deltaAttributionToFormat`, where a 4th key would
+  // leak onto text spans); otherwise the default payload builder applies.
+  attrs: a => {
+    const m = mapper(null, resolveAttribution(a))
+    return m != null && Y_ATTRS_MARK in m ? m[Y_ATTRS_MARK] : defaultMapAttrAttribution(a)
+  }
 })
 
 /**
@@ -224,28 +261,82 @@ export const attributionMapperToConf = (mapper) => ({
 export const defaultAttributionConf = attributionMapperToConf(defaultMapAttributionToMark)
 
 /**
+ * Mirror of the attr-attribution lift in lib0's `attributionToFormat`
+ * transformer (its `attrsFmt`): the complete `y-attributed-attrs` format
+ * increment for a node's attr ops, `undefined` when there is nothing to lift.
+ * Same op semantics as lib0: a `modifyAttrOp` carries an attribution
+ * *instruction* (`null` ⇒ per-key clear), `setAttr`/`deleteAttr` carry settled
+ * data (`null` ⇒ none, skipped).
+ *
+ * @param {delta.DeltaAny} nodeDelta
+ * @param {AttributionConfHandler} mapAttrAttribution
+ * @return {{[k:string]:any}|undefined}
+ */
+const liftAttrAttributions = (nodeDelta, mapAttrAttribution) => {
+  /** @type {{[k:string]:any}} */
+  const map = {}
+  for (const op of nodeDelta.attrs) {
+    const isInstr = delta.$modifyAttrOp.check(op)
+    const a = op.attribution
+    if (a === undefined) continue
+    if (a === null) {
+      if (isInstr) map[/** @type {string} */ (op.key)] = null
+      continue
+    }
+    const mapped = mapAttrAttribution(a)
+    if (mapped === null) {
+      if (isInstr) map[/** @type {string} */ (op.key)] = null
+    } else if (mapped !== undefined) {
+      map[/** @type {string} */ (op.key)] = mapped
+    }
+  }
+  return object.isEmpty(map) ? undefined : { [Y_ATTRS_MARK]: map }
+}
+
+/**
+ * Mirror of lib0's `combineFmt`: merge a `y-attributed-attrs` increment onto a
+ * content op's format, preserving the base's tri-state when there is nothing
+ * to add.
+ *
+ * @param {{[k:string]:any}|null|undefined} base
+ * @param {{[k:string]:any}|undefined} add
+ * @return {{[k:string]:any}|null|undefined}
+ */
+const combineFmt = (base, add) => {
+  if (add == null || object.isEmpty(add)) return base
+  return base == null ? add : object.assign({}, base, add)
+}
+
+/**
  * Transform delta with attributions to delta with formats (marks).
+ *
+ * When `mapAttrAttribution` is provided, attr-op attribution is lifted onto
+ * the *parent* insert/modify op's format under `y-attributed-attrs` -
+ * mirroring lib0's `attributionToFormat` transformer exactly (the live
+ * pipeline path), so a full-render conversion equals the steady-state render.
+ * Pass it only when the target schema declares the `y-attributed-attrs` mark.
+ *
  * @param {delta.DeltaAny} d
  * @param {function} attributionsToFormat
+ * @param {AttributionConfHandler?} [mapAttrAttribution]
  */
-export const deltaAttributionToFormat = (d, attributionsToFormat) => {
+export const deltaAttributionToFormat = (d, attributionsToFormat, mapAttrAttribution = null) => {
   const r = delta.create(d.name, $prosemirrorDelta)
   for (const attr of d.attrs) {
-    // Drop attribution from attribute ops. ProseMirror has no model for
-    // per-attribute attribution (a node's attribution is carried by its
-    // `y-attributed-*` format marks), so `nodeToDelta` never reproduces it.
-    // Keeping it here makes the rendered delta differ from the PM-derived
-    // delta on every reconcile - the PM<->Y diff never reaches an empty
-    // fixpoint and `view().update`/`onAttrsChanged` loop forever (e.g. an
-    // inserted node whose attrs carry an empty `{ insert: [] }` attribution),
-    // eventually overflowing the stack inside `lib0/delta.diff`.
+    // Attr ops are re-emitted without attribution. ProseMirror has no model
+    // for per-attribute attribution - keeping it here makes the rendered delta
+    // differ from the PM-derived delta on every reconcile (the PM<->Y diff
+    // never reaches an empty fixpoint, eventually overflowing the stack inside
+    // `lib0/delta.diff`). The attribution's *rendering* instead rides the
+    // parent op's `y-attributed-attrs` format (see `liftAttrAttributions`),
+    // which `nodeToDelta` reproduces from the node's mark.
     const key = /** @type {string} */ (attr.key)
     if (delta.$setAttrOp.check(attr)) {
       r.setAttr(key, attr.value, null)
     } else if (delta.$deleteAttrOp.check(attr)) {
       r.deleteAttr(key, null)
     } else if (delta.$modifyAttrOp.check(attr)) {
-      r.modifyAttr(key, /** @type {any} */ (deltaAttributionToFormat(attr.value, attributionsToFormat)), null)
+      r.modifyAttr(key, /** @type {any} */ (deltaAttributionToFormat(attr.value, attributionsToFormat, mapAttrAttribution)), null)
     } else {
       error.unexpectedCase()
     }
@@ -256,14 +347,25 @@ export const deltaAttributionToFormat = (d, attributionsToFormat) => {
     } else {
       const format = child.attribution ? attributionsToFormat(child.format, child.attribution) : child.format
       if (delta.$insertOp.check(child)) {
-        r.insert(child.insert.map(c => delta.$deltaAny.check(c) ? deltaAttributionToFormat(c, attributionsToFormat) : c), format)
+        // One element at a time, like lib0's transformer: the builder
+        // re-coalesces equal formats, and node elements needing a distinct
+        // `y-attributed-attrs` land in their own insert ops automatically.
+        for (const c of child.insert) {
+          if (delta.$deltaAny.check(c)) {
+            const lift = mapAttrAttribution != null ? liftAttrAttributions(c, mapAttrAttribution) : undefined
+            r.insert([deltaAttributionToFormat(c, attributionsToFormat, mapAttrAttribution)], combineFmt(format, lift))
+          } else {
+            r.insert([c], format)
+          }
+        }
       } else if (delta.$textOp.check(child)) {
         r.insert(child.insert, format)
       } else if (delta.$retainOp.check(child)) {
         r.retain(child.retain, format)
       } else if (delta.$modifyOp.check(child)) {
+        const lift = mapAttrAttribution != null ? liftAttrAttributions(child.value, mapAttrAttribution) : undefined
         // @ts-ignore
-        r.modify(/** @type {any} */ (deltaAttributionToFormat(child.value, attributionsToFormat)), format)
+        r.modify(/** @type {any} */ (deltaAttributionToFormat(child.value, attributionsToFormat, mapAttrAttribution)), combineFmt(format, lift))
       } else {
         error.unexpectedCase()
       }
@@ -318,6 +420,44 @@ const markToYattrName = mark =>
     : `${mark.type.name}--${hashOfJSON(mark.toJSON())}`
 
 /**
+ * Delta-space ⇄ PM-space shape adapter for the {@link Y_ATTRS_MARK} mark. The
+ * delta format value is the unwrapped per-attr map `{ <attrKey>: payload }`
+ * (arbitrary document attr names as keys); PM mark attrs must be *declared*,
+ * and `schema.mark` silently drops undeclared given attrs - which would turn
+ * the map into `{}` and break the render⇄doc fixpoint. So the map is stored
+ * under the single declared mark attr `changes` and unwrapped symmetrically on
+ * the way back.
+ *
+ * @param {string} markName
+ * @param {any} v
+ */
+const wrapYattrMarkValue = (markName, v) => markName === Y_ATTRS_MARK ? { changes: v } : v
+
+/**
+ * Resolve a `y-attributed-attrs` format instruction value to the mark's
+ * resolved map: `{ <key>: null }` clear entries are dropped (lib0's `attrsFmt`
+ * emits them for attrs whose attribution went away, e.g. after accept), and an
+ * empty result resolves to `null` - "remove the mark". The maps arriving here
+ * are complete (the `renderedAttributions` stage injects the state's other
+ * attributed attrs into any change touching attr-attribution space), so
+ * replacing the mark wholesale is correct. Identity for every other format
+ * key.
+ *
+ * @param {string} markName
+ * @param {any} v
+ */
+const resolveYattrFormatValue = (markName, v) => {
+  if (markName !== Y_ATTRS_MARK || v == null) return v
+  const resolved = dropNullLeaves(v)
+  return object.isEmpty(resolved) ? null : resolved
+}
+
+/**
+ * @param {import('prosemirror-model').Mark} mark
+ */
+const unwrapYattrMark = (mark) => mark.type.name === Y_ATTRS_MARK ? (mark.attrs.changes ?? {}) : mark.attrs
+
+/**
  * @param {readonly import('prosemirror-model').Mark[]} marks
  */
 const marksToFormattingAttributes = marks => {
@@ -327,7 +467,7 @@ const marksToFormattingAttributes = marks => {
    */
   const formatting = {}
   marks.forEach(mark => {
-    formatting[markToYattrName(mark)] = mark.attrs
+    formatting[markToYattrName(mark)] = unwrapYattrMark(mark)
   })
   return formatting
 }
@@ -343,7 +483,11 @@ const marksToFormattingAttributes = marks => {
  * @param {import('prosemirror-model').Schema} schema
  */
 export const formattingAttributesToMarks = (formatting, schema) =>
-  object.map(formatting ?? {}, (v, k) => v != null ? schema.mark(yattr2markname(k), v) : null).filter(m => m != null)
+  object.map(formatting ?? {}, (v, k) => {
+    if (v == null) return null
+    const name = yattr2markname(k)
+    return schema.mark(name, wrapYattrMarkValue(name, v))
+  }).filter(m => m != null)
 
 /**
  * @param {Array<Node>} ns
@@ -394,7 +538,9 @@ export function fragmentToTr (fragment, tr, {
 } = {}) {
   const fragmentContent = deltaAttributionToFormat(
     fragment.toDelta({ renderer, deep: true }),
-    mapAttributionToMark
+    mapAttributionToMark,
+    // attr-attribution lift is schema-gated, mirroring the sync-plugin's gate
+    tr.doc.type.schema.marks[Y_ATTRS_MARK] != null ? defaultMapAttrAttribution : null
   )
   const initialPDelta = nodeToDelta(tr.doc, undefined, true).done()
   const deltaBetweenPmAndFragment = delta.diff(initialPDelta, fragmentContent).done()
@@ -472,9 +618,10 @@ const applyNodeFormat = (tr, pos, format, attributedNodes) => {
     // For overlapping marks, remove the specific instance carried by this
     // (hashed) key rather than every mark of the type.
     const mark = node.marks.find(m => markToYattrName(m) === k)
-    resultingMarks = v == null
+    const value = resolveYattrFormatValue(markName, v)
+    resultingMarks = value == null
       ? (mark ?? markType).removeFromSet(resultingMarks)
-      : schema.mark(markName, v).addToSet(resultingMarks)
+      : schema.mark(markName, wrapYattrMarkValue(markName, value)).addToSet(resultingMarks)
   })
   const targetType = schema.nodes[
     attributedVariant(canonicalNodeName(node.type.name), marksToFormattingAttributes(resultingMarks), attributedNodes, schema)
@@ -484,11 +631,13 @@ const applyNodeFormat = (tr, pos, format, attributedNodes) => {
   } else {
     object.forEach(format ?? {}, (v, k) => {
       const markName = yattr2markname(k)
-      if (v == null) {
+      if (schema.marks[markName] == null) return
+      const value = resolveYattrFormatValue(markName, v)
+      if (value == null) {
         const mark = node.marks.find(m => markToYattrName(m) === k)
         tr.removeNodeMark(pos, mark ?? schema.marks[markName])
       } else {
-        tr.addNodeMark(pos, schema.mark(markName, v))
+        tr.addNodeMark(pos, schema.mark(markName, wrapYattrMarkValue(markName, value)))
       }
     })
   }
@@ -588,7 +737,7 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }, attribu
                 const mark = pc.marks.find(m => markToYattrName(m) === k)
                 tr.removeMark(from, to, mark ?? schema.marks[markName])
               } else {
-                tr.addMark(from, to, schema.mark(markName, v))
+                tr.addMark(from, to, schema.mark(markName, wrapYattrMarkValue(markName, v)))
               }
             })
           }

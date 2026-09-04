@@ -41,6 +41,7 @@ export const createYCursorExtension = (awareness) => Extension.create({
 const INSERT_MARK = 'y-attributed-insert'
 const DELETE_MARK = 'y-attributed-delete'
 const FORMAT_MARK = 'y-attributed-format'
+const ATTRS_MARK = 'y-attributed-attrs'
 
 /**
  * @param {import('@tiptap/pm/model').Mark} mark
@@ -104,6 +105,13 @@ const summariseBlockAttribution = (blockNode) => {
       hasFmtMark = true
       const uid = userIdFromFormatMark(m)
       if (uid && !seen.has(uid)) { seen.add(uid); users.push(uid) }
+    } else if (name === ATTRS_MARK) {
+      // node attribute change (e.g. heading level) - counts as an edit
+      hasFmtMark = true
+      const changes = /** @type {Record<string, { userIds?: string[] }>|null} */ (m.attrs.changes) ?? {}
+      for (const uid of new Set(Object.values(changes).flatMap(c => c?.userIds ?? []))) {
+        if (!seen.has(uid)) { seen.add(uid); users.push(uid) }
+      }
     }
     return null
   }

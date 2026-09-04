@@ -172,7 +172,7 @@ Two integration constraints follow from how the sync binding consumes the ytype'
 
 Attributed rendering - showing insertions, deletions, and modifications inline - is currently a coarse red / yellow / green background treatment. That works as a floor, but several cases need more:
 
-- How do we render a pure attribute change? For example, an image's `height` changes from `200` to `400` - there is no text to highlight.
+- ~~How do we render a pure attribute change? For example, an image's `height` changes from `200` to `400` - there is no text to highlight.~~ Resolved: attr changes surface as the reserved node-level `y-attributed-attrs` mark (attrs `{ changes: { <attrKey>: { userIds, timestamp } } }`), materialized automatically when the schema declares that mark (declare it with the DEFAULT `excludes`, unlike the other three). Limitations: attr changes on the *root* type have no parent op to carry the mark and are not rendered; per-attribute attribution is still not modeled on the attr ops themselves.
 - For attribute changes more generally, do we visualize the change in place, or show both versions side-by-side for comparison?
 - Are insertions colored by author (per-user color) or by semantics (green-for-insertion)? The two schemes compete, and picking one loses information.
 

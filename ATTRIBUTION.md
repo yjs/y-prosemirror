@@ -34,13 +34,14 @@ This bidirectional flow has an important consequence: the marks the binding writ
 
 ## Setting up the schema
 
-There are three canonical attribution mark names. **They are not configurable.** Internals reference them by name (notably the strip step described above), so renaming them in your schema will silently break suggestion mode.
+There are four canonical attribution mark names. **They are not configurable.** Internals reference them by name (notably the strip step described above), so renaming them in your schema will silently break suggestion mode.
 
 - `y-attributed-insert`
 - `y-attributed-delete`
 - `y-attributed-format`
+- `y-attributed-attrs` — node-level, for suggested *attribute* changes (e.g. a heading's `level`). **Opt-in**: it is materialized only when the schema declares it. Declare it with a single attr `changes` (`{ changes: { default: null } }`), whose value is `{ <attrKey>: <payload> }` per changed attribute (`{ userIds, timestamp }` by default). Unlike the other three, keep the **default** `excludes`: the `changes` payload differs between renders and a re-render must *replace* the mark, not stack a second instance. Whitelist it on block containers alongside the others. Limitation: attr changes on the root type have no parent op to carry the mark and are not rendered.
 
-The schema must satisfy four constraints.
+The schema must satisfy four constraints (the notes on `excludes` and mark whitelisting below apply to the first three marks; `y-attributed-attrs` deviates as described above).
 
 ### 1. Use exactly these mark names
 
