@@ -90,12 +90,15 @@ export const nodes = {
     toDOM (node) { return ['h' + node.attrs.level, 0] }
   },
 
-  // :: NodeSpec A code listing. Disallows marks or non-text inline
-  // nodes by default. Represented as a `<pre>` element with a
-  // `<code>` element inside of it.
+  // :: NodeSpec A code listing. Disallows non-text inline nodes, and every
+  // mark except the reserved attribution ones - those must be admitted
+  // wherever attributable text can appear, or the binding's render is
+  // silently dropped by ProseMirror (see ATTRIBUTION.md "Allow the marks on
+  // every node where attribution can land"). Represented as a `<pre>`
+  // element with a `<code>` element inside of it.
   code_block: {
     content: 'text*',
-    marks: '',
+    marks: attributionMarkNames,
     group: 'block',
     code: true,
     defining: true,

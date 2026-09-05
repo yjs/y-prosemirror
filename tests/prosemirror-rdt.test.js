@@ -976,15 +976,22 @@ const STANDARD_COHORT = [
  * `y-attributed-*` mark, which must be reverted by the corrective pull).
  *
  * KNOWN ISSUES (pre-existing, found by this suite, reproduced on the
- * unoptimized pipeline; see {@link testRdtKnownIssueCodeBlockAttribution}
- * and {@link testRdtKnownIssueAttrChangeNonConvergence}):
+ * unoptimized pipeline; see {@link testRdtKnownIssueAttrChangeNonConvergence}).
+ * The numbering is stable - `pickCohortOp` refers to it by number - so a
+ * resolved entry stays in place:
  *
- * 1. `code_block` declares `marks: ''`, but the attribution render applies
- *    `y-attributed-*` marks to suggestion-inserted content inside it,
- *    producing a document that fails `doc.check()` (`RangeError: Invalid
- *    content for node code_block`). Cohort fuzzing therefore remaps
- *    `code_block` ops to `paragraph`; non-renderer tiers keep fuzzing
- *    `code_block` unrestricted.
+ * 1. RESOLVED. `code_block` used to declare `marks: ''` while the attribution
+ *    render applied `y-attributed-*` marks to suggestion-inserted content
+ *    inside it, producing a document that failed `doc.check()`. The schemas
+ *    now whitelist the reserved marks on `code_block` (complexSchema and both
+ *    demos), which is what ATTRIBUTION.md requires of every node where
+ *    attributable text can appear, so cohort fuzzing covers `code_block`
+ *    again and {@link testRdtCodeBlockAttribution} runs. The binding still
+ *    does not *enforce* a schema's mark constraints - `deltaToPNode` builds
+ *    through `createAndFill`, which does not validate marks - it warns about
+ *    them at bind time instead (`warnUnsupportedAttributionMarks` in
+ *    sync-plugin.js); `testSwallowSchemaForbiddenMark` in
+ *    swallow-formats.test.js covers what happens when a schema still refuses.
  * 2. A `setNodeAttribute` on content inside suggestion-wrapped structure can
  *    drive the reconcile fix loop into non-convergence (an infinite
  *    propagate loop - the unbounded-propagate caveat in ARCHITECTURE.md),
@@ -1035,9 +1042,6 @@ const pickCohortOp = (user, gen) => {
   if (top.op === 'wrapRange' || top.op === 'liftRange') return null // known issue 4
   if (top.op === 'multiOp') {
     return { ...top, user: user.idx, args: { parts: top.args.parts.filter((/** @type {any} */ part) => part.kind !== 'setNodeAttribute') } }
-  }
-  if ((top.op === 'setNodeMarkup' || top.op === 'insertNode' || top.op === 'replaceRangeWith') && top.args.typeName === 'code_block') {
-    return { ...top, user: user.idx, args: { ...top.args, typeName: 'paragraph', attrs: null } } // known issue 1
   }
   return { ...top, user: user.idx }
 }
@@ -1812,26 +1816,25 @@ export const testRdtEdgeCustomCompareParity = _tc => {
 }
 
 /**
- * KNOWN ISSUE pin (skipped): suggestion-inserted content inside a
- * `code_block` is rendered with `y-attributed-*` marks although the
- * `code_block` schema declares `marks: ''` - the resulting document fails
- * `doc.check()`. Found by this suite's fuzz vocabulary on the UNOPTIMIZED
- * pipeline (e.g. `--filter "rdt suggestion cohort fuzz" --seed 11` with the
- * code_block remap in `pickCohortOp` removed). Unskip after fixing the
- * attribution render to respect the schema's mark constraints, and drop the
- * code_block remap in `pickCohortOp`.
+ * Suggestion-inserted content inside a `code_block` renders with its
+ * `y-attributed-*` marks and still produces a VALID document, because
+ * complexSchema whitelists the reserved marks there (`marks:
+ * attributionMarkNames`). This was known issue 1 - a skipped pin - while
+ * `code_block` declared `marks: ''`: the marks were materialized anyway and
+ * `doc.check()` threw `RangeError: Invalid content for node code_block`.
+ * Originally found by this suite's fuzz vocabulary (`--filter "rdt suggestion
+ * cohort fuzz" --seed 11`).
  *
  * @param {TestCase} _tc
  */
-export const testRdtKnownIssueCodeBlockAttribution = _tc => {
-  t.skip()
+export const testRdtCodeBlockAttribution = _tc => {
   const cohort = new Cohort(['no-suggestions', 'suggestion-mode'])
   try {
     cohort.seed('lorem ipsum')
     // the base user turns the paragraph into a code_block (no marks involved)
     applyTracedOp(cohort, { user: 0, op: 'setNodeMarkup', args: { pos: 0, typeName: 'code_block', attrs: null } }, undefined, { strict: true })
-    // the suggestion-mode user types into it - the renderer must not apply
-    // attribution marks that the code_block content forbids
+    // the suggestion-mode user types into it - the attribution marks land and
+    // the code_block content expression must accept them
     const sm = cohort.user(1)
     sm.view.dispatch(sm.view.state.tr.insertText('XYZ', 3))
     cohort.users.forEach(u => u.view.state.doc.check())

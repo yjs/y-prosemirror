@@ -17,11 +17,45 @@ import * as delta from 'lib0/delta'
 import * as dpos from 'lib0/delta/position'
 import * as Y from '@y/y'
 import { swallowFormats, defaultSwallowedFormats } from '../src/transformers/swallow-formats.js'
+import { Schema } from 'prosemirror-model'
 import { createPMView, Cohort, assertCohortConsistency } from './cohort.js'
 import { schema as complexSchema } from './complexSchema.js'
 
 const PM_KEY = 'prosemirror'
 const Y_INS = 'y-attributed-insert'
+
+/**
+ * complexSchema with `code_block` put back to `marks: ''` - a node that
+ * structurally cannot hold the attribution marks. complexSchema itself
+ * whitelists them there (as every schema should, see ATTRIBUTION.md), so this
+ * variant exists purely to exercise the swallow path for a mark ProseMirror
+ * refuses. The binding logs its bind-time audit warning for it, on purpose.
+ */
+const mkForbiddenMarkSchema = () => new Schema({
+  nodes: { ...complexSchema.spec.nodes.toObject(), code_block: { ...complexSchema.spec.nodes.get('code_block'), marks: '' } },
+  marks: complexSchema.spec.marks
+})
+
+const forbiddenMarkSchema = mkForbiddenMarkSchema()
+
+/**
+ * Run `f` with `console.warn` captured, returning the lines it emitted.
+ *
+ * @param {() => void} f
+ * @return {Array<string>}
+ */
+const captureWarnings = (f) => {
+  /** @type {Array<string>} */
+  const lines = []
+  const original = console.warn
+  console.warn = (/** @type {any} */ ...args) => { lines.push(args.join(' ')) }
+  try {
+    f()
+  } finally {
+    console.warn = original
+  }
+  return lines
+}
 
 /**
  * A fresh transformer over `$deltaAny`.
@@ -287,22 +321,27 @@ export const testSwallowPastedMarkIsRemovedFromView = _tc => {
 }
 
 /**
- * A node whose schema forbids the attribution marks (`code_block` declares
- * `marks: ''`): the render's marks are dropped by ProseMirror, the loss comes
- * back as a fix, and the stage swallows it - the fix loop terminates and the
- * ytype stays clean. (The forward leg still materializes the mark through
- * `createAndFill`; that is the separate known issue pinned as
- * `testRdtKnownIssueCodeBlockAttribution` in `prosemirror-rdt.test.js`, so
- * this test deliberately does not call `doc.check()`.)
+ * A node whose schema forbids the attribution marks ({@link forbiddenMarkSchema}
+ * puts `code_block` back to `marks: ''`): the render's marks are dropped by
+ * ProseMirror, the loss comes back as a fix, and the stage swallows it - the
+ * fix loop terminates and the ytype stays clean.
+ *
+ * The forward leg still materializes the mark through `createAndFill`
+ * (`sync-utils.js` `deltaToPNode`), so the resulting document does not satisfy
+ * `doc.check()` - the binding does not *enforce* a schema's mark constraints,
+ * it only warns about them at bind time
+ * (`warnUnsupportedAttributionMarks`, sync-plugin.js). That is why this test
+ * asserts termination and Y cleanliness rather than document validity, and why
+ * the repo's own schemas whitelist the marks on `code_block`.
  *
  * @param {t.TestCase} _tc
  */
 export const testSwallowSchemaForbiddenMark = _tc => {
-  const cohort = new Cohort(['no-suggestions', 'suggestion-mode'])
+  const cohort = new Cohort(['no-suggestions', 'suggestion-mode'], { schema: forbiddenMarkSchema })
   try {
     cohort.seed('lorem ipsum')
     const base = cohort.user(0)
-    base.view.dispatch(base.view.state.tr.setNodeMarkup(0, complexSchema.nodes.code_block, null))
+    base.view.dispatch(base.view.state.tr.setNodeMarkup(0, forbiddenMarkSchema.nodes.code_block, null))
     const sm = cohort.user(1)
     sm.view.dispatch(sm.view.state.tr.insertText('XYZ', 3))
     // reaching this line at all is the assertion: an unswallowed format-clear
@@ -313,4 +352,81 @@ export const testSwallowSchemaForbiddenMark = _tc => {
   } finally {
     cohort.destroy()
   }
+}
+
+/**
+ * The bind-time schema audit runs only when a renderer is configured.
+ * Attribution is produced exclusively by the renderer (`renderer: null`
+ * renders plain content), so a plain collaborative binding never applies a
+ * `y-attributed-*` mark and must not be told its schema is missing them.
+ *
+ * Each leg builds its OWN schema instance: the audit dedupes on schema
+ * identity, so sharing one with another test would make this order-dependent.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testAuditOnlyWithRenderer = _tc => {
+  const withoutRenderer = captureWarnings(() => {
+    const cohort = new Cohort(['no-suggestions'], { schema: mkForbiddenMarkSchema() })
+    try {
+      cohort.seed('lorem ipsum')
+    } finally {
+      cohort.destroy()
+    }
+  })
+  t.compare(
+    withoutRenderer.filter(l => l.includes('do not allow the attribution marks')),
+    [],
+    'a renderer-less binding is not audited'
+  )
+
+  const withRenderer = captureWarnings(() => {
+    const cohort = new Cohort(['suggestion-mode'], { schema: mkForbiddenMarkSchema() })
+    try {
+      cohort.seed('lorem ipsum')
+    } finally {
+      cohort.destroy()
+    }
+  })
+  const audits = withRenderer.filter(l => l.includes('do not allow the attribution marks'))
+  t.compare(audits.length, 1, 'a renderer-bearing binding is audited exactly once')
+  t.assert(audits[0].includes('code_block'), 'the audit names the offending node type')
+}
+
+/**
+ * Configuring a renderer against a schema that declares none of the reserved
+ * marks is a misconfiguration - suggestions were asked for and nothing can
+ * display them - so it gets its own warning rather than passing silently.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testAuditSchemaWithoutAttributionMarks = _tc => {
+  const nodes = { ...complexSchema.spec.nodes.toObject() }
+  // drop the mark declarations *and* the whitelists that name them, or
+  // ProseMirror's `gatherMarks` throws on the unknown names
+  for (const name of ['doc', 'blockquote', 'code_block']) {
+    nodes[name] = { ...nodes[name], marks: '' }
+  }
+  const markless = new Schema({
+    nodes,
+    marks: { em: /** @type {import('prosemirror-model').MarkSpec} */ (complexSchema.spec.marks.get('em')) }
+  })
+  const warnings = captureWarnings(() => {
+    const cohort = new Cohort(['suggestion-mode'], { schema: markless })
+    try {
+      cohort.seed('lorem ipsum')
+    } finally {
+      cohort.destroy()
+    }
+  })
+  t.compare(
+    warnings.filter(l => l.includes('declares none of the y-attributed-* marks')).length,
+    1,
+    'the missing-marks misconfiguration is reported once'
+  )
+  t.compare(
+    warnings.filter(l => l.includes('do not allow the attribution marks')),
+    [],
+    'and the per-node audit does not also fire'
+  )
 }

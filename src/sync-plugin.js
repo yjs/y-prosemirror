@@ -9,7 +9,7 @@ import { YSyncRdt } from './rdt/y-sync.js'
 import { ProsemirrorRdt } from './rdt/prosemirror.js'
 import { renderedAttributions } from './transformers/rendered-attributions.js'
 import { inlineAnonymousNodes } from './transformers/inline-anonymous-nodes.js'
-import { swallowFormats } from './transformers/swallow-formats.js'
+import { swallowFormats, defaultSwallowedFormats } from './transformers/swallow-formats.js'
 import { bind, Binding } from 'lib0/delta/rdt'
 import * as dt from 'lib0/delta/transformer'
 import { ySyncPluginKey } from './keys.js'
@@ -75,6 +75,83 @@ export const usableTransformer = (ystate) => {
   return (yRdt.ytype === ystate?.ytype && (yRdt.renderer ?? null) === (ystate?.renderer ?? null))
     ? binding.t
     : null
+}
+
+/**
+ * Schemas already audited by {@link warnUnsupportedAttributionMarks}, so a
+ * ytype/renderer switch (which rebuilds the binding) does not re-log.
+ *
+ * @type {WeakSet<import('prosemirror-model').Schema>}
+ */
+const auditedSchemas = new WeakSet()
+
+/**
+ * Warn once per schema about node types that cannot hold the reserved
+ * `y-attributed-*` marks the binding renders.
+ *
+ * **Only call this for a binding that has a renderer.** Attribution is
+ * produced exclusively by the renderer, so a renderer-less binding applies no
+ * attribution marks and has nothing to audit. The caller enforces that; the
+ * helper assumes it, and treats a schema declaring none of the marks as a
+ * misconfiguration rather than an opt-out.
+ *
+ * Attribution is a *projection* of the Y side and is written to the view as
+ * marks. When the target node's schema does not admit them, ProseMirror drops
+ * them silently (`tr.addMark` checks `parent.type.allowsMarkType`) or throws
+ * from `tr.addNodeMark`, and the reverse leg swallows the loss (see
+ * {@link swallowFormats}) - so the view renders stale attribution with no
+ * error to go on. The check is cheap, deterministic and runs before any
+ * editing, which makes it a far better diagnostic than the transformer's
+ * per-change warning: at swallow time a schema refusal is indistinguishable
+ * from an ordinary edit to the projection.
+ *
+ * Leaf node types are skipped - they hold no content that could carry a mark.
+ * The test is `NodeType.allowsMarkType`, i.e. the *resolved* `markSet`, not
+ * the `marks:` spec string: ProseMirror resolves an omitted `marks:` on a
+ * node without inline content to `[]`, so a container can exclude the marks
+ * without ever writing `marks: ''`.
+ *
+ * @param {import('prosemirror-model').Schema} schema
+ */
+const warnUnsupportedAttributionMarks = (schema) => {
+  if (auditedSchemas.has(schema)) return
+  auditedSchemas.add(schema)
+  const markTypes = defaultSwallowedFormats
+    .map(name => schema.marks[name])
+    .filter(markType => markType != null)
+  if (markTypes.length === 0) {
+    // the caller only gets here with a renderer configured, so this is a
+    // misconfiguration rather than an opt-out: suggestions were asked for and
+    // the schema has nothing to display them with
+    console.warn(
+      '[y/prosemirror] a renderer is configured (suggestions / versioning), but this schema ' +
+      'declares none of the y-attributed-* marks - no attribution will be rendered. Declare ' +
+      'y-attributed-insert / -delete / -format (and y-attributed-attrs for node-attribute ' +
+      'changes) and whitelist them on every node that holds attributable content. See ' +
+      'ATTRIBUTION.md.'
+    )
+    return
+  }
+  /**
+   * @type {Array<string>}
+   */
+  const offenders = []
+  for (const nodeName in schema.nodes) {
+    const nodeType = schema.nodes[nodeName]
+    if (nodeType.isLeaf) continue // no content to carry a mark
+    const missing = markTypes.filter(markType => !nodeType.allowsMarkType(markType))
+    if (missing.length > 0) {
+      offenders.push(`  ${nodeName}: ${missing.map(m => m.name).join(', ')}`)
+    }
+  }
+  if (offenders.length === 0) return
+  console.warn(
+    '[y/prosemirror] these node types do not allow the attribution marks this binding renders:\n' +
+    offenders.join('\n') +
+    '\nProseMirror drops those marks silently (or throws from `tr.addNodeMark`) and the binding ' +
+    'swallows the loss, so attribution will not render inside those nodes. Add the marks by name ' +
+    "to each node's `marks` content expression, or extend its `markSet` after editor construction."
+  )
 }
 
 /**
@@ -169,6 +246,14 @@ export const syncPlugin = (opts = {}) => {
           return
         }
         const renderer = pluginState.renderer || null
+        // Attribution exists only where a renderer produces it (`renderer: null`
+        // renders plain content - see YSyncRdt, and `@y/y`'s no-renderer path,
+        // which hardcodes `attrs: null`). A renderer-less binding therefore
+        // never applies a `y-attributed-*` mark, so auditing the schema for
+        // them would be noise. Setting a renderer is the moment the integrator
+        // asks for suggestions / versioning - and a renderer change rebuilds
+        // the binding, so this gate is also "audit once, when a renderer is set".
+        if (renderer != null) warnUnsupportedAttributionMarks(view.state.schema)
         const compare = pluginState.customCompare
         const conf = attributionMapperToConf(pluginState.attributionMapper)
         // The attr-attribution lift (lib0's `y-attributed-attrs` format) is

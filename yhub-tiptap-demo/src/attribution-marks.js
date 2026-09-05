@@ -14,11 +14,13 @@ import { userColorForId } from './user-colors.js'
 //
 // Constraints baked in below (ATTRIBUTION.md §1-4):
 //   §1 Use exactly these names.
-//   §2 Allow them on every node that holds text. Tiptap's StarterKit nodes do
-//      not restrict marks and ship no colliding `insertion`/`deletion` family,
-//      so they are accepted everywhere by default — no markSet patching needed.
-//      (Exception: `codeBlock` sets `marks: ''`; a suggestion-mode edit inside a
-//      code block would throw RangeError. Out of scope for this demo.)
+//   §2 Allow them on every node that holds text. Most of Tiptap's StarterKit
+//      nodes do not restrict marks and ship no colliding `insertion`/`deletion`
+//      family, so they are accepted there by default. `codeBlock` is the
+//      exception — it sets `marks: ''` — so `main.js` patches every restricted
+//      node's `markSet` after the editor is constructed. Without that, the
+//      binding's bind-time warning names `codeBlock` and attribution silently
+//      never renders inside a code block.
 //   §3 The three must not exclude each other -> `excludes: ''` on each, so a span
 //      can carry e.g. insert + format simultaneously.
 //   §4 The declared attrs must cover EVERYTHING `defaultMapAttributionToMark`

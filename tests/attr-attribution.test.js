@@ -23,7 +23,11 @@ const schema = new Schema({
   nodes: {
     ...nodes,
     doc: { ...nodes.doc, marks: attrMarkNames },
-    blockquote: { ...nodes.blockquote, marks: attrMarkNames }
+    blockquote: { ...nodes.blockquote, marks: attrMarkNames },
+    // complexSchema's `code_block` whitelists only the three content marks it
+    // declares; this schema adds a fourth, so widen it too or the binding's
+    // bind-time audit rightly reports it
+    code_block: { ...nodes.code_block, marks: attrMarkNames }
   },
   marks: {
     ...marks,

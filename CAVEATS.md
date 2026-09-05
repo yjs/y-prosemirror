@@ -147,12 +147,25 @@ The attribution marks are a *projection* of the Y side's attribution dimension -
 
 - **Explicitly** - a user (or plugin) removes a `y-attributed-*` mark, e.g. via "clear formatting".
 - **Implicitly** - a fresh insert *inherits* an inclusive attribution mark from its neighborhood, e.g. typing inside a suggestion-deleted span inherits `y-attributed-delete` onto the typed character. Pasting previously-attributed content has the same effect.
-- **Structurally** - the node cannot hold the mark at all. A node declaring `marks: ''` (e.g. `code_block`) makes ProseMirror's `tr.addMark` skip the attribution mark silently, so the render is simply lost.
+- **Structurally** - the node cannot hold the mark at all. A node whose resolved `markSet` excludes the attribution marks makes ProseMirror's `tr.addMark` skip them silently (or `tr.addNodeMark` throw), so the render is simply lost. Watch out for `marks: ''` copied from `prosemirror-schema-basic`'s `code_block`, and for containers that simply *omit* `marks:` - ProseMirror resolves an omitted `marks:` on a node without inline content to `[]`, not "everything".
 
 The binding handles these in two places:
 
 - `ProsemirrorRdt.pull()` **restores** the projection on content the change *retained*, from the pre-change snapshot. That covers the explicit case, and also ProseMirror's incidental damage - a plain delete can re-split text runs and drop a mark off a neighbouring character.
-- The `swallowFormats` stage **clears** the keys off freshly *inserted* content (the implicit case) with a correction applied straight back to the view, and **swallows** everything else. A structurally impossible mark is therefore not reported to Y and not re-asserted on the view: re-asserting it would loop forever, so the view keeps rendering that range without the mark until a Y change re-renders it. A warning is logged once per key (`[y/prosemirror] the view removed the render-only attribution format …`) - if you see it, either whitelist the mark on that node type or check what is editing the projection.
+- The `swallowFormats` stage **clears** the keys off freshly *inserted* content (the implicit case) with a correction applied straight back to the view, and **swallows** everything else. A structurally impossible mark is therefore not reported to Y and not re-asserted on the view: re-asserting it would loop forever, so the view keeps rendering that range without the mark until a Y change re-renders it.
+
+The structural case has its own diagnostic, and it is the one to act on. When a binding is (re)established **with a renderer**, the plugin audits the editor's schema and logs, once, every node type that will drop an attribution mark:
+
+```
+[y/prosemirror] these node types do not allow the attribution marks this binding renders:
+  code_block: y-attributed-insert, y-attributed-delete, y-attributed-format
+ProseMirror drops those marks silently (or throws from `tr.addNodeMark`) and the binding
+swallows the loss, so attribution will not render inside those nodes. …
+```
+
+A renderer-less binding (plain collaborative editing) produces no attribution at all, so it is not audited - the check runs at the moment you configure a renderer, which is the moment you ask for suggestions or versioning. Configuring a renderer against a schema that declares *none* of the `y-attributed-*` marks gets its own warning, since nothing will be able to display the attribution.
+
+Fix it by whitelisting the marks on the named node types (see [`ATTRIBUTION.md`](./ATTRIBUTION.md)). A second, weaker warning (`[y/prosemirror] a view-side change removed the render-only attribution format …`, once per key) fires when a removal is actually swallowed at runtime; it cannot tell a schema refusal from a deliberate edit, so read it together with the bind-time warning.
 
 The Y side then re-attributes the emitted content through its renderer and sends the correct marks back as a fix (the typed character above ends up with `y-attributed-insert`, as on every other peer). Integrators should treat the `y-attributed-*` marks strictly as render output - to change attribution, go through the renderer (accept/reject) or edit the content itself.
 

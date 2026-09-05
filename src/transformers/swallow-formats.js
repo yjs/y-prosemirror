@@ -108,10 +108,15 @@ export class SwallowFormatsTransformer extends Transformer {
   }
 
   /**
-   * Log the first removal of each swallowed key. A removal is either a
-   * deliberate edit to the read-only projection or a schema that does not
-   * admit the mark — both silently diverge from what every other peer renders,
-   * so they are worth surfacing once.
+   * Log the first removal of each swallowed key: the view no longer agrees
+   * with what Y says the attribution is, and this stage does not push it back.
+   *
+   * Deliberately vague about the *cause*. At swallow time a schema that cannot
+   * hold the mark is indistinguishable from a user clearing it or from a
+   * benign render/doc asymmetry, so the actionable schema diagnosis is left to
+   * the binding's bind-time audit (`warnUnsupportedAttributionMarks` in
+   * `src/sync-plugin.js`), which names the offending node types before any
+   * editing happens.
    *
    * @param {string} key
    */
@@ -119,7 +124,7 @@ export class SwallowFormatsTransformer extends Transformer {
     if (this._warned.has(key)) return
     this._warned.add(key)
     console.warn(
-      `[y/prosemirror] the view removed the render-only attribution format "${key}". The change is swallowed - Yjs and its renderer own the attributions, so it is not written back. Either the node's schema must allow the "${key}" mark (a node declaring \`marks: ''\`, e.g. a code block, silently drops it), or a user/plugin edited the attribution projection directly, which has no data to change. This view may render stale attribution for that range until a Y change re-renders it.`
+      `[y/prosemirror] a view-side change removed the render-only attribution format "${key}"; it was swallowed - Yjs and its renderer own the attributions, so it is not written back, and it is not re-asserted on the view either (a mark the schema cannot hold would loop forever). This view may render stale attribution for that range until a Y change re-renders it. If the bind-time warning about node types that do not allow attribution marks also fired, whitelist "${key}" on the node type it named; otherwise check what is editing the attribution projection.`
     )
   }
 
