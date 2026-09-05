@@ -248,7 +248,7 @@ export const syncPlugin = (opts = {}) => {
           // our own dispatch re-entering the hook — `applyDelta` handles state
           if (rdts.pmRdt.isApplying) return
           if (view.state.doc === prevState.doc) return
-          rdts.pmRdt.pull()
+          rdts.pmRdt.pull(prevState.doc)
         },
         destroy () {
           teardown()

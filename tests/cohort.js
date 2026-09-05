@@ -45,6 +45,7 @@ import * as ldelta from 'lib0/delta'
 import * as t from 'lib0/testing'
 import { EditorState } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
+import { canJoin, findWrapping, liftTarget } from 'prosemirror-transform'
 import { schema as defaultSchema } from './complexSchema.js'
 
 const PM_KEY = 'prosemirror'
@@ -69,11 +70,20 @@ const PM_KEY = 'prosemirror'
  * @param {Object} [opts]
  * @param {import('prosemirror-model').Schema} [opts.schema]
  * @param {typeof YPM.defaultMapAttributionToMark} [opts.mapAttributionToMark]
+ * @param {NodeCompare} [opts.customCompare] forwarded to the sync plugin (shifts the diffing boundary)
+ * @param {AttributedNodesPredicate} [opts.attributedNodes] forwarded to the sync plugin (attributed node variants)
+ * @param {(err: Error, errCode: number) => any} [opts.onInternalError] forwarded to the sync plugin (internal error probe)
  * @returns {EditorView}
  */
 export const createPMView = (ytype, renderer = null, opts = {}) => {
   const s = opts.schema || defaultSchema
-  const plugin = YPM.syncPlugin(opts.mapAttributionToMark ? { mapAttributionToMark: opts.mapAttributionToMark } : {})
+  /** @type {Parameters<typeof YPM.syncPlugin>[0]} */
+  const pluginOpts = {}
+  if (opts.mapAttributionToMark) pluginOpts.mapAttributionToMark = opts.mapAttributionToMark
+  if (opts.customCompare) pluginOpts.customCompare = opts.customCompare
+  if (opts.attributedNodes) pluginOpts.attributedNodes = opts.attributedNodes
+  if (opts.onInternalError) pluginOpts.onInternalError = opts.onInternalError
+  const plugin = YPM.syncPlugin(pluginOpts)
   const view = new EditorView(
     { mount: document.createElement('div') },
     { state: EditorState.create({ schema: s, plugins: [plugin] }) }
@@ -180,6 +190,9 @@ export class Cohort {
    * @param {Object} [opts]
    * @param {import('prosemirror-model').Schema} [opts.schema]
    * @param {typeof YPM.defaultMapAttributionToMark} [opts.mapAttributionToMark]
+   * @param {NodeCompare} [opts.customCompare]
+   * @param {AttributedNodesPredicate} [opts.attributedNodes]
+   * @param {(err: Error, errCode: number) => any} [opts.onInternalError]
    */
   constructor (modes, opts = {}) {
     this.opts = opts
@@ -279,9 +292,43 @@ export class Cohort {
  *
  * @typedef {Object} TracedOp
  * @property {number} user — index into `cohort.users`
- * @property {('insertText'|'insertPlainText'|'deleteRange'|'addMark'|'removeMark'|'splitBlock'|'insertParagraph')} op
+ * @property {('insertText'|'insertPlainText'|'deleteRange'|'addMark'|'removeMark'|'splitBlock'|'insertParagraph'|'setNodeAttribute'|'setNodeMarkup'|'setDocAttribute'|'joinBlocks'|'wrapRange'|'liftRange'|'insertNode'|'replaceRangeWith'|'acceptRangeChanges'|'rejectRangeChanges'|'multiOp')} op
  * @property {Record<string, any>} args
  */
+
+/**
+ * Errors that must never be swallowed by the fuzz dispatcher when it runs in
+ * strict mode: a "Readonly Delta can't be modified" indicates a mutation of a
+ * frozen shared delta (an aliasing bug in the sync pipeline), lib0's
+ * "unexpected case" indicates a broken internal invariant, and
+ * `rdt-fuzz-loop-breaker` is the RDT fuzz suite's guard against the known
+ * pre-existing reconcile non-convergence (thrown from inside a dispatch, it
+ * must reach the fuzz driver instead of hanging the run). Schema-invalid
+ * edits throw different errors and stay swallowed either way.
+ *
+ * @param {any} err
+ * @return {boolean}
+ */
+const isDeltaContractError = err => err instanceof Error && /Readonly Delta|unexpected case|rdt-fuzz-loop-breaker/i.test(err.message)
+
+/**
+ * Build the PM node for the `insertNode` / `replaceRangeWith` traced ops:
+ * a `blockquote` receives a paragraph wrapper for its text, other types get
+ * the text (if any) as their direct child.
+ *
+ * @param {import('prosemirror-model').Schema} s
+ * @param {string} typeName
+ * @param {Record<string, any> | null | undefined} attrs
+ * @param {string | null | undefined} text
+ * @return {import('prosemirror-model').Node}
+ */
+const buildTracedNode = (s, typeName, attrs, text) => {
+  const type = s.nodes[typeName]
+  if (typeName === 'blockquote') {
+    return type.create(attrs, s.nodes.paragraph.create(null, text ? s.text(text) : undefined))
+  }
+  return type.create(attrs, text ? s.text(text) : undefined)
+}
 
 /**
  * Apply a single `TracedOp` to a cohort. Schema-invalid edits (positions that
@@ -292,17 +339,37 @@ export class Cohort {
  * Centralising op dispatch here keeps the trace format and the simulation's
  * record/replay path in lockstep. Add a new op kind in exactly one place.
  *
+ * With `opts.strict`, delta-contract violations (see
+ * {@link isDeltaContractError}) are rethrown instead of swallowed - the RDT
+ * fuzz suite uses this so that an aliasing bug inside a dispatch (the sync
+ * plugin pulls from within `view.dispatch`) fails the test loudly instead of
+ * surfacing as a hard-to-trace divergence several ops later.
+ *
  * @param {Cohort} cohort
  * @param {TracedOp} step
  * @param {import('prosemirror-model').Schema} [schemaOverride]
+ * @param {{ strict?: boolean }} [opts]
  */
-export const applyTracedOp = (cohort, step, schemaOverride) => {
+export const applyTracedOp = (cohort, step, schemaOverride, opts = {}) => {
   const user = cohort.user(step.user)
   if (!user) return
   const s = schemaOverride || defaultSchema
   const { state } = user.view
   const dispatch = (/** @type {import('prosemirror-state').Transaction} */ tr) => {
-    try { user.view.dispatch(tr) } catch (_) { /* swallow */ }
+    try {
+      user.view.dispatch(tr)
+    } catch (err) {
+      if (opts.strict) {
+        // The transaction was already built successfully, so a throw from
+        // inside `view.dispatch` is a sync-pipeline error (the pull runs in
+        // the plugin's update hook), never a schema-invalid edit - strict
+        // mode must surface ALL of these. Tag the error so the outer
+        // construction-error catch below rethrows it too.
+        /** @type {any} */ (err).rdtFuzzDispatchError = true
+        throw err
+      }
+      /* swallow */
+    }
   }
   try {
     const a = step.args
@@ -337,8 +404,86 @@ export const applyTracedOp = (cohort, step, schemaOverride) => {
       case 'insertParagraph':
         dispatch(state.tr.insert(a.pos, s.nodes.paragraph.create(null, s.text(a.text))))
         break
+      case 'setNodeAttribute':
+        // consumes: pos, attr, value
+        dispatch(state.tr.setNodeAttribute(a.pos, a.attr, a.value))
+        break
+      case 'setNodeMarkup':
+        // consumes: pos, typeName, attrs?
+        dispatch(state.tr.setNodeMarkup(a.pos, s.nodes[a.typeName], a.attrs))
+        break
+      case 'setDocAttribute':
+        // consumes: attr, value (the schema must declare doc attrs)
+        dispatch(state.tr.setDocAttribute(a.attr, a.value))
+        break
+      case 'joinBlocks':
+        // consumes: pos
+        if (!canJoin(state.doc, a.pos)) break
+        dispatch(state.tr.join(a.pos))
+        break
+      case 'wrapRange': {
+        // consumes: from, to, typeName
+        const range = state.doc.resolve(a.from).blockRange(state.doc.resolve(a.to))
+        if (range == null) break
+        const wrapping = findWrapping(range, s.nodes[a.typeName])
+        if (wrapping == null) break
+        dispatch(state.tr.wrap(range, wrapping))
+        break
+      }
+      case 'liftRange': {
+        // consumes: from, to
+        const range = state.doc.resolve(a.from).blockRange(state.doc.resolve(a.to))
+        if (range == null) break
+        const target = liftTarget(range)
+        if (target == null) break
+        dispatch(state.tr.lift(range, target))
+        break
+      }
+      case 'insertNode':
+        // consumes: pos, typeName, attrs?, text? — inline atoms, block leaves,
+        // and text-bearing blocks alike; ProseMirror rejects invalid placements
+        // (swallowed above)
+        dispatch(state.tr.insert(a.pos, buildTracedNode(s, a.typeName, a.attrs, a.text)))
+        break
+      case 'replaceRangeWith':
+        // consumes: from, to, typeName, attrs?, text?
+        dispatch(state.tr.replaceWith(a.from, a.to, buildTracedNode(s, a.typeName, a.attrs, a.text)))
+        break
+      case 'acceptRangeChanges':
+        // consumes: from, to. Renderer users only; a no-renderer view no-ops.
+        YPM.acceptChanges(a.from, a.to)(user.view.state, dispatch)
+        break
+      case 'rejectRangeChanges':
+        // consumes: from, to
+        YPM.rejectChanges(a.from, a.to)(user.view.state, dispatch)
+        break
+      case 'multiOp': {
+        // consumes: parts: Array<{kind: 'insertText'|'delete'|'setNodeAttribute', ...}>.
+        // All parts are chained into ONE transaction (one dispatch = one pull),
+        // each guarded individually so an infeasible part skips without
+        // aborting the whole composite.
+        const tr = state.tr
+        for (const part of a.parts) {
+          try {
+            if (part.kind === 'insertText') {
+              tr.insertText(part.text, Math.max(1, Math.min(part.pos, tr.doc.content.size - 1)))
+            } else if (part.kind === 'delete') {
+              const from = Math.max(1, Math.min(part.from, tr.doc.content.size - 1))
+              const to = Math.max(from, Math.min(part.to, tr.doc.content.size - 1))
+              if (from < to) tr.delete(from, to)
+            } else if (part.kind === 'setNodeAttribute') {
+              tr.setNodeAttribute(part.pos, part.attr, part.value)
+            }
+          } catch (_) { /* skip infeasible part */ }
+        }
+        if (tr.docChanged) dispatch(tr)
+        break
+      }
     }
-  } catch (_) { /* schema-invalid edits skip */ }
+  } catch (err) {
+    if (opts.strict && (isDeltaContractError(err) || /** @type {any} */ (err).rdtFuzzDispatchError === true)) throw err
+    /* schema-invalid edits skip */
+  }
 }
 
 /**

@@ -72,6 +72,8 @@ When we cannot derive the intent of a ProseMirror transaction unambiguously (for
 
 **Mitigation.** A known technique is to bias the diff toward the last known caret position - users overwhelmingly insert at the caret, so anchoring the diff there is right in the common case. We used this approach in Quill a few years ago; see [jhchen/fast-diff#2](https://github.com/jhchen/fast-diff/pull/2).
 
+Note that the incremental reference-walk (`pmDocDiff`) stays inside the same ambiguity class: it narrows the diff window by node identity before diffing, so its pairing may differ from a global diff's in rare ambiguous windows, but every choice is one a diff of the two documents could also have made.
+
 **Status:** solvable, likely not in the initial release.
 
 ## Schema mismatches under concurrency

@@ -93,9 +93,21 @@ The current architecture is *iteration 1* of a staged plan:
 
 1. **Done — Y side incremental:** steady-state changes are native Yjs deltas
    applied against the maintained delta cache; no `toDeltaDeep` renders.
-2. **Next — view side incremental:** `ProsemirrorRdt` still snapshots the doc
-   and diffs on every pull. A later iteration will translate ProseMirror
-   transaction steps into deltas directly, making both directions incremental.
+2. **Done — view side incremental:** `ProsemirrorRdt` no longer rebuilds and
+   diffs the full document on every pull. Canonical snapshots are memoized per
+   PM node (`nodeToDeltaCached`; unchanged subtrees are reference-shared as
+   frozen deltas), and `pull` derives the change from a reference-walk over
+   the before/after documents (`pmDocDiff`), falling back to a full
+   `delta.diff` of the memoized snapshots whenever the previous document is
+   unknown. We walk before/after states instead of translating transaction
+   steps (a step's effect can exceed what it describes - fitting,
+   `ReplaceAroundStep`). Measured on a 2000-paragraph document, a keystroke's
+   view-side pull drops from the ~100ms class to well under a millisecond in
+   steady state (~10ms on the fallback path); `applyDelta` drops similarly
+   (structure-sharing `clone` + memoized snapshots instead of two deep clones
+   and a cold diff). Note the observable API change: the children of canonical
+   `nodeToDelta(n, undefined, true)` results are now frozen shared cache
+   entries (the root stays a mutable builder).
 3. **Eventually — native bind:** `YType` natively implements the RDT interface
    since `@y/y@14.0.0-rc.21` (`ytype.delta` cache, `'delta'` events with
    origins, `applyDelta` fixes). `YSyncRdt` remains only a thin wrapper adding

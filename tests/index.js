@@ -9,6 +9,7 @@ import * as overlappingMarks from './overlapping-marks.test.js'
 import * as customCompare from './custom-compare.test.js'
 import * as inlineNodes from './inline-nodes.test.js'
 import * as attrAttribution from './attr-attribution.test.js'
+import * as prosemirrorRdt from './prosemirror-rdt.test.js'
 // import * as tr from './tr.test.js'
 
 import { runTests } from 'lib0/testing'
@@ -28,7 +29,8 @@ runTests({
   overlappingMarks,
   customCompare,
   inlineNodes,
-  attrAttribution
+  attrAttribution,
+  prosemirrorRdt
   // prosemirror,
   // tr
 }).then(success => {

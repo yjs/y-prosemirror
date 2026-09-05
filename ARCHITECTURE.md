@@ -108,8 +108,20 @@ attribution, so the wrapper serves a fresh render until the doc's cleanup queue 
 own `doc.transact`). See the `src/rdt/y-sync.js` module doc for the full mode semantics.
 
 `ProsemirrorRdt` wraps the `EditorView`; its change detection is driven by the sync
-plugin's `update` hook rather than self-observation (iteration 1 uses full-snapshot diffs;
-a later iteration can translate transaction steps into smaller deltas directly).
+plugin's `update` hook rather than self-observation, and it is **incremental**
+(iteration 2): canonical snapshots are memoized per ProseMirror node
+(`nodeToDeltaCached` - PM nodes are persistent immutable trees, so unchanged subtrees
+keep object identity and their frozen snapshot deltas are reference-shared across
+states), and `pull` computes the change with a reference-walk over the before/after
+documents (`pmDocDiff`: trim the common prefix/suffix of each children list by `===`,
+recurse into a single paired node, `delta.diff` only the small changed window). Whenever
+the previous document is unknown (initial-content gate, desync recovery, projected
+states, a rebind) or the walk errs, `pull` falls back to a full `delta.diff` of the
+memoized snapshots, which stays the ground truth. We deliberately do NOT translate
+transaction steps into deltas: steps are unavailable in the `update` hook, and a step's
+effect can exceed what it describes (ProseMirror's fitting algorithm,
+`ReplaceAroundStep` - see PROJECT_GOALS.md). The opt-in `--yprosemirror-debug` conf
+cross-checks every walk-based pull against the snapshot diff and throws on divergence.
 
 ## Why `renderedAttributions` instead of lib0's `fullAttributions`
 

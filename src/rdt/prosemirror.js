@@ -1,14 +1,72 @@
 import { ObservableV2 } from 'lib0/observable'
 import * as delta from 'lib0/delta'
+import * as env from 'lib0/environment'
 import {
   $prosemirrorDelta,
   defaultAttributedNodes,
   deltaToPNode,
   deltaToPSteps,
-  nodeToDelta
+  nodeToDeltaCached,
+  pmDocDiff
 } from '../sync-utils.js'
 
 const Y_PREFIX = 'y-attributed-'
+
+/**
+ * Opt-in debug mode (`--yprosemirror-debug` on the CLI, or the equivalent
+ * env conf): every pull that took the incremental reference-walk replays the
+ * walk's change against the snapshot diff's outcome and throws on
+ * divergence. Costs one pre-optimization pull per pull - test rigs only.
+ */
+const debugRdt = env.hasConf('yprosemirror-debug')
+
+/**
+ * Debug mode only: deterministic JSON with recursively sorted object keys.
+ *
+ * @param {any} v
+ * @return {string}
+ */
+const debugStableJson = v => {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v)
+  if (Array.isArray(v)) return '[' + v.map(debugStableJson).join(',') + ']'
+  return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + debugStableJson(v[k])).join(',') + '}'
+}
+
+/**
+ * Debug mode only: canonicalize a delta's JSON for outcome comparison -
+ * merge adjacent text runs whose formats are (order-insensitively) equal.
+ * Applying a change may split text runs differently than a fresh snapshot
+ * and may merge format objects in a different key order; both are
+ * canonically insignificant, while every structural difference surfaces.
+ *
+ * @param {any} node
+ * @return {any}
+ */
+const debugNormalizeDeltaJson = node => {
+  if (node == null || typeof node !== 'object') return node
+  const out = { ...node }
+  if (Array.isArray(node.children)) {
+    /** @type {Array<any>} */
+    const merged = []
+    for (const rawOp of node.children) {
+      const op = { ...rawOp }
+      if (Array.isArray(op.insert)) op.insert = op.insert.map(debugNormalizeDeltaJson)
+      if (op.value != null) op.value = debugNormalizeDeltaJson(op.value)
+      const last = merged[merged.length - 1]
+      if (
+        last != null && last.type === 'insert' && op.type === 'insert' &&
+        typeof last.insert === 'string' && typeof op.insert === 'string' &&
+        debugStableJson(last.format ?? null) === debugStableJson(op.format ?? null)
+      ) {
+        merged[merged.length - 1] = { ...last, insert: last.insert + op.insert }
+      } else {
+        merged.push(op)
+      }
+    }
+    out.children = merged
+  }
+  return out
+}
 
 /**
  * The gated initial `_state` (see "Initial-content gate" in
@@ -46,11 +104,21 @@ const touchesAttributionSpace = format => {
  * marks stay as format keys (they are the view-space rendering of the Y side's
  * attribution dimension, produced by the `attributionToFormat` transformer).
  *
- * Change detection is **pull-based** (iteration 1 of the RDT refactor): the
- * sync plugin's `view().update` hook calls {@link ProsemirrorRdt#pull} after
- * each committed dispatch, which re-snapshots the document and emits
- * `delta.diff(previous, next)`. A later iteration can emit smaller deltas by
- * translating the transaction's steps directly.
+ * Change detection is **pull-based and incremental** (iteration 2 of the RDT
+ * refactor): the sync plugin's `view().update` hook calls
+ * {@link ProsemirrorRdt#pull} after each committed dispatch. Snapshots are
+ * memoized per ProseMirror node ({@link nodeToDeltaCached} - PM nodes are
+ * persistent immutable trees, so unchanged subtrees keep object identity and
+ * their frozen snapshot deltas are reference-shared across states), and the
+ * emitted change comes from a reference-walk over the before/after documents
+ * ({@link pmDocDiff}) whenever `_pmstate` tracks the previous document; any
+ * doubt falls back to `delta.diff` of the memoized snapshots (see
+ * {@link ProsemirrorRdt#_computeChange}). We deliberately do not translate
+ * transaction steps into deltas - steps are unavailable in the `update` hook,
+ * and a step's effect can exceed what it describes (ProseMirror's fitting
+ * algorithm, `ReplaceAroundStep`; see PROJECT_GOALS.md). The opt-in
+ * `--yprosemirror-debug` conf cross-checks every walk-based pull against the
+ * snapshot diff and throws on divergence.
  *
  * The `y-attributed-*` projection is **read-only in ProseMirror**: it mirrors
  * the Y side's attribution, so a local edit to it (removing a mark via "clear
@@ -111,9 +179,9 @@ export class ProsemirrorRdt extends ObservableV2 {
     this.compare = compare ?? undefined
     this.getMeta = getMeta
     this.$delta = $prosemirrorDelta
-    const snapshot = nodeToDelta(view.state.doc, undefined, true)
+    const snapshot = nodeToDeltaCached(view.state.doc)
     const dflt = gateInitialContent ? view.state.doc.type.createAndFill() : null
-    const dfltFingerprint = dflt != null ? nodeToDelta(dflt, undefined, true).fingerprint : null
+    const dfltFingerprint = dflt != null ? nodeToDeltaCached(dflt).fingerprint : null
     /**
      * Non-null while the initial content is gated (see class doc): the
      * fingerprint of the schema-default document, which `pull` must not emit.
@@ -126,6 +194,31 @@ export class ProsemirrorRdt extends ObservableV2 {
      * @type {ProsemirrorDelta}
      */
     this._state = this._defaultFingerprint != null ? emptyDocState(view.state.doc) : snapshot
+    /**
+     * The ProseMirror document `_state` (the lib0 delta) was computed from,
+     * or `null` when `_state` has no document counterpart (the
+     * initial-content gate's empty shell, a desync, a projected `expected`
+     * state). Non-null enables the incremental reference-walk in
+     * {@link ProsemirrorRdt#pull}; `null` drops to a full `delta.diff` of
+     * the memoized snapshots, which must stay bulletproof.
+     *
+     * Invariant: every `_state` assignment also assigns `_pmstate`, and
+     * whenever `_pmstate != null`, `_state === nodeToDeltaCached(_pmstate)`
+     * by object identity.
+     *
+     * @type {import('prosemirror-model').Node?}
+     */
+    this._pmstate = this._defaultFingerprint != null ? null : view.state.doc
+    /**
+     * Pull-path statistics, exposed for tests and debugging: `walk` counts
+     * pulls that used the incremental reference-walk (including the
+     * identical-document fast path), `fallback` counts pulls that took the
+     * full snapshot diff, and `walkError` counts walk attempts that threw
+     * before falling back. A healthy steady-state session is all walks with
+     * zero errors; the fuzz suite asserts exactly that, so a regression that
+     * silently degrades every pull to the fallback cannot pass unnoticed.
+     */
+    this._pullStats = { walk: 0, fallback: 0, walkError: 0 }
     this._applying = false
     /**
      * Set when a dispatch was filtered away (e.g. a readonly mode's
@@ -179,8 +272,8 @@ export class ProsemirrorRdt extends ObservableV2 {
    */
   _recover () {
     if (!this._desynced) return true
-    const doc = nodeToDelta(this.view.state.doc, undefined, true)
-    const toState = delta.diff(doc, /** @type {any} */ (this._state), { compare: this.compare })
+    const doc = nodeToDeltaCached(this.view.state.doc)
+    const toState = delta.diff(/** @type {any} */ (doc), /** @type {any} */ (this._state), { compare: this.compare })
     if (!toState.isEmpty()) {
       try {
         if (!this._dispatch(deltaToPSteps(this.view.state.tr, /** @type {any} */ (toState), undefined, undefined, this.attributedNodes))) {
@@ -189,12 +282,82 @@ export class ProsemirrorRdt extends ObservableV2 {
       } catch (_err) {
         return false
       }
-      if (!delta.diff(nodeToDelta(this.view.state.doc, undefined, true), /** @type {any} */ (this._state), { compare: this.compare }).isEmpty()) {
+      if (!delta.diff(/** @type {any} */ (nodeToDeltaCached(this.view.state.doc)), /** @type {any} */ (this._state), { compare: this.compare }).isEmpty()) {
         return false
       }
     }
+    // `_pmstate` stays null: recovery proves canonical equality only, not
+    // object identity with the cached snapshot - the next pull takes the
+    // full-diff fallback once and re-establishes the pair.
     this._desynced = false
     return true
+  }
+
+  /**
+   * The change that turns `_state` into `next`: an incremental
+   * reference-walk from `_pmstate` when available (`_state` is by
+   * construction the cached snapshot of `_pmstate`), the full `delta.diff`
+   * of the memoized snapshots otherwise. The walk is an optimization only -
+   * any doubt (no tracked document, a `prevDoc` cross-check mismatch, an
+   * unexpected error inside the walk) drops to the diff, whose result is
+   * always correct.
+   *
+   * Note that `_pmstate` may legitimately lag the view by more than one
+   * transaction (an empty-change pull returns early without moving it) -
+   * the walk then simply sees a wider window.
+   *
+   * @param {import('prosemirror-model').Node} doc the document `next` was
+   *   snapshotted from
+   * @param {ProsemirrorDelta} next
+   * @param {import('prosemirror-model').Node} [prevDoc] cross-check: when
+   *   given and different from `_pmstate`, the walk is skipped
+   * @return {delta.DeltaAny}
+   */
+  _computeChange (doc, next, prevDoc) {
+    const pmstate = this._pmstate
+    if (pmstate === doc) {
+      this._pullStats.walk++
+      return /** @type {delta.DeltaAny} */ (delta.create().done(false))
+    }
+    if (pmstate != null && (prevDoc === undefined || prevDoc === pmstate)) {
+      /** @type {delta.DeltaAny | null} */
+      let change = null
+      try {
+        change = /** @type {delta.DeltaAny} */ (pmDocDiff(pmstate, doc, this.compare))
+      } catch (_err) {
+        // fall through: the snapshot diff below is the ground truth
+        this._pullStats.walkError++
+      }
+      if (change != null) {
+        // deliberately outside the try - a debug-mode divergence must throw,
+        // not silently take the fallback
+        if (debugRdt) this._debugCheckChange(change, next)
+        this._pullStats.walk++
+        return change
+      }
+    }
+    this._pullStats.fallback++
+    return /** @type {delta.DeltaAny} */ (delta.diff(/** @type {any} */ (this._state), /** @type {any} */ (next), { compare: this.compare }))
+  }
+
+  /**
+   * `--yprosemirror-debug` cross-check: the walk's change, applied to the
+   * previous state, must land exactly on `next` (up to op-boundary and
+   * format-key-order noise, which the canonicalization ignores).
+   *
+   * @param {delta.DeltaAny} change
+   * @param {ProsemirrorDelta} next
+   */
+  _debugCheckChange (change, next) {
+    const replay = delta.clone(/** @type {any} */ (this._state))
+    replay.apply(delta.cloneDeep(/** @type {any} */ (change)), { final: true })
+    const replayJson = debugStableJson(debugNormalizeDeltaJson(replay.done(false).toJSON()))
+    const nextJson = debugStableJson(debugNormalizeDeltaJson(next.toJSON()))
+    if (replayJson !== nextJson) {
+      console.warn('[y/prosemirror] yprosemirror-debug REPLAY', replayJson)
+      console.warn('[y/prosemirror] yprosemirror-debug NEXT  ', nextJson)
+      throw new Error('[y/prosemirror] yprosemirror-debug: the incremental pmDocDiff change diverged from the snapshot diff')
+    }
   }
 
   /**
@@ -202,10 +365,16 @@ export class ProsemirrorRdt extends ObservableV2 {
    * `y-attributed-*` projection, and emit the difference against the previous
    * snapshot. Called by the sync plugin's `update` hook after a committed
    * dispatch that was not our own.
+   *
+   * @param {import('prosemirror-model').Node} [prevDoc] the document the
+   *   view held before the update that triggered this pull (the sync plugin
+   *   passes `prevState.doc`); used as a cross-check for the incremental
+   *   walk in {@link ProsemirrorRdt#_computeChange}
    */
-  pull () {
+  pull (prevDoc) {
     if (!this._recover()) return
-    let next = nodeToDelta(this.view.state.doc, undefined, true)
+    let doc = this.view.state.doc
+    let next = nodeToDeltaCached(doc)
     if (this._defaultFingerprint != null) {
       // initial-content gate: while the doc still equals the schema default,
       // the skeleton must not leak into Y — not even via a transaction that
@@ -213,7 +382,7 @@ export class ProsemirrorRdt extends ObservableV2 {
       if (next.fingerprint === this._defaultFingerprint) return
       this._defaultFingerprint = null
     }
-    let change = delta.diff(/** @type {any} */ (this._state), /** @type {any} */ (next), { compare: this.compare })
+    let change = this._computeChange(doc, next, prevDoc)
     if (change.isEmpty()) return
     const correction = buildAttributionCorrection(change, this._state)
     if (correction != null) {
@@ -223,10 +392,15 @@ export class ProsemirrorRdt extends ObservableV2 {
         // the corrective transaction is best-effort — the emitted change is
         // stripped by the reverse transformer either way, so Y stays clean
       }
-      next = nodeToDelta(this.view.state.doc, undefined, true)
-      change = delta.diff(/** @type {any} */ (this._state), /** @type {any} */ (next), { compare: this.compare })
+      // re-walk across the corrective dispatch from the unchanged `_pmstate`;
+      // the prevDoc cross-check is skipped on purpose (the correction moved
+      // the document, that is the point)
+      doc = this.view.state.doc
+      next = nodeToDeltaCached(doc)
+      change = this._computeChange(doc, next, undefined)
     }
     this._state = next
+    this._pmstate = doc
     if (!change.isEmpty()) {
       this.emit('delta', [(change), this])
     }
@@ -251,7 +425,12 @@ export class ProsemirrorRdt extends ObservableV2 {
    */
   applyDelta (d, origin) {
     if (d.isEmpty()) return null
-    const expected = delta.cloneDeep(/** @type {any} */ (this._state))
+    // Structure-sharing clone: `_state`'s children are frozen cache entries,
+    // so `clone` shares them and copy-on-write isolates whatever `apply`
+    // touches. `final: true` must stay explicit (`clone` does not carry
+    // `isFinal`), and the applied change must be a private deep clone: `d` is
+    // re-emitted below, and `move: true` re-parents the applied content.
+    const expected = delta.clone(/** @type {any} */ (this._state))
     expected.apply(delta.cloneDeep(/** @type {any} */ (d)), { final: true, move: true })
     if (!this._recover()) {
       // The view cannot be written to right now (dispatches are filtered).
@@ -259,6 +438,7 @@ export class ProsemirrorRdt extends ObservableV2 {
       // coordinate space; the document catches up once dispatches land again.
       this._defaultFingerprint = null
       this._state = /** @type {ProsemirrorDelta} */ (expected.done(false))
+      this._pmstate = null
       return null
     }
     /** @type {import('prosemirror-state').Transaction} */
@@ -283,12 +463,17 @@ export class ProsemirrorRdt extends ObservableV2 {
     }
     if (tr.docChanged && !this._dispatch(tr)) {
       this._state = /** @type {ProsemirrorDelta} */ (expected.done(false))
+      this._pmstate = null
       this._desynced = true
       return null
     }
-    const actual = nodeToDelta(this.view.state.doc, undefined, true)
+    const actualDoc = this.view.state.doc
+    const actual = nodeToDeltaCached(actualDoc)
+    // `clone: true` stays: without it the fix would alias the live `_state`/
+    // memo subtrees between this return and the binding's own deep clone.
     const fix = delta.diff(/** @type {any} */ (expected), /** @type {any} */ (actual), { compare: this.compare, clone: true })
     this._state = actual
+    this._pmstate = actualDoc
     this.emit('delta', [d, origin])
     return fix.isEmpty() ? null : /** @type {any} */ (fix)
   }

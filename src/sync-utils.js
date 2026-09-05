@@ -2,6 +2,7 @@
 import * as array from 'lib0/array'
 import * as delta from 'lib0/delta'
 import * as error from 'lib0/error'
+import * as fun from 'lib0/function'
 import * as math from 'lib0/math'
 import * as object from 'lib0/object'
 import * as s from 'lib0/schema'
@@ -515,7 +516,16 @@ export const nodesToDelta = ns => {
 export function pmToFragment (node, fragment, { renderer = null } = {}) {
   // Canonicalize so the Y document never stores an attributed-variant name
   // (`--attributed` is a reserved suffix - identity when no variant is present).
-  const initialPDelta = nodeToDelta(node, undefined, true).done()
+  // The top-level `clone` is a required defensive copy, not an optimization
+  // hedge: the Y side's `insertContent` injects format-negation keys into the
+  // applied op's format container IN PLACE when the insert position carries
+  // active formats. That mutation bypasses lib0's builder freeze and its
+  // fingerprint invalidation, so handing over the shared memoized snapshot
+  // would silently corrupt the process-wide canonical cache. `clone` gives
+  // fresh top-level ops (each op's format container is copied) while still
+  // structure-sharing the frozen children, whose containers the Y side copies
+  // itself before mutating.
+  const initialPDelta = delta.clone(/** @type {any} */ (nodeToDeltaCached(node))).done()
   fragment.applyDelta(initialPDelta, null, { renderer })
 
   return fragment
@@ -542,8 +552,8 @@ export function fragmentToTr (fragment, tr, {
     // attr-attribution lift is schema-gated, mirroring the sync-plugin's gate
     tr.doc.type.schema.marks[Y_ATTRS_MARK] != null ? defaultMapAttrAttribution : null
   )
-  const initialPDelta = nodeToDelta(tr.doc, undefined, true).done()
-  const deltaBetweenPmAndFragment = delta.diff(initialPDelta, fragmentContent).done()
+  const initialPDelta = nodeToDeltaCached(tr.doc)
+  const deltaBetweenPmAndFragment = /** @type {delta.DeltaAny} */ (delta.diff(/** @type {any} */ (initialPDelta), /** @type {any} */ (fragmentContent)).done())
 
   return deltaToPSteps(tr, deltaBetweenPmAndFragment, undefined, undefined, attributedNodes).setMeta('y-sync-hydration', {
     delta: deltaBetweenPmAndFragment
@@ -561,11 +571,59 @@ export function fragmentToPm (fragment, tr) {
 }
 
 /**
+ * Memo for the canonical snapshot shape ({@link nodeToDeltaCached}).
+ *
+ * ProseMirror nodes are persistent immutable structures, so a node's
+ * canonical delta is a pure function of the node object - unchanged subtrees
+ * keep object identity across transactions and their snapshots can be
+ * reused. Entries are frozen (`done()`) before they are stored: reference
+ * sharing across successive snapshots is only safe for frozen nested deltas
+ * (lib0's copy-on-write clones a frozen child before any mutation, while an
+ * unfrozen shared child would be mutated in place, silently corrupting every
+ * other snapshot that holds it).
+ *
+ * Only the `(nodeName = default, canonicalize = true)` shape is ever cached;
+ * non-canonical callers ({@link docToDelta}, {@link nodesToDelta}) bypass the
+ * memo entirely, so an attributed-variant render can never poison a
+ * canonical snapshot or vice versa.
+ *
+ * @type {WeakMap<Node, ProsemirrorDelta>}
+ */
+const canonicalDeltaCache = new WeakMap()
+
+/**
+ * Memoized {@link nodeToDelta} for the canonical (PM -> Y) shape, equivalent
+ * to `nodeToDelta(n, undefined, true)` except that the returned delta is
+ * frozen (`done()`) and shared: repeated calls for the same node object
+ * return the same instance, and unchanged subtrees of a rebuilt document hit
+ * the memo, making a document snapshot O(changed spine) instead of O(doc).
+ *
+ * The result is a shared read value - consumers must never mutate it (a
+ * mutation attempt throws, because the delta is frozen). Freezing is also
+ * what keeps the sharing safe under lib0's copy-on-write, and it is
+ * shape-stable: snapshot deltas contain only insert/text ops, so `done()`'s
+ * trailing-retain trim never applies.
+ *
+ * @param {Node} n
+ * @return {ProsemirrorDelta}
+ */
+export const nodeToDeltaCached = n => {
+  const cached = canonicalDeltaCache.get(n)
+  if (cached !== undefined) return cached
+  const d = /** @type {ProsemirrorDelta} */ (nodeToDelta(n, undefined, true).done())
+  canonicalDeltaCache.set(n, d)
+  return d
+}
+
+/**
  * @param {Node} n
  * @param {string?} nodeName
  * @param {boolean} [canonicalize] When `true`, the emitted name has the
  *   {@link ATTRIBUTED_SUFFIX} stripped (PM -> Y direction). The flag propagates
- *   through the child recursion.
+ *   through the child recursion. Canonical child snapshots come from (and
+ *   populate) the {@link canonicalDeltaCache}, so the returned delta shares
+ *   frozen child deltas with every other canonical snapshot of the same
+ *   nodes; the root itself stays a mutable `done(false)` builder.
  * @return {ProsemirrorDelta}
  */
 export const nodeToDelta = (n, nodeName = n.type.name, canonicalize = false) => {
@@ -583,7 +641,7 @@ export const nodeToDelta = (n, nodeName = n.type.name, canonicalize = false) => 
     d.setAttrs(n.attrs)
   }
   n.content.content.forEach(c => {
-    d.insert(c.isText ? (c.text ?? []) : [nodeToDelta(c, undefined, canonicalize)], marksToFormattingAttributes(c.marks))
+    d.insert(c.isText ? (c.text ?? []) : [canonicalize ? nodeToDeltaCached(c) : nodeToDelta(c, undefined, false)], marksToFormattingAttributes(c.marks))
   })
   return d.done(false)
 }
@@ -592,6 +650,172 @@ export const nodeToDelta = (n, nodeName = n.type.name, canonicalize = false) => 
  * @param {Node} doc
  */
 export const docToDelta = doc => nodeToDelta(doc, null)
+
+/**
+ * Canonical attrs of a PM node: the render-only `y-attributed` marker
+ * stripped, mirroring {@link nodeToDelta}'s canonicalize branch. Returns the
+ * node's own attrs object when nothing needs stripping, so an identity
+ * comparison between two nodes' canonical attrs stays meaningful.
+ *
+ * @param {Node} n
+ * @return {Record<string, any>}
+ */
+const canonicalAttrs = n => {
+  if (n.attrs['y-attributed'] !== undefined) {
+    const { 'y-attributed': _omit, ...rest } = n.attrs
+    return rest
+  }
+  return n.attrs
+}
+
+/**
+ * Delta length of one PM child in snapshot coordinates: a text child
+ * contributes its character count (`nodeSize` of a text node), an element
+ * child contributes one position.
+ *
+ * @param {Node} c
+ * @return {number}
+ */
+const childDeltaLength = c => c.isText ? c.nodeSize : 1
+
+/**
+ * Snapshot-shaped delta of a slice of a children array (a changed window),
+ * built exactly like {@link nodeToDelta}'s child loop - element children
+ * come from the canonical memo, so the window carries frozen shared
+ * subtrees with memoized fingerprints and diffing two windows is cheap.
+ *
+ * @param {readonly Node[]} children
+ * @param {number} from
+ * @param {number} to
+ * @return {delta.DeltaBuilderAny}
+ */
+const windowDelta = (children, from, to) => {
+  const d = /** @type {delta.DeltaBuilderAny} */ (delta.create())
+  for (let i = from; i < to; i++) {
+    const c = children[i]
+    d.insert(c.isText ? (c.text ?? '') : [nodeToDeltaCached(c)], marksToFormattingAttributes(c.marks))
+  }
+  return /** @type {delta.DeltaBuilderAny} */ (d.done(false))
+}
+
+/**
+ * The walk's single-pair decision, matching `delta.diff`'s pairing
+ * semantics exactly: the default pairs nodes with equal canonical names
+ * (lib0's `defaultCompare` on the canonical snapshots), and a custom
+ * predicate receives the same `(fromNode, toNode)` lib0 delta nodes that
+ * `diff` would pass.
+ *
+ * @param {Node} a
+ * @param {Node} b
+ * @param {NodeCompare | undefined} compare
+ * @return {boolean}
+ */
+const walkPairable = (a, b, compare) => compare == null
+  ? canonicalNodeName(a.type.name) === canonicalNodeName(b.type.name)
+  : compare(/** @type {any} */ (nodeToDeltaCached(a)), /** @type {any} */ (nodeToDeltaCached(b)))
+
+/**
+ * @param {Node} prev
+ * @param {Node} next
+ * @param {NodeCompare | undefined} compare
+ * @param {string?} name the change root's name, mirroring diff's
+ *   `d1.name === d2.name ? d1.name : null` convention in canonical space
+ * @return {delta.DeltaBuilderAny}
+ */
+const pmNodeDiff = (prev, next, compare, name) => {
+  const d = /** @type {delta.DeltaBuilderAny} */ (delta.create(name, delta.$deltaAny))
+  const pa = canonicalAttrs(prev)
+  const na = canonicalAttrs(next)
+  if (pa !== na) {
+    for (const k in na) {
+      if (!fun.equalityDeep(pa[k], na[k])) d.setAttr(k, na[k])
+    }
+    for (const k in pa) {
+      if (!(k in na)) d.deleteAttr(k)
+    }
+  }
+  // Fragment identity is the attr-only fast path: an unchanged content
+  // object means zero child work (a `setNodeAttribute` copies the node but
+  // reuses its content Fragment).
+  if (prev.content !== next.content) {
+    const prevC = prev.content.content
+    const nextC = next.content.content
+    // trim the common prefix/suffix by node object identity, accumulating
+    // DELTA positions (text length vs one slot per element). Identical
+    // node objects also carry identical marks, so the parent-op format is
+    // trivially equal across a trimmed pair.
+    let i = 0
+    let prefixLen = 0
+    while (i < prevC.length && i < nextC.length && prevC[i] === nextC[i]) {
+      prefixLen += childDeltaLength(prevC[i])
+      i++
+    }
+    // the `> i` bounds prevent double-counting a node already consumed by
+    // the prefix when both sides share a run reachable from either end
+    let pEnd = prevC.length
+    let nEnd = nextC.length
+    while (pEnd > i && nEnd > i && prevC[pEnd - 1] === nextC[nEnd - 1]) {
+      pEnd--
+      nEnd--
+    }
+    if (pEnd > i || nEnd > i) {
+      if (prefixLen > 0) d.retain(prefixLen)
+      if (
+        pEnd - i === 1 && nEnd - i === 1 && !prevC[i].isText && !nextC[i].isText &&
+        fun.equalityDeep(marksToFormattingAttributes(prevC[i].marks), marksToFormattingAttributes(nextC[i].marks)) &&
+        walkPairable(prevC[i], nextC[i], compare)
+      ) {
+        // a single paired element: keep walking by reference inside it, so
+        // deep edits never explode the wide levels above them
+        const cn = canonicalNodeName(prevC[i].type.name)
+        const nn = canonicalNodeName(nextC[i].type.name)
+        const inner = pmNodeDiff(prevC[i], nextC[i], compare, cn === nn ? cn : null)
+        if (inner.isEmpty()) {
+          d.retain(1)
+        } else {
+          d.modify(/** @type {any} */ (inner))
+        }
+      } else {
+        // structural window (splits, joins, inserts, deletes, text edits,
+        // mark changes): delegate to `delta.diff` over memoized window
+        // snapshots - it produces granular text diffs and the correct
+        // tri-state format updates, and `append` clones its ops in after
+        // the prefix retain (merging the seam)
+        d.append(/** @type {any} */ (delta.diff(/** @type {any} */ (windowDelta(prevC, i, pEnd)), /** @type {any} */ (windowDelta(nextC, i, nEnd)), { compare })))
+      }
+    }
+    // the suffix needs no ops - a change delta retains to the end implicitly
+  }
+  return /** @type {delta.DeltaBuilderAny} */ (d.done(false))
+}
+
+/**
+ * Incremental canonical diff of two ProseMirror documents by reference
+ * identity. PM nodes are persistent immutable trees: unchanged subtrees keep
+ * object identity across transactions, so trimming children by `===` finds
+ * the changed window without inspecting content, and only the window is
+ * diffed (via `delta.diff` over memoized frozen snapshots). Typing into one
+ * block of an N-block document costs N pointer comparisons plus one small
+ * text diff - no fingerprint hashing, no full-tree walk.
+ *
+ * Contract: applying the result to `nodeToDeltaCached(prevDoc)` yields a
+ * state canonically equal to `nodeToDeltaCached(nextDoc)`. Op granularity
+ * and modify-pairing may differ from a global `delta.diff` of the two
+ * snapshots in rare ambiguous windows; both stay inside the documented
+ * "Diffing ambiguity" class (CAVEATS.md) and converge identically.
+ *
+ * @param {Node} prevDoc
+ * @param {Node} nextDoc
+ * @param {NodeCompare} [compare] the same pairing predicate semantics as
+ *   `delta.diff`'s `compare` option; threaded into every window diff and
+ *   into the walk's own single-pair decision
+ * @return {delta.DeltaBuilderAny} the change, `done(false)`
+ */
+export const pmDocDiff = (prevDoc, nextDoc, compare) => {
+  const pn = canonicalNodeName(prevDoc.type.name)
+  const nn = canonicalNodeName(nextDoc.type.name)
+  return pmNodeDiff(prevDoc, nextDoc, compare, pn === nn ? pn : null)
+}
 
 /**
  * Apply node-level format (node marks) at `pos`. When the resulting attribution
