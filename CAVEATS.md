@@ -121,7 +121,7 @@ Attributed content (insertions, deletions, format changes) is surfaced in ProseM
 - `y-attributed-delete`
 - `y-attributed-format`
 
-The default `defaultMapAttributionToMark` produces these names; custom `mapAttributionToMark` mappers must produce them too. Other internals reference the names directly - the `attributionToFormat` pipeline stage strips exactly the `y-attributed-*` namespace on the view→data direction, and `attributedVariant`/`ProsemirrorRdt`'s read-only-projection guard branch on the literal names. Returning a different name from your mapper will cause `y-prosemirror` to fail to clear the attribution formatting on subsequent renders, and any code that relies on these names (decorations, accept/reject UI) will silently miss the marks.
+The default `defaultMapAttributionToMark` produces these names; custom `mapAttributionToMark` mappers must produce them too. Other internals reference the names directly - the `swallowFormats` pipeline stage gates exactly the `y-attributed-*` namespace on the view→data direction (its list is the `defaultSwallowedFormats` constant in `src/transformers/swallow-formats.js`), and `attributedVariant`/`ProsemirrorRdt`'s read-only-projection guard branch on the literal names. Returning a different name from your mapper will cause `y-prosemirror` to fail to clear the attribution formatting on subsequent renders, and any code that relies on these names (decorations, accept/reject UI) will silently miss the marks.
 
 **Integrator requirements:**
 
@@ -143,12 +143,18 @@ The default `defaultMapAttributionToMark` produces these names; custom `mapAttri
 
 ## The `y-attributed-*` projection is read-only in ProseMirror
 
-The attribution marks are a *projection* of the Y side's attribution dimension - they are computed by the binding (see [`ARCHITECTURE.md`](./ARCHITECTURE.md)) and cannot be written back: the reverse transformer strips every `y-attributed-*` key before a change reaches the Y document. A local edit to that projection therefore has no data to change and would silently diverge from every other peer. Two ways this happens in practice:
+The attribution marks are a *projection* of the Y side's attribution dimension - they are computed by the binding (see [`ARCHITECTURE.md`](./ARCHITECTURE.md)) and cannot be written back: the `swallowFormats` pipeline stage swallows every `y-attributed-*` key before a change reaches the Y document. A local edit to that projection therefore has no data to change and would silently diverge from every other peer. Three ways this happens in practice:
 
 - **Explicitly** - a user (or plugin) removes a `y-attributed-*` mark, e.g. via "clear formatting".
-- **Implicitly** - a fresh insert *inherits* an inclusive attribution mark from its neighborhood, e.g. typing inside a suggestion-deleted span inherits `y-attributed-delete` onto the typed character.
+- **Implicitly** - a fresh insert *inherits* an inclusive attribution mark from its neighborhood, e.g. typing inside a suggestion-deleted span inherits `y-attributed-delete` onto the typed character. Pasting previously-attributed content has the same effect.
+- **Structurally** - the node cannot hold the mark at all. A node declaring `marks: ''` (e.g. `code_block`) makes ProseMirror's `tr.addMark` skip the attribution mark silently, so the render is simply lost.
 
-`ProsemirrorRdt.pull()` reverts any such local change with a corrective transaction before emitting: restored marks reappear, inherited marks are removed. The Y side then re-attributes the emitted content through its renderer and sends the correct marks back as a fix (the typed character above ends up with `y-attributed-insert`, as on every other peer). Integrators should treat the `y-attributed-*` marks strictly as render output - to change attribution, go through the renderer (accept/reject) or edit the content itself.
+The binding handles these in two places:
+
+- `ProsemirrorRdt.pull()` **restores** the projection on content the change *retained*, from the pre-change snapshot. That covers the explicit case, and also ProseMirror's incidental damage - a plain delete can re-split text runs and drop a mark off a neighbouring character.
+- The `swallowFormats` stage **clears** the keys off freshly *inserted* content (the implicit case) with a correction applied straight back to the view, and **swallows** everything else. A structurally impossible mark is therefore not reported to Y and not re-asserted on the view: re-asserting it would loop forever, so the view keeps rendering that range without the mark until a Y change re-renders it. A warning is logged once per key (`[y/prosemirror] the view removed the render-only attribution format …`) - if you see it, either whitelist the mark on that node type or check what is editing the projection.
+
+The Y side then re-attributes the emitted content through its renderer and sends the correct marks back as a fix (the typed character above ends up with `y-attributed-insert`, as on every other peer). Integrators should treat the `y-attributed-*` marks strictly as render output - to change attribution, go through the renderer (accept/reject) or edit the content itself.
 
 ## Editing suggestion-deleted content from ProseMirror
 

@@ -6,8 +6,10 @@ lib0 **RDTs** ("replicated data types", see `lib0/delta/rdt`) and connecting the
 
 ```
 YSyncRdt  ⇄  pipe( renderedAttributions,        ⇄  ProsemirrorRdt
-(Y side)         ...opts.transformers,             (view side)
-                 attributionToFormat )
+(Y side)         inlineAnonymousNodes,             (view side)
+                 ...opts.transformers,
+                 attributionToFormat,
+                 swallowFormats )
 ```
 
 An RDT emits a `'delta'` event (with an origin) whenever its state changes and accepts
@@ -26,7 +28,8 @@ fixes back and forth until both sides settle.
 4. `attributionToFormat` (lib0) renders the attribution dimension into the reserved
    `y-attributed-insert` / `y-attributed-delete` / `y-attributed-format` format keys, using
    handlers derived from the `mapAttributionToMark` option.
-5. `ProsemirrorRdt.applyDelta` converts the delta to ProseMirror steps (`deltaToPSteps`) and
+5. `swallowFormats` passes them through untouched — it only gates the reverse direction.
+6. `ProsemirrorRdt.applyDelta` converts the delta to ProseMirror steps (`deltaToPSteps`) and
    dispatches one transaction (`y-sync-transaction` meta, `addToHistory: false`). Whatever
    ProseMirror normalizes (createAndFill, content-expression coercion, dropped unknown
    marks) is returned as a fix and written back to Y.
@@ -35,12 +38,17 @@ fixes back and forth until both sides settle.
 
 1. The sync plugin's `view().update` hook (after a committed dispatch — never from
    speculative `state.apply` calls) runs `ProsemirrorRdt.pull()`, which snapshots the doc
-   (`nodeToDelta`, canonicalized) and emits `delta.diff(previousSnapshot, snapshot)`.
-2. `attributionToFormat` strips every `y-attributed-*` format key — the view never
-   attributes; attribution marks are presentation, not content.
-3. Optional user transformers (reverse direction).
-4. `renderedAttributions` passes through.
-5. `YSyncRdt.applyDelta` writes the change into the ytype inside
+   (`nodeToDelta`, canonicalized) and emits `delta.diff(previousSnapshot, snapshot)`. It
+   first restores the `y-attributed-*` projection on *retained* content from the previous
+   snapshot — the one repair that needs the pre-change state (see CAVEATS.md).
+2. `swallowFormats` gates the reserved `y-attributed-*` keys: a *removal* is swallowed
+   (nothing reaches Y, nothing is pushed back — see CAVEATS.md), an *addition* is
+   swallowed and a correction removing it from the view is returned on the `b` side.
+3. `attributionToFormat` strips every remaining `y-attributed-*` format key — the view
+   never attributes; attribution marks are presentation, not content.
+4. Optional user transformers (reverse direction).
+5. `renderedAttributions` passes through.
+6. `YSyncRdt.applyDelta` writes the change into the ytype inside
    `doc.transact(fn, pluginOrigin)` (so the undo plugin can track it) and returns as a fix
    the difference between "old state + change" and what the ytype actually renders — e.g.
    the renderer attributing a suggestion-mode insert, or dropping formatting applied to
@@ -56,8 +64,8 @@ to a whole-document `tr.replaceWith`, which uses ProseMirror's fitting algorithm
 ## Custom transformers
 
 `syncPlugin` accepts a `transformers` option: an array of `$d => Template` factories (see
-`lib0/delta/transformer`) slotted **between** `renderedAttributions` and
-`attributionToFormat`, in data→view order:
+`lib0/delta/transformer`) slotted **between** `renderedAttributions` and the closing
+`attributionToFormat` / `swallowFormats` pair, in data→view order:
 
 ```js
 import * as dt from 'lib0/delta/transformer'
@@ -142,7 +150,8 @@ lib0 transformer needed local modification;
 
 ## Known caveats of the RDT machinery
 
-- **The `y-attributed-*` projection is read-only in ProseMirror** — see CAVEATS.md.
+- **The `y-attributed-*` projection is read-only in ProseMirror** — enforced by the
+  `swallowFormats` stage plus `ProsemirrorRdt.pull`'s restore; see CAVEATS.md.
 - **`customCompare` applies everywhere**: the two RDTs forward it to every diff they
   compute (live pulls and fixes), and the binding forwards it to the initial-state sync
   diff via `bind()`'s (experimental) `diffCompare` option.

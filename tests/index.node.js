@@ -18,6 +18,7 @@ import * as inlineNodes from './inline-nodes.test.js'
 import * as attrAttribution from './attr-attribution.test.js'
 import * as ySyncRdt from './y-sync-rdt.test.js'
 import * as prosemirrorRdt from './prosemirror-rdt.test.js'
+import * as swallowFormats from './swallow-formats.test.js'
 // import * as tr from './tr.test.js'
 
 import { runTests } from 'lib0/testing'
@@ -73,7 +74,8 @@ runTests({
   inlineNodes,
   attrAttribution,
   ySyncRdt,
-  prosemirrorRdt
+  prosemirrorRdt,
+  swallowFormats
   // prosemirror,
   // tr
 }).then(success => {

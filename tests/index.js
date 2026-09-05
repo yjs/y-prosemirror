@@ -10,6 +10,7 @@ import * as customCompare from './custom-compare.test.js'
 import * as inlineNodes from './inline-nodes.test.js'
 import * as attrAttribution from './attr-attribution.test.js'
 import * as prosemirrorRdt from './prosemirror-rdt.test.js'
+import * as swallowFormats from './swallow-formats.test.js'
 // import * as tr from './tr.test.js'
 
 import { runTests } from 'lib0/testing'
@@ -30,7 +31,8 @@ runTests({
   customCompare,
   inlineNodes,
   attrAttribution,
-  prosemirrorRdt
+  prosemirrorRdt,
+  swallowFormats
   // prosemirror,
   // tr
 }).then(success => {

@@ -121,13 +121,22 @@ const touchesAttributionSpace = format => {
  * snapshot diff and throws on divergence.
  *
  * The `y-attributed-*` projection is **read-only in ProseMirror**: it mirrors
- * the Y side's attribution, so a local edit to it (removing a mark via "clear
- * formatting", or a fresh insert *inheriting* an inclusive attribution mark
- * from its neighborhood) cannot be written back — the reverse transformer
- * strips the keys — and would silently diverge from every other peer. `pull`
- * therefore reverts any local change to that projection with a corrective
- * transaction before emitting (the Y side re-attributes the emitted content
- * and sends the resulting marks back as a fix).
+ * the Y side's attribution, so a local edit to it cannot be written back — the
+ * `swallowFormats` pipeline stage (`../transformers/swallow-formats.js`)
+ * swallows the keys — and would silently diverge from every other peer.
+ * Guarding it is split by what each layer can know:
+ *
+ * - `pull` **restores** the projection on *retained* content
+ *   ({@link buildAttributionCorrection}), which needs the pre-change snapshot
+ *   this class holds. That repairs a local "clear formatting" as well as
+ *   ProseMirror's incidental damage — a delete that re-splits text runs can
+ *   drop a mark off a neighbouring character.
+ * - The `swallowFormats` stage clears the keys off freshly *inserted* content
+ *   (inherited or pasted marks) and swallows everything else, including the
+ *   `applyDelta` fix path below, which `pull` never sees.
+ *
+ * The Y side then re-attributes the emitted content and sends the resulting
+ * marks back as a fix.
  *
  * ## Initial-content gate (`gateInitialContent`)
  *
@@ -411,7 +420,11 @@ export class ProsemirrorRdt extends ObservableV2 {
    * to the document. Returns the **fix**: the difference between
    * `old state + d` and what the document actually contains after the dispatch
    * — ProseMirror's schema normalization (`createAndFill`, content-expression
-   * coercion, dropped unknown marks).
+   * coercion, dropped unknown marks). A dropped `y-attributed-*` mark (a node
+   * declaring `marks: ''` makes `tr.addMark` skip it silently) surfaces here
+   * as a format-clear in the fix; the `swallowFormats` stage swallows it, so
+   * the loss is never written to Y and is not re-asserted on the view —
+   * re-asserting a mark the schema cannot hold would loop forever.
    *
    * The initial binding sync arrives here as a whole-document difference; when
    * its raw steps cannot be fitted (e.g. deleting the only block of a
@@ -485,16 +498,23 @@ export class ProsemirrorRdt extends ObservableV2 {
 }
 
 /**
- * Build the corrective delta that reverts every change `change` makes to the
- * read-only `y-attributed-*` projection, in *post-change* coordinates (so it
- * can be applied to the current document via {@link deltaToPSteps}):
+ * Restore the read-only `y-attributed-*` projection on content the change
+ * *retained*: for every retain/modify whose format touches a `y-attributed-*`
+ * key, put back the key's value from `state` at that position (or remove it
+ * when `state` had none). The result is in *post-change* coordinates, so it
+ * can be applied to the current document via {@link deltaToPSteps}.
  *
- * - a retain/modify whose format touches a `y-attributed-*` key → restore the
- *   key's value from `state` at that position (or remove it when `state` had
- *   none),
- * - inserted content carrying `y-attributed-*` formats (marks inherited from
- *   an attributed neighborhood, or attributed content pasted back in) → remove
- *   them, recursively for inserted subtrees.
+ * This repairs ProseMirror's incidental damage to the projection - a local
+ * "clear formatting", but also a plain delete that re-splits text runs and
+ * drops a mark off a neighbouring character. It needs the *pre-change*
+ * snapshot to know what to put back, which is why it lives here and not in
+ * the pipeline.
+ *
+ * Freshly *inserted* content carrying the projection (a mark inherited from an
+ * attributed neighborhood, attributed content pasted back in) is NOT handled
+ * here - the `swallowFormats` stage
+ * (`../transformers/swallow-formats.js`) clears those, and it also covers the
+ * `applyDelta` fix path that never reaches this function.
  *
  * Returns `null` when `change` does not touch the projection.
  *
@@ -550,25 +570,6 @@ const buildAttributionCorrection = (change, state) => {
     }
     return any ? restore : null
   }
-  /**
-   * The format-remove for every `y-attributed-*` key present on inserted
-   * content.
-   *
-   * @param {Record<string, any> | null | undefined} format
-   * @return {Record<string, any> | null}
-   */
-  const clearFormat = (format) => {
-    /** @type {Record<string, any>} */
-    const clear = {}
-    let any = false
-    for (const k in format) {
-      if (k.startsWith(Y_PREFIX)) {
-        clear[k] = null
-        any = true
-      }
-    }
-    return any ? clear : null
-  }
   for (const op of change.children) {
     if (delta.$retainOp.check(op)) {
       if (!touchesAttributionSpace(op.format)) {
@@ -603,28 +604,10 @@ const buildAttributionCorrection = (change, state) => {
         rem -= take
         advance()
       }
-    } else if (delta.$textOp.check(op)) {
-      const clear = clearFormat(op.format)
-      correction.retain(op.insert.length, clear ?? undefined)
-      if (clear != null) touched = true
-    } else if (delta.$insertOp.check(op)) {
-      const clear = clearFormat(op.format)
-      if (clear != null) touched = true
-      for (const el of op.insert) {
-        if (delta.$deltaAny.check(el)) {
-          // recurse: freshly inserted subtrees must not carry the projection
-          // anywhere inside either
-          const sub = buildAttributionCorrection(el, null)
-          if (sub != null) {
-            touched = true
-            correction.modify(sub, clear ?? undefined)
-          } else {
-            correction.retain(1, clear ?? undefined)
-          }
-        } else {
-          correction.retain(1, clear ?? undefined)
-        }
-      }
+    } else if (delta.$textOp.check(op) || delta.$insertOp.check(op)) {
+      // inserted content occupies post-change positions but has none in
+      // `state`; the projection it carries is the `swallowFormats` stage's job
+      correction.retain(op.insert.length)
     } else { // $modifyOp
       const { format, el } = readRun(1)
       const restore = restoreFormat(op.format, format)

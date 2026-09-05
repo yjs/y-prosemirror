@@ -28,7 +28,7 @@ delta whose `format` carries y-attributed-* marks
 EditorView
 ```
 
-The PM to Y direction runs the same pipeline in reverse; the `attributionToFormat` stage strips every `y-attributed-*` key before a change reaches the Y type. Attribution marks are presentation, not content. They must never round-trip into the CRDT, otherwise the next render would double-apply them.
+The PM to Y direction runs the same pipeline in reverse; the `swallowFormats` stage (and `attributionToFormat` behind it) strips every `y-attributed-*` key before a change reaches the Y type. Attribution marks are presentation, not content. They must never round-trip into the CRDT, otherwise the next render would double-apply them.
 
 This bidirectional flow has an important consequence: the marks the binding writes into PM (in the Y to PM pass) must match what the binding reads back from PM (in the PM to Y pass), otherwise every apply produces a spurious fix that has to bounce between the two sides. See "Stability is mandatory" below.
 
