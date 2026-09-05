@@ -45,7 +45,13 @@ import { $prosemirrorDelta } from '../sync-utils.js'
  * against it. (That the incrementally-maintained cache equals a fresh deep
  * render — even under an active `DiffRenderer`, through suggestion edits and
  * accept/reject overlay updates — is pinned upstream by the yjs
- * `testRdt*CacheDrift` suite and continuously by `.dbg-fuzz.mjs`.)
+ * `testRdt*CacheDrift` suite and continuously by `.dbg-fuzz.mjs`.) One known
+ * upstream exception: accepting changes over a region where transient
+ * content (a pending insert that was then delete-suggested) was cancelled
+ * out of the render patches the cache — and emits — in the pre-cancellation
+ * space, corrupting the cache with retain residue (known issue 5 in
+ * tests/prosemirror-rdt.test.js). Both RDTs fail safe on the resulting diff
+ * errors (see `onInternalError`).
  *
  * The cache is only *eventually* consistent while the doc is mid-transaction
  * or mid-cleanup: a write we issue in that window (the binding maps a view
@@ -93,7 +99,9 @@ export class YSyncRdt extends ObservableV2 {
    * @param {NodeCompare?} [opts.compare] forwarded to every `delta.diff`
    * @param {null|((err:Error,errCode:number)=>any)} [opts.onInternalError] Listen to internal
    * errors for debugging purposes. This API is unstable and can be changed/removed at any time!
-   * (errCode 0: applyDelta failed)
+   * (errCode 0: the Y-side applyDelta write failed; errCode 1: the Y-side
+   * fix diff failed; errCode 2: the view-side reconcile diff failed — see
+   * ProsemirrorRdt#applyDelta)
    */
   constructor ({ ytype, renderer, origin, compare = null, onInternalError = null }) {
     super()
@@ -270,8 +278,20 @@ export class YSyncRdt extends ObservableV2 {
     if (uncertain) {
       this._stateOverride = actual
     }
-    const fix = delta.diff(/** @type {any} */ (expected), /** @type {any} */ (actual), { compare: this.compare, clone: true })
-    return fix.isEmpty() ? null : /** @type {any} */ (fix)
+    /** @type {import('lib0/delta').Delta<any> | null} */
+    let fix = null
+    try {
+      fix = delta.diff(/** @type {any} */ (expected), /** @type {any} */ (actual), { compare: this.compare, clone: true })
+    } catch (err) {
+      // Fail-safe: when the maintained cache was corrupted by a wrong-space
+      // patch (the accept-over-cancelled-transient-content upstream bug —
+      // known issues 3 and 5 in tests/prosemirror-rdt.test.js), `expected`
+      // or `actual` is no longer a pure state delta and the diff throws.
+      // The write above already landed — report and return no fix rather
+      // than unwinding into the caller's dispatch / event delivery.
+      this._onInternalError?.(/** @type {any} */ (err), 1)
+    }
+    return fix == null || fix.isEmpty() ? null : /** @type {any} */ (fix)
   }
 
   destroy () {

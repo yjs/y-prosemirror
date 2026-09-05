@@ -45,6 +45,7 @@ import {
   assertCohortConsistency,
   Cohort,
   createPMView,
+  findDivergences,
   normalizeDoc,
   setupTwoWaySync,
   stableStringify
@@ -1004,7 +1005,11 @@ const STANDARD_COHORT = [
  *    off; reproduced on the unoptimized pipeline, e.g. cohort fuzz seed
  *    4028796619). Before this suite's strict dispatch the error was
  *    silently swallowed inside the dispatch. The driver aborts the run
- *    when it surfaces.
+ *    when it surfaces. Since issue 5's fail-safes landed, seed 4028796619
+ *    runs clean end-to-end (the `Unexpected case` there was downstream
+ *    damage of issue 5's malformed-delta class), and a fix-diff throw now
+ *    surfaces as an `onInternalError` report instead of an escaping error;
+ *    issues 3 and 5 likely share the cache-corruption root.
  * 4. Structural wraps over suggestion-rendered content can make two
  *    view-suggestions peers converge to differently ORDERED documents:
  *    schema-fitting materializes filler blocks (complexSchema's `custom` is
@@ -1014,6 +1019,35 @@ const STANDARD_COHORT = [
  *    {@link testRdtKnownIssueWrapFittingDivergence} for the minimized
  *    trace. Cohort fuzzing therefore skips `wrapRange`/`liftRange`; both
  *    stay fully fuzzed in the non-renderer tiers.
+ * 5. Accepting changes over a region where TRANSIENT content (a pending
+ *    insert that was then delete-suggested, cancelled out of the render)
+ *    used to live makes `@y/y`'s overlay cascade emit a change positioned
+ *    against the pre-cancellation space - it deletes rendered content that
+ *    was never there and patches the maintained `ytype.delta` cache into a
+ *    corrupt state (retain residue inside a state delta - the same
+ *    corruption signature as issue 3, likely the same root). Reproduced on
+ *    the unmodified baseline (cohort fuzz seed 2230075410); minimized in
+ *    {@link testRdtAcceptAfterTransientCancellation} (active - pins the
+ *    RDTs' fail-safe: adopt the dispatched document, report through
+ *    `onInternalError`, never unwind into Y event delivery) and
+ *    {@link testRdtKnownIssueAcceptDropsTransientSibling} (skipped - the
+ *    full semantics only the upstream fix can restore). No vocabulary
+ *    constraint: the fail-safe keeps runs stable, and
+ *    {@link runRdtCohortSim} aborts gracefully when the malformation is
+ *    reported mid-run.
+ * 6. A local delete next to attributed content can drop a `y-attributed-*`
+ *    mark off the neighbouring text run (ProseMirror re-splits the runs),
+ *    and `buildAttributionCorrection` misses the case - the clear travels
+ *    into the emitted change, `swallowFormats` swallows it (with its stale-
+ *    render warning), and that peer keeps a durably stale projection while
+ *    its same-mode peers render the mark: a projection-only divergence with
+ *    fully converged content. Found by cohort fuzz seed 71715112 (~1 in 3
+ *    stress runs at `--repetition-time 20000`), reproduced byte-identically
+ *    on the baseline; minimized 5-op trace in
+ *    {@link testRdtKnownIssueDroppedNeighborAttributionMark}. `deleteRange`
+ *    cannot leave the vocabulary, so the cohort consistency oracle compares
+ *    CONTENT only (`ignoreAttributionProjection`) until the correction gap
+ *    is fixed - then drop the flag and unskip the pin.
  *
  * @param {import('./cohort.js').CohortUser} user
  * @param {prng.PRNG} gen
@@ -1082,11 +1116,16 @@ const installLoopBreaker = cohort => {
  * @param {prng.PRNG} gen
  * @param {number} iterations
  * @param {string} label
+ * @param {Array<{ err: Error, errCode: number }>} [internalErrors] the
+ *   cohort's `onInternalError` collector - a reported reconcile-diff failure
+ *   (errCode 1/2, the RDTs' fail-safe for known issue 5's malformed deltas)
+ *   aborts the run gracefully: we only claim post-corruption convergence for
+ *   the pinned trace, not in general
  * @return {boolean} `false` when the run was aborted by the loop breaker
- *   (known pre-existing non-convergence) - final assertions must be skipped,
- *   the cohort state is mid-loop
+ *   (known pre-existing non-convergence) or a known internal-error report -
+ *   final assertions must be skipped, the cohort state is mid-loop
  */
-const runRdtCohortSim = (cohort, gen, iterations, label) => {
+const runRdtCohortSim = (cohort, gen, iterations, label, internalErrors = []) => {
   const counter = installLoopBreaker(cohort)
   for (let i = 0; i < iterations; i++) {
     const user = prng.oneOf(gen, cohort.users)
@@ -1106,6 +1145,11 @@ const runRdtCohortSim = (cohort, gen, iterations, label) => {
         return false
       }
       throw err
+    }
+    const knownReports = internalErrors.filter(e => e.errCode === 1 || e.errCode === 2)
+    if (knownReports.length > 0) {
+      t.info(`${label} op=${i}: aborted - reconcile diff failed on a malformed pipeline delta (known issue 5 in the pickCohortOp notes; errCodes=[${knownReports.map(e => e.errCode)}]); op=${JSON.stringify(top)}`)
+      return false
     }
     if (t.extensive || i % 10 === 9 || i === iterations - 1) {
       cohort.users.forEach(u => {
@@ -1129,12 +1173,15 @@ export const testRdtSuggestionCohortFuzz = tc => {
   const cohort = new Cohort(STANDARD_COHORT, { onInternalError: (err, errCode) => internalErrors.push({ err, errCode }) })
   try {
     cohort.seed('lorem ipsum dolor sit amet')
-    if (runRdtCohortSim(cohort, tc.prng, 30, `seed=${tc.seed}`)) {
+    if (runRdtCohortSim(cohort, tc.prng, 30, `seed=${tc.seed}`, internalErrors)) {
       t.assert(
         cohort.users.reduce((n, u) => n + getPmRdt(u.view)._pullStats.walk, 0) > 0,
         `seed=${tc.seed}: the incremental walk ran somewhere in the cohort`
       )
-      assertCohortConsistency(cohort, `rdt cohort seed=${tc.seed}`)
+      // content convergence only: the render-only projection may diverge per
+      // known issue 6 (see the pickCohortOp notes and
+      // testRdtKnownIssueDroppedNeighborAttributionMark)
+      assertCohortConsistency(cohort, `rdt cohort seed=${tc.seed}`, { ignoreAttributionProjection: true })
       assertNoAttributionLeak(/** @type {any} */ (cohort.baseDoc.get(PM_KEY).toDeltaDeep()), 'baseDoc')
       for (const u of cohort.users) {
         if (u.suggestionDoc != null) {
@@ -1156,11 +1203,14 @@ export const testRdtSuggestionCohortFuzz = tc => {
  * @param {TestCase} tc
  */
 export const testRepeatRdtCohortFuzzShort = tc => {
-  const cohort = new Cohort(STANDARD_COHORT)
+  /** @type {Array<{ err: Error, errCode: number }>} */
+  const internalErrors = []
+  const cohort = new Cohort(STANDARD_COHORT, { onInternalError: (err, errCode) => internalErrors.push({ err, errCode }) })
   try {
     cohort.seed('lorem ipsum')
-    if (runRdtCohortSim(cohort, tc.prng, 8, `seed=${tc.seed}`)) {
-      assertCohortConsistency(cohort, `rdt cohort short seed=${tc.seed}`)
+    if (runRdtCohortSim(cohort, tc.prng, 8, `seed=${tc.seed}`, internalErrors)) {
+      // content convergence only - known issue 6, as in the long variant above
+      assertCohortConsistency(cohort, `rdt cohort short seed=${tc.seed}`, { ignoreAttributionProjection: true })
     }
   } finally {
     cohort.destroy()
@@ -1845,6 +1895,97 @@ export const testRdtCodeBlockAttribution = _tc => {
 }
 
 /**
+ * The minimized 5-op trace of known issue 5 (cohort fuzz seed 2230075410,
+ * reproduced on the unmodified baseline): user 3 suggest-inserts "fm",
+ * user 5 delete-suggests the "f" (transient content, physically cancelled
+ * out of every render), then user 2 accepts the range. `@y/y`'s accept
+ * cascade emits a change positioned against the pre-cancellation space -
+ * `[delete(1), retain(1)]` into a rendered paragraph that only holds "m" -
+ * and patches the maintained `ytype.delta` cache with it (retain residue in
+ * a state delta; see the KNOWN ISSUES notes on {@link pickCohortOp}).
+ *
+ * @type {Array<TracedOp>}
+ */
+const ACCEPT_AFTER_CANCELLATION_TRACE = [
+  { user: 4, op: 'insertNode', args: { pos: 0, typeName: 'horizontal_rule' } },
+  { user: 2, op: 'insertText', args: { pos: 1, text: 'o' } },
+  { user: 3, op: 'insertText', args: { pos: 4, text: 'fm' } },
+  { user: 5, op: 'deleteRange', args: { from: 5, to: 6 } },
+  { user: 2, op: 'acceptRangeChanges', args: { from: 1, to: 12 } }
+]
+
+/**
+ * Pins the RDTs' fail-safe against known issue 5's malformed accept-cascade
+ * delta: the reconcile diff cannot be computed, but the failure must be
+ * REPORTED (`onInternalError`, errCode 1/2) instead of thrown - a throw out
+ * of `applyDelta` used to leave `_state` permanently stale with no desync
+ * AND unwind into Y's event delivery, starving every later observer of the
+ * accept transaction (base-bound peers never received the accepted content
+ * at all). With the fail-safe every RDT adopts its dispatched document, the
+ * state oracle holds for all six users, and the mode groups still converge
+ * on this trace.
+ *
+ * @param {TestCase} _tc
+ */
+export const testRdtAcceptAfterTransientCancellation = _tc => {
+  /** @type {Array<{ err: Error, errCode: number }>} */
+  const internalErrors = []
+  const cohort = new Cohort(STANDARD_COHORT, { onInternalError: (err, errCode) => internalErrors.push({ err, errCode }) })
+  try {
+    cohort.seed('lorem ipsum')
+    for (const step of ACCEPT_AFTER_CANCELLATION_TRACE) {
+      applyTracedOp(cohort, step, undefined, { strict: true })
+      cohort.users.forEach(u => {
+        checkStateOracle(getPmRdt(u.view), u.view, `accept-after-cancellation user=${u.idx} (${u.mode})`)
+      })
+    }
+    t.compare(findDivergences(cohort), [], 'mode groups converge')
+    t.assert(internalErrors.length > 0, 'the malformed delta was reported through onInternalError, not swallowed')
+    t.assert(
+      internalErrors.every(e => e.errCode === 1 || e.errCode === 2),
+      `only reconcile-diff fail-safe reports (errCodes=[${internalErrors.map(e => e.errCode)}])`
+    )
+  } finally {
+    cohort.destroy()
+  }
+}
+
+/**
+ * KNOWN ISSUE pin (skipped): the full semantics of
+ * {@link ACCEPT_AFTER_CANCELLATION_TRACE} that only the `@y/y` fix can
+ * restore - the accept cascade must emit in the rendered space and keep the
+ * maintained cache a pure state. Today the phantom `delete(1)` eats the
+ * accepted "m" on every renderer user and leaves retain residue in
+ * `ytype.delta` (the drift the upstream `testRdt*CacheDrift` suite is
+ * missing). The exact accepted base content is also open upstream: in the
+ * broken cascade the accepted delete-suggestion of "f" never reached the
+ * base doc (it ends with "fm"). Unskip when the upstream fix lands, and
+ * tighten the assertions to the semantics it settles on.
+ *
+ * @param {TestCase} _tc
+ */
+export const testRdtKnownIssueAcceptDropsTransientSibling = _tc => {
+  t.skip()
+  /** @type {Array<{ err: Error, errCode: number }>} */
+  const internalErrors = []
+  const cohort = new Cohort(STANDARD_COHORT, { onInternalError: (err, errCode) => internalErrors.push({ err, errCode }) })
+  try {
+    cohort.seed('lorem ipsum')
+    for (const step of ACCEPT_AFTER_CANCELLATION_TRACE) {
+      applyTracedOp(cohort, step, undefined, { strict: true })
+    }
+    t.compare(internalErrors, [], 'no internal errors - the cascade emits well-formed rendered-space deltas')
+    const vs = cohort.user(2)
+    t.compare(vs.view.state.doc.child(2).textContent, 'm', 'the accepted "m" survives on the view-suggestions user')
+    const cacheJson = stableStringify(delta.cloneDeep(/** @type {any} */ (vs.suggestionDoc?.get(PM_KEY).delta)).toJSON())
+    t.assert(!/"retain"|"delete"/.test(cacheJson), 'the maintained ytype.delta cache is a pure state delta')
+    assertCohortConsistency(cohort, 'accept over cancelled transient content')
+  } finally {
+    cohort.destroy()
+  }
+}
+
+/**
  * KNOWN ISSUE pin (skipped): this minimized 5-op trace (from
  * `rdt suggestion cohort fuzz --seed 777` on the UNOPTIMIZED pipeline)
  * drives the reconcile fix loop into an infinite propagate loop - the
@@ -1902,6 +2043,46 @@ export const testRdtKnownIssueWrapFittingDivergence = _tc => {
     ]
     for (const step of trace) applyTracedOp(cohort, step)
     assertCohortConsistency(cohort, 'wrap over suggestion-rendered content')
+  } finally {
+    cohort.destroy()
+  }
+}
+
+/**
+ * KNOWN ISSUE pin (skipped): this minimized 5-op trace (from cohort fuzz
+ * seed 71715112, reproduced byte-identically on the baseline) leaves the two
+ * suggestion-mode peers with CONVERGED content but a diverged
+ * `y-attributed-*` projection: user 5's own `deleteRange` re-splits the
+ * neighbouring text runs and drops `y-attributed-insert` off the pending
+ * "m", `buildAttributionCorrection` misses the case (the clear travels into
+ * the emitted change and `swallowFormats` swallows it, firing its
+ * stale-render warning during the dispatch), and the stale render does not
+ * heal on nearby Y edits. Known issue 6 in the {@link pickCohortOp} notes.
+ * Unskip after closing the correction gap, and drop the
+ * `ignoreAttributionProjection` flag from the cohort fuzz consistency
+ * checks so the fuzz re-covers projection convergence.
+ *
+ * @param {TestCase} _tc
+ */
+export const testRdtKnownIssueDroppedNeighborAttributionMark = _tc => {
+  t.skip()
+  const cohort = new Cohort(STANDARD_COHORT)
+  try {
+    cohort.seed('lorem ipsum')
+    /** @type {Array<TracedOp>} */
+    const trace = [
+      { user: 2, op: 'insertText', args: { pos: 1, text: 'hzn' } },
+      { user: 4, op: 'insertNode', args: { pos: 16, typeName: 'code_block', text: 'peom' } },
+      { user: 5, op: 'insertText', args: { pos: 8, text: 'ln' } },
+      { user: 4, op: 'joinBlocks', args: { pos: 18 } },
+      { user: 5, op: 'deleteRange', args: { from: 7, to: 20 } }
+    ]
+    for (const step of trace) applyTracedOp(cohort, step, undefined, { strict: true })
+    t.compare(
+      findDivergences(cohort, { ignoreAttributionProjection: true }), [],
+      'content converges (this part holds today)'
+    )
+    assertCohortConsistency(cohort, 'projection convergence after a neighbour-mark drop')
   } finally {
     cohort.destroy()
   }

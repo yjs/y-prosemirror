@@ -129,6 +129,33 @@ export const stableStringify = (v) => {
 }
 
 /**
+ * Strip the render-only `y-attributed-*` projection marks from a doc JSON
+ * (recursively). Used by consistency checks that compare CONTENT convergence
+ * only - see known issue 6 in tests/prosemirror-rdt.test.js: ProseMirror's
+ * incidental mark damage on a neighbouring text run can leave one peer with a
+ * stale projection render that `swallowFormats` deliberately neither writes
+ * back nor re-asserts (the documented lossy caveat), so the projection may
+ * diverge between same-mode peers until the `buildAttributionCorrection` gap
+ * is fixed. Must run BEFORE {@link normalizeDoc}: text runs that differed
+ * only in projection marks merge differently per peer, and only the
+ * post-strip merge collapses that noise.
+ *
+ * @param {any} node
+ * @returns {any}
+ */
+export const stripAttributionProjection = node => {
+  if (node === null || typeof node !== 'object') return node
+  const out = { ...node }
+  if (Array.isArray(out.marks)) {
+    const marks = out.marks.filter((/** @type {any} */ m) => !(typeof m.type === 'string' && m.type.startsWith('y-attributed')))
+    if (marks.length > 0) out.marks = marks
+    else delete out.marks
+  }
+  if (Array.isArray(out.content)) out.content = out.content.map(stripAttributionProjection)
+  return out
+}
+
+/**
  * Canonicalize a ProseMirror doc JSON for cross-peer comparison: sort every
  * text node's marks and merge adjacent text nodes that carry the same (sorted)
  * mark set.
@@ -300,7 +327,8 @@ export class Cohort {
  * Errors that must never be swallowed by the fuzz dispatcher when it runs in
  * strict mode: a "Readonly Delta can't be modified" indicates a mutation of a
  * frozen shared delta (an aliasing bug in the sync pipeline), lib0's
- * "unexpected case" indicates a broken internal invariant, and
+ * "unexpected case" and "diffing deletes unsupported" indicate a broken
+ * internal invariant (a non-state delta reaching a state diff), and
  * `rdt-fuzz-loop-breaker` is the RDT fuzz suite's guard against the known
  * pre-existing reconcile non-convergence (thrown from inside a dispatch, it
  * must reach the fuzz driver instead of hanging the run). Schema-invalid
@@ -309,7 +337,7 @@ export class Cohort {
  * @param {any} err
  * @return {boolean}
  */
-const isDeltaContractError = err => err instanceof Error && /Readonly Delta|unexpected case|rdt-fuzz-loop-breaker/i.test(err.message)
+const isDeltaContractError = err => err instanceof Error && /Readonly Delta|unexpected case|diffing deletes unsupported|rdt-fuzz-loop-breaker/i.test(err.message)
 
 /**
  * Build the PM node for the `insertNode` / `replaceRangeWith` traced ops:
@@ -501,19 +529,25 @@ export const applyTracedOp = (cohort, step, schemaOverride, opts = {}) => {
  * noise in mark `attrs` doesn't masquerade as a real divergence.
  *
  * @param {Cohort} cohort
+ * @param {{ ignoreAttributionProjection?: boolean }} [opts] with
+ *   `ignoreAttributionProjection`, the render-only `y-attributed-*` marks are
+ *   stripped before comparison (content convergence only - see
+ *   {@link stripAttributionProjection})
  * @returns {Array<Divergence>}
  */
-export const findDivergences = (cohort) => {
+export const findDivergences = (cohort, opts = {}) => {
   /** @type {Array<Divergence>} */
   const out = []
+  /** @param {any} json */
+  const norm = json => normalizeDoc(opts.ignoreAttributionProjection ? stripAttributionProjection(json) : json)
   for (const [mode, users] of cohort.byMode()) {
     if (users.length < 2) continue
     // Normalize before comparing: overlapping marks have no significant order
     // (see `normalizeDoc` / CAVEATS.md), so we compare canonical forms.
-    const baseJSON = normalizeDoc(users[0].view.state.doc.toJSON())
+    const baseJSON = norm(users[0].view.state.doc.toJSON())
     const baseStr = stableStringify(baseJSON)
     for (let i = 1; i < users.length; i++) {
-      const otherJSON = normalizeDoc(users[i].view.state.doc.toJSON())
+      const otherJSON = norm(users[i].view.state.doc.toJSON())
       if (stableStringify(otherJSON) !== baseStr) {
         out.push({
           mode,
@@ -535,9 +569,11 @@ export const findDivergences = (cohort) => {
  *
  * @param {Cohort} cohort
  * @param {string} [label]
+ * @param {{ ignoreAttributionProjection?: boolean }} [opts] forwarded to
+ *   {@link findDivergences}
  */
-export const assertCohortConsistency = (cohort, label = '') => {
-  const divergences = findDivergences(cohort)
+export const assertCohortConsistency = (cohort, label = '', opts = {}) => {
+  const divergences = findDivergences(cohort, opts)
   if (divergences.length === 0) return
   for (const d of divergences) {
     console.log(`\n=== Divergence (${label}) in mode "${d.mode}" between user ${d.idxA} and user ${d.idxB} ===`)

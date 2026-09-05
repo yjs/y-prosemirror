@@ -180,13 +180,18 @@ export class ProsemirrorRdt extends ObservableV2 {
    * @param {boolean} [opts.gateInitialContent] the counterpart ytype has no
    *   children — gate the schema-default document instead of treating it as
    *   content (see "Initial-content gate" in the class doc)
+   * @param {null|((err:Error,errCode:number)=>any)} [opts.onInternalError]
+   *   Listen to internal errors for debugging purposes. This API is unstable
+   *   and can be changed/removed at any time! (errCode 2: the `applyDelta`
+   *   reconcile diff failed — see the fail-safe there)
    */
-  constructor ({ view, attributedNodes = defaultAttributedNodes, compare = null, getMeta, gateInitialContent = false }) {
+  constructor ({ view, attributedNodes = defaultAttributedNodes, compare = null, getMeta, gateInitialContent = false, onInternalError = null }) {
     super()
     this.view = view
     this.attributedNodes = attributedNodes
     this.compare = compare ?? undefined
     this.getMeta = getMeta
+    this._onInternalError = onInternalError
     this.$delta = $prosemirrorDelta
     const snapshot = nodeToDeltaCached(view.state.doc)
     const dflt = gateInitialContent ? view.state.doc.type.createAndFill() : null
@@ -432,6 +437,17 @@ export class ProsemirrorRdt extends ObservableV2 {
    * uses ProseMirror's fitting algorithm — the ytype fully overwrites the
    * ProseMirror content.
    *
+   * **Fail-safe**: a malformed foreign change — one positioned against a
+   * space this view never held (e.g. the upstream accept-cascade bug pinned
+   * as known issue 5 in tests/prosemirror-rdt.test.js) — leaves non-insert
+   * residue in `expected`, and the fix diff below is the first place that
+   * can notice. By then the dispatch has already committed, so the document
+   * is the truth of the view: the error is reported through
+   * `onInternalError` (errCode 2), the actual document is adopted as the new
+   * state, and no fix is returned. Throwing instead would leave `_state`
+   * permanently stale with no desync AND abort the surrounding Y
+   * transaction's event delivery, starving every later observer.
+   *
    * @param {ProsemirrorDelta} d
    * @param {any} origin
    * @return {delta.DeltaBuilder<any> | null}
@@ -482,13 +498,21 @@ export class ProsemirrorRdt extends ObservableV2 {
     }
     const actualDoc = this.view.state.doc
     const actual = nodeToDeltaCached(actualDoc)
-    // `clone: true` stays: without it the fix would alias the live `_state`/
-    // memo subtrees between this return and the binding's own deep clone.
-    const fix = delta.diff(/** @type {any} */ (expected), /** @type {any} */ (actual), { compare: this.compare, clone: true })
+    /** @type {delta.Delta<any> | null} */
+    let fix = null
+    try {
+      // `clone: true` stays: without it the fix would alias the live `_state`/
+      // memo subtrees between this return and the binding's own deep clone.
+      fix = delta.diff(/** @type {any} */ (expected), /** @type {any} */ (actual), { compare: this.compare, clone: true })
+    } catch (err) {
+      // fail-safe (see method doc): report, adopt the dispatched document,
+      // return no fix — never unwind into the Y transaction's event delivery
+      this._onInternalError?.(/** @type {any} */ (err), 2)
+    }
     this._state = actual
     this._pmstate = actualDoc
     this.emit('delta', [d, origin])
-    return fix.isEmpty() ? null : /** @type {any} */ (fix)
+    return fix == null || fix.isEmpty() ? null : /** @type {any} */ (fix)
   }
 
   destroy () {
