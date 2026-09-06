@@ -130,15 +130,15 @@ export const stableStringify = (v) => {
 
 /**
  * Strip the render-only `y-attributed-*` projection marks from a doc JSON
- * (recursively). Used by consistency checks that compare CONTENT convergence
- * only - see known issue 6 in tests/prosemirror-rdt.test.js: ProseMirror's
- * incidental mark damage on a neighbouring text run can leave one peer with a
- * stale projection render that `swallowFormats` deliberately neither writes
- * back nor re-asserts (the documented lossy caveat), so the projection may
- * diverge between same-mode peers until the `buildAttributionCorrection` gap
- * is fixed. Must run BEFORE {@link normalizeDoc}: text runs that differed
- * only in projection marks merge differently per peer, and only the
- * post-strip merge collapses that noise.
+ * (recursively), for consistency checks that compare CONTENT convergence
+ * only. Since lib0 1.0.0-rc.30's format-aware diff resolved known issue 6
+ * (see the notes in tests/prosemirror-rdt.test.js), the fuzz oracles compare
+ * the full projection again - this stays as a triage tool and as the
+ * content-first assert in the resolved pin, so a future regression separates
+ * "content diverged" from "only the projection diverged". Must run BEFORE
+ * {@link normalizeDoc}: text runs that differed only in projection marks
+ * merge differently per peer, and only the post-strip merge collapses that
+ * noise.
  *
  * @param {any} node
  * @returns {any}

@@ -1035,19 +1035,36 @@ const STANDARD_COHORT = [
  *    constraint: the fail-safe keeps runs stable, and
  *    {@link runRdtCohortSim} aborts gracefully when the malformation is
  *    reported mid-run.
- * 6. A local delete next to attributed content can drop a `y-attributed-*`
- *    mark off the neighbouring text run (ProseMirror re-splits the runs),
- *    and `buildAttributionCorrection` misses the case - the clear travels
- *    into the emitted change, `swallowFormats` swallows it (with its stale-
- *    render warning), and that peer keeps a durably stale projection while
- *    its same-mode peers render the mark: a projection-only divergence with
- *    fully converged content. Found by cohort fuzz seed 71715112 (~1 in 3
- *    stress runs at `--repetition-time 20000`), reproduced byte-identically
- *    on the baseline; minimized 5-op trace in
- *    {@link testRdtKnownIssueDroppedNeighborAttributionMark}. `deleteRange`
- *    cannot leave the vocabulary, so the cohort consistency oracle compares
- *    CONTENT only (`ignoreAttributionProjection`) until the correction gap
- *    is fixed - then drop the flag and unskip the pin.
+ * 6. RESOLVED (2026-09-06, upstream lib0 1.0.0-rc.30). A local delete next
+ *    to attributed content could leave a peer with a durably diverged
+ *    `y-attributed-*` projection over converged content (cohort fuzz seed
+ *    71715112). The root cause was lib0 `delta.diff`'s format-BLIND text
+ *    alignment: equal characters with different attribution marks could be
+ *    aligned as a mark MOVE (`retain(1, +mark)` on a plain twin plus a
+ *    delete of the genuinely marked char), which
+ *    `buildAttributionCorrection` then "repaired" against the pre-change
+ *    state - stripping the mark off a correct document - and
+ *    `swallowFormats` swallowed the resulting clear. rc.30's format-aware
+ *    alignment removed the whole class; verified by the marks-included pin
+ *    ({@link testRdtDeleteRangeKeepsNeighborAttribution}, the renamed
+ *    former skip), a 150-run full-marks cohort fuzz, and the extensive
+ *    `--yprosemirror-debug` walk/diff cross-check. The consistency oracles
+ *    compare the full projection again (the `ignoreAttributionProjection`
+ *    escape hatch remains in tests/cohort.js for triage).
+ * 7. Accepting a PENDING IMAGE insert (a node with a required attr), then a
+ *    small unrelated `replaceRangeWith`, spins the reconcile fix loop: the
+ *    fuzz loop-breaker throw is swallowed by y-sync's "ytype.applyDelta
+ *    failed - reverting the unappliable part" recovery path, and the run
+ *    then dies on `RangeError: No value supplied for attribute src`
+ *    escaping from `deltaToPNode`'s `createAndFill` - somewhere in the fix
+ *    cascade an image insert loses its required attr - leaving the
+ *    suggestion-mode peers diverged. Found by stress fuzz seed 75993960 at
+ *    `--repetition-time 20000`, reproduced byte-identically on lib0
+ *    1.0.0-rc.29 (pre-existing, unrelated to the rc.30 bump). Minimized
+ *    3-op trace in {@link testRdtKnownIssueAcceptedImageReplaceLoop}.
+ *    Image ops stay fully fuzzed (no vocabulary constraint);
+ *    {@link runRdtCohortSim} aborts the run gracefully when the escaping
+ *    RangeError surfaces - drop that abort branch together with the fix.
  *
  * @param {import('./cohort.js').CohortUser} user
  * @param {prng.PRNG} gen
@@ -1144,6 +1161,10 @@ const runRdtCohortSim = (cohort, gen, iterations, label, internalErrors = []) =>
         t.info(`${label} op=${i}: aborted - pre-existing pipeline error surfaced (known issue 3 in the pickCohortOp notes); op=${JSON.stringify(top)}`)
         return false
       }
+      if (/No value supplied for attribute/i.test(msg)) {
+        t.info(`${label} op=${i}: aborted - the reconcile cascade dropped a required node attr (known issue 7 in the pickCohortOp notes); op=${JSON.stringify(top)}`)
+        return false
+      }
       throw err
     }
     const knownReports = internalErrors.filter(e => e.errCode === 1 || e.errCode === 2)
@@ -1178,10 +1199,7 @@ export const testRdtSuggestionCohortFuzz = tc => {
         cohort.users.reduce((n, u) => n + getPmRdt(u.view)._pullStats.walk, 0) > 0,
         `seed=${tc.seed}: the incremental walk ran somewhere in the cohort`
       )
-      // content convergence only: the render-only projection may diverge per
-      // known issue 6 (see the pickCohortOp notes and
-      // testRdtKnownIssueDroppedNeighborAttributionMark)
-      assertCohortConsistency(cohort, `rdt cohort seed=${tc.seed}`, { ignoreAttributionProjection: true })
+      assertCohortConsistency(cohort, `rdt cohort seed=${tc.seed}`)
       assertNoAttributionLeak(/** @type {any} */ (cohort.baseDoc.get(PM_KEY).toDeltaDeep()), 'baseDoc')
       for (const u of cohort.users) {
         if (u.suggestionDoc != null) {
@@ -1209,8 +1227,7 @@ export const testRepeatRdtCohortFuzzShort = tc => {
   try {
     cohort.seed('lorem ipsum')
     if (runRdtCohortSim(cohort, tc.prng, 8, `seed=${tc.seed}`, internalErrors)) {
-      // content convergence only - known issue 6, as in the long variant above
-      assertCohortConsistency(cohort, `rdt cohort short seed=${tc.seed}`, { ignoreAttributionProjection: true })
+      assertCohortConsistency(cohort, `rdt cohort short seed=${tc.seed}`)
     }
   } finally {
     cohort.destroy()
@@ -2049,23 +2066,26 @@ export const testRdtKnownIssueWrapFittingDivergence = _tc => {
 }
 
 /**
- * KNOWN ISSUE pin (skipped): this minimized 5-op trace (from cohort fuzz
- * seed 71715112, reproduced byte-identically on the baseline) leaves the two
- * suggestion-mode peers with CONVERGED content but a diverged
- * `y-attributed-*` projection: user 5's own `deleteRange` re-splits the
- * neighbouring text runs and drops `y-attributed-insert` off the pending
- * "m", `buildAttributionCorrection` misses the case (the clear travels into
- * the emitted change and `swallowFormats` swallows it, firing its
- * stale-render warning during the dispatch), and the stale render does not
- * heal on nearby Y edits. Known issue 6 in the {@link pickCohortOp} notes.
- * Unskip after closing the correction gap, and drop the
- * `ignoreAttributionProjection` flag from the cohort fuzz consistency
- * checks so the fuzz re-covers projection convergence.
+ * Resolved known issue 6 (see the {@link pickCohortOp} notes): this
+ * minimized 5-op trace (from cohort fuzz seed 71715112) used to leave the
+ * two suggestion-mode peers with CONVERGED content but a diverged
+ * `y-attributed-*` projection. The original "buildAttributionCorrection
+ * misses the case" theory was wrong - the root cause was lib0
+ * `delta.diff`'s format-BLIND text alignment: with equal characters
+ * carrying different `y-attributed-*` marks, the diff expressed survival of
+ * the marked "m" as a mark MOVE (`retain(1, +mark)` on a plain twin plus a
+ * delete of the marked char), `buildAttributionCorrection` then restored
+ * the pre-change state at the misaligned position - dispatching a real
+ * `removeMark` against a document that was never wrong - and
+ * `swallowFormats` swallowed the resulting clear (its stale-render
+ * warning), leaving user 5 with a durably stale projection. Fixed upstream
+ * by lib0 1.0.0-rc.30's format-aware diff alignment; this pin now holds the
+ * full marks-included convergence, and the cohort fuzz oracles compare the
+ * complete projection again.
  *
  * @param {TestCase} _tc
  */
-export const testRdtKnownIssueDroppedNeighborAttributionMark = _tc => {
-  t.skip()
+export const testRdtDeleteRangeKeepsNeighborAttribution = _tc => {
   const cohort = new Cohort(STANDARD_COHORT)
   try {
     cohort.seed('lorem ipsum')
@@ -2080,9 +2100,44 @@ export const testRdtKnownIssueDroppedNeighborAttributionMark = _tc => {
     for (const step of trace) applyTracedOp(cohort, step, undefined, { strict: true })
     t.compare(
       findDivergences(cohort, { ignoreAttributionProjection: true }), [],
-      'content converges (this part holds today)'
+      'content converges'
     )
-    assertCohortConsistency(cohort, 'projection convergence after a neighbour-mark drop')
+    assertCohortConsistency(cohort, 'projection convergence next to a deleted range')
+  } finally {
+    cohort.destroy()
+  }
+}
+
+/**
+ * KNOWN ISSUE pin (skipped): this minimized 3-op trace (from stress fuzz
+ * seed 75993960, reproduced byte-identically on lib0 1.0.0-rc.29 - it is
+ * unrelated to the rc.30 diff rework) accepts a PENDING IMAGE insert and
+ * then performs a small unrelated `replaceRangeWith`, which spins the
+ * reconcile fix loop past the fuzz loop breaker. The breaker's throw is
+ * swallowed by y-sync's "ytype.applyDelta failed - reverting the
+ * unappliable part" recovery path, and the dispatch then dies on
+ * `RangeError: No value supplied for attribute src` escaping from
+ * `deltaToPNode`'s `createAndFill` - somewhere in the cascade an image
+ * insert loses its required attr - leaving the suggestion-mode peers
+ * diverged. Known issue 7 in the {@link pickCohortOp} notes. Unskip after
+ * fixing the cascade, and drop the matching graceful-abort branch in
+ * {@link runRdtCohortSim} so the fuzz re-covers the path strictly.
+ *
+ * @param {TestCase} _tc
+ */
+export const testRdtKnownIssueAcceptedImageReplaceLoop = _tc => {
+  t.skip()
+  const cohort = new Cohort(STANDARD_COHORT)
+  try {
+    cohort.seed('lorem ipsum dolor sit amet')
+    /** @type {Array<TracedOp>} */
+    const trace = [
+      { user: 4, op: 'insertNode', args: { pos: 16, typeName: 'image', attrs: { src: 'wwbvi.png' } } },
+      { user: 2, op: 'acceptRangeChanges', args: { from: 16, to: 17 } },
+      { user: 4, op: 'replaceRangeWith', args: { from: 2, to: 3, typeName: 'paragraph', attrs: null, text: '' } }
+    ]
+    for (const step of trace) applyTracedOp(cohort, step, undefined, { strict: true })
+    assertCohortConsistency(cohort, 'replace after an accepted pending image')
   } finally {
     cohort.destroy()
   }
