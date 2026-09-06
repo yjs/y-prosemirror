@@ -7,7 +7,8 @@ import {
   deltaToPNode,
   deltaToPSteps,
   nodeToDeltaCached,
-  pmDocDiff
+  pmDocDiff,
+  resolvedPositionToDeltaPosition
 } from '../sync-utils.js'
 
 const Y_PREFIX = 'y-attributed-'
@@ -325,9 +326,12 @@ export class ProsemirrorRdt extends ObservableV2 {
    * @param {ProsemirrorDelta} next
    * @param {import('prosemirror-model').Node} [prevDoc] cross-check: when
    *   given and different from `_pmstate`, the walk is skipped
+   * @param {import('lib0/delta/position').Pos} [hint] where the change
+   *   starts (`delta.diff`'s `options.hint`), threaded into the walk's
+   *   window diffs and the fallback diff alike
    * @return {delta.DeltaAny}
    */
-  _computeChange (doc, next, prevDoc) {
+  _computeChange (doc, next, prevDoc, hint) {
     const pmstate = this._pmstate
     if (pmstate === doc) {
       this._pullStats.walk++
@@ -337,7 +341,7 @@ export class ProsemirrorRdt extends ObservableV2 {
       /** @type {delta.DeltaAny | null} */
       let change = null
       try {
-        change = /** @type {delta.DeltaAny} */ (pmDocDiff(pmstate, doc, this.compare))
+        change = /** @type {delta.DeltaAny} */ (pmDocDiff(pmstate, doc, this.compare, hint))
       } catch (_err) {
         // fall through: the snapshot diff below is the ground truth
         this._pullStats.walkError++
@@ -351,7 +355,7 @@ export class ProsemirrorRdt extends ObservableV2 {
       }
     }
     this._pullStats.fallback++
-    return /** @type {delta.DeltaAny} */ (delta.diff(/** @type {any} */ (this._state), /** @type {any} */ (next), { compare: this.compare }))
+    return /** @type {delta.DeltaAny} */ (delta.diff(/** @type {any} */ (this._state), /** @type {any} */ (next), { compare: this.compare, hint }))
   }
 
   /**
@@ -396,7 +400,16 @@ export class ProsemirrorRdt extends ObservableV2 {
       if (next.fingerprint === this._defaultFingerprint) return
       this._defaultFingerprint = null
     }
-    let change = this._computeChange(doc, next, prevDoc)
+    // The cursor as a diff placement hint: within a run of identical
+    // characters, deleting any one of them yields the same document, and an
+    // unhinted diff places the edit greedily at the end of the run - so a
+    // backspaced character rendered its delete suggestion far from where the
+    // user typed (https://github.com/yjs/y-prosemirror/issues/243). After a
+    // local edit the cursor sits at (deletion) or right after (insertion) the
+    // change, which pins the placement; a wrong hint only shifts placement,
+    // never correctness.
+    const hint = resolvedPositionToDeltaPosition(this.view.state.selection.$head)
+    let change = this._computeChange(doc, next, prevDoc, hint)
     if (change.isEmpty()) return
     const correction = buildAttributionCorrection(change, this._state)
     if (correction != null) {
@@ -411,7 +424,7 @@ export class ProsemirrorRdt extends ObservableV2 {
       // the document, that is the point)
       doc = this.view.state.doc
       next = nodeToDeltaCached(doc)
-      change = this._computeChange(doc, next, undefined)
+      change = this._computeChange(doc, next, undefined, hint)
     }
     this._state = next
     this._pmstate = doc

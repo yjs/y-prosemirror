@@ -1,6 +1,7 @@
 /** @import * as Y from '@y/y' */
 import * as array from 'lib0/array'
 import * as delta from 'lib0/delta'
+import * as dpos from 'lib0/delta/position'
 import * as error from 'lib0/error'
 import * as fun from 'lib0/function'
 import * as math from 'lib0/math'
@@ -652,6 +653,50 @@ export const nodeToDelta = (n, nodeName = n.type.name, canonicalize = false) => 
 export const docToDelta = doc => nodeToDelta(doc, null)
 
 /**
+ * Content index (lib0 delta coordinates: 1 slot per character, 1 slot per element child)
+ * of the child at `childIndex` within `parent`. This mirrors how `nodeToDelta` renders a
+ * PM node - text as strings, every other child as a single embed.
+ *
+ * @param {Node} parent
+ * @param {number} childIndex
+ * @return {number}
+ */
+const pmContentIndex = (parent, childIndex) => {
+  let idx = 0
+  for (let i = 0; i < childIndex; i++) {
+    const child = parent.child(i)
+    idx += child.isText ? child.nodeSize : 1
+  }
+  return idx
+}
+
+/**
+ * Transforms a Prosemirror position to a lib0 delta position (a tree position) rooted at
+ * the PM doc - the coordinate space of the binding's view side.
+ *
+ * @param {import('prosemirror-model').ResolvedPos} resolvedPos
+ * @return {import('lib0/delta/position').Pos}
+ */
+export const resolvedPositionToDeltaPosition = (resolvedPos) => {
+  const depth = resolvedPos.depth
+  /**
+   * @type {Array<number>}
+   */
+  const path = []
+  for (let d = 0; d < depth; d++) {
+    path.push(pmContentIndex(resolvedPos.node(d), resolvedPos.index(d)))
+  }
+  const parent = resolvedPos.node(depth)
+  const terminal = pmContentIndex(parent, resolvedPos.index(depth)) + resolvedPos.textOffset
+  path.push(terminal)
+  const contentLength = pmContentIndex(parent, parent.childCount)
+  // End-of-parent binds left; position 0 in an empty parent also binds left so the
+  // position is retained if content is inserted later.
+  const assoc = (terminal > 0 && terminal === contentLength) || (resolvedPos.pos === 0 && contentLength === 0) ? -1 : 1
+  return dpos.create(path, assoc)
+}
+
+/**
  * Canonical attrs of a PM node: the render-only `y-attributed` marker
  * stripped, mirroring {@link nodeToDelta}'s canonicalize branch. Returns the
  * node's own attrs object when nothing needs stripping, so an identity
@@ -720,9 +765,15 @@ const walkPairable = (a, b, compare) => compare == null
  * @param {NodeCompare | undefined} compare
  * @param {string?} name the change root's name, mirroring diff's
  *   `d1.name === d2.name ? d1.name : null` convention in canonical space
+ * @param {import('lib0/delta/position').Pos} [hint] where the change starts
+ *   at this level, mirroring `delta.diff`'s `options.hint`: the leading path
+ *   step is a content index (delta coordinates) into `prev`'s children, the
+ *   rest descends. Forwarded into the changed window's `delta.diff` (shifted
+ *   by the identity-trimmed prefix) and into the single-pair recursion (one
+ *   step consumed). A wrong hint only shifts placement, never correctness.
  * @return {delta.DeltaBuilderAny}
  */
-const pmNodeDiff = (prev, next, compare, name) => {
+const pmNodeDiff = (prev, next, compare, name, hint) => {
   const d = /** @type {delta.DeltaBuilderAny} */ (delta.create(name, delta.$deltaAny))
   const pa = canonicalAttrs(prev)
   const na = canonicalAttrs(next)
@@ -760,16 +811,20 @@ const pmNodeDiff = (prev, next, compare, name) => {
     }
     if (pEnd > i || nEnd > i) {
       if (prefixLen > 0) d.retain(prefixLen)
+      const hintStep = hint?.path[0]
       if (
         pEnd - i === 1 && nEnd - i === 1 && !prevC[i].isText && !nextC[i].isText &&
         fun.equalityDeep(marksToFormattingAttributes(prevC[i].marks), marksToFormattingAttributes(nextC[i].marks)) &&
         walkPairable(prevC[i], nextC[i], compare)
       ) {
         // a single paired element: keep walking by reference inside it, so
-        // deep edits never explode the wide levels above them
+        // deep edits never explode the wide levels above them. The hint
+        // descends when its leading step names exactly this child (which
+        // sits at content index `prefixLen`), mirroring diff's own descent.
         const cn = canonicalNodeName(prevC[i].type.name)
         const nn = canonicalNodeName(nextC[i].type.name)
-        const inner = pmNodeDiff(prevC[i], nextC[i], compare, cn === nn ? cn : null)
+        const inner = pmNodeDiff(prevC[i], nextC[i], compare, cn === nn ? cn : null,
+          hint != null && hintStep === prefixLen ? { path: hint.path.slice(1), assoc: hint.assoc } : undefined)
         if (inner.isEmpty()) {
           d.retain(1)
         } else {
@@ -780,8 +835,13 @@ const pmNodeDiff = (prev, next, compare, name) => {
         // mark changes): delegate to `delta.diff` over memoized window
         // snapshots - it produces granular text diffs and the correct
         // tri-state format updates, and `append` clones its ops in after
-        // the prefix retain (merging the seam)
-        d.append(/** @type {any} */ (delta.diff(/** @type {any} */ (windowDelta(prevC, i, pEnd)), /** @type {any} */ (windowDelta(nextC, i, nEnd)), { compare })))
+        // the prefix retain (merging the seam). The hint shifts into window
+        // coordinates; one that points into the trimmed prefix is dropped
+        // (the identity trim already proved the change starts later).
+        const windowHint = hint != null && typeof hintStep === 'number' && hintStep >= prefixLen
+          ? { path: [hintStep - prefixLen, ...hint.path.slice(1)], assoc: hint.assoc }
+          : undefined
+        d.append(/** @type {any} */ (delta.diff(/** @type {any} */ (windowDelta(prevC, i, pEnd)), /** @type {any} */ (windowDelta(nextC, i, nEnd)), { compare, hint: windowHint })))
       }
     }
     // the suffix needs no ops - a change delta retains to the end implicitly
@@ -809,12 +869,17 @@ const pmNodeDiff = (prev, next, compare, name) => {
  * @param {NodeCompare} [compare] the same pairing predicate semantics as
  *   `delta.diff`'s `compare` option; threaded into every window diff and
  *   into the walk's own single-pair decision
+ * @param {import('lib0/delta/position').Pos} [hint] where the change starts,
+ *   as a doc-rooted delta position (see `resolvedPositionToDeltaPosition`),
+ *   mirroring `delta.diff`'s `options.hint`: within a run of equally valid
+ *   diffs (repeated characters) the first edit is placed at the hint. A
+ *   wrong hint only shifts placement, never correctness.
  * @return {delta.DeltaBuilderAny} the change, `done(false)`
  */
-export const pmDocDiff = (prevDoc, nextDoc, compare) => {
+export const pmDocDiff = (prevDoc, nextDoc, compare, hint) => {
   const pn = canonicalNodeName(prevDoc.type.name)
   const nn = canonicalNodeName(nextDoc.type.name)
-  return pmNodeDiff(prevDoc, nextDoc, compare, pn === nn ? pn : null)
+  return pmNodeDiff(prevDoc, nextDoc, compare, pn === nn ? pn : null, hint)
 }
 
 /**

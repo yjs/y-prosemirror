@@ -2,50 +2,12 @@ import * as Y from '@y/y'
 import * as dpos from 'lib0/delta/position'
 import { ySyncPluginKey } from './keys.js'
 import { usableTransformer } from './sync-plugin.js'
+import { resolvedPositionToDeltaPosition } from './sync-utils.js'
 
-/**
- * Content index (lib0 delta coordinates: 1 slot per character, 1 slot per element child)
- * of the child at `childIndex` within `parent`. This mirrors how `nodeToDelta` renders a
- * PM node - text as strings, every other child as a single embed.
- *
- * @param {import('prosemirror-model').Node} parent
- * @param {number} childIndex
- * @return {number}
- */
-const pmContentIndex = (parent, childIndex) => {
-  let idx = 0
-  for (let i = 0; i < childIndex; i++) {
-    const child = parent.child(i)
-    idx += child.isText ? child.nodeSize : 1
-  }
-  return idx
-}
-
-/**
- * Transforms a Prosemirror position to a lib0 delta position (a tree position) rooted at
- * the PM doc - the coordinate space of the binding's view side.
- *
- * @param {import('prosemirror-model').ResolvedPos} resolvedPos
- * @return {import('lib0/delta/position').Pos}
- */
-export const resolvedPositionToDeltaPosition = (resolvedPos) => {
-  const depth = resolvedPos.depth
-  /**
-   * @type {Array<number>}
-   */
-  const path = []
-  for (let d = 0; d < depth; d++) {
-    path.push(pmContentIndex(resolvedPos.node(d), resolvedPos.index(d)))
-  }
-  const parent = resolvedPos.node(depth)
-  const terminal = pmContentIndex(parent, resolvedPos.index(depth)) + resolvedPos.textOffset
-  path.push(terminal)
-  const contentLength = pmContentIndex(parent, parent.childCount)
-  // End-of-parent binds left; position 0 in an empty parent also binds left so the
-  // position is retained if content is inserted later.
-  const assoc = (terminal > 0 && terminal === contentLength) || (resolvedPos.pos === 0 && contentLength === 0) ? -1 : 1
-  return dpos.create(path, assoc)
-}
+// Lives in sync-utils.js (the RDT's `pull` uses it for the diff placement
+// hint, and importing from here would cycle through sync-plugin.js); it
+// remains part of this module's public position-mapping surface.
+export { resolvedPositionToDeltaPosition }
 
 /**
  * Resolves a lib0 delta position (a tree position, PM-doc-rooted, view-side coordinates)

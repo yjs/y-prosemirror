@@ -36,7 +36,7 @@ import * as env from 'lib0/environment'
 import * as prng from 'lib0/prng'
 import * as t from 'lib0/testing'
 import { Fragment, Schema } from 'prosemirror-model'
-import { EditorState, Plugin } from 'prosemirror-state'
+import { EditorState, Plugin, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { ProsemirrorRdt } from '../src/rdt/prosemirror.js'
 import { pmDocDiff } from '../src/sync-utils.js'
@@ -1906,6 +1906,64 @@ export const testRdtCodeBlockAttribution = _tc => {
     sm.view.dispatch(sm.view.state.tr.insertText('XYZ', 3))
     cohort.users.forEach(u => u.view.state.doc.check())
     assertCohortConsistency(cohort, 'code_block suggestion insert')
+  } finally {
+    cohort.destroy()
+  }
+}
+
+/**
+ * Text indices (0-based, across the whole document's text content) of the
+ * characters carrying a `y-attributed-delete` mark - where a delete
+ * suggestion renders its strike.
+ *
+ * @param {import('prosemirror-model').Node} doc
+ * @return {Array<number>}
+ */
+const struckTextIndices = doc => {
+  /** @type {Array<number>} */
+  const struck = []
+  let i = 0
+  doc.descendants(node => {
+    if (node.isText) {
+      const has = node.marks.some(m => m.type.name === 'y-attributed-delete')
+      for (let k = 0; k < /** @type {string} */ (node.text).length; k++) {
+        if (has) struck.push(i)
+        i++
+      }
+    }
+    return true
+  })
+  return struck
+}
+
+/**
+ * https://github.com/yjs/y-prosemirror/issues/243: backspacing one character
+ * out of a run of identical characters ("Hellooooooo", cursor after the
+ * first "o") is content-ambiguous - deleting any "o" of the run yields the
+ * same document - and the diff used to resolve the ambiguity greedily, so
+ * the delete landed at the END of the run and the suggestion strike rendered
+ * on the last "o" instead of the backspaced one. `pull` now passes the local
+ * cursor position as a placement hint to the diff (`options.hint`, lib0 >=
+ * 1.0.0-rc.30): after a backspace the cursor sits exactly where the change
+ * started, which pins the deletion to the character the user removed. A
+ * wrong hint only shifts placement, never correctness.
+ *
+ * @param {TestCase} _tc
+ */
+export const testRdtBackspaceInRunStrikesAtCursor = _tc => {
+  const cohort = new Cohort(['no-suggestions', 'suggestion-mode'])
+  try {
+    cohort.seed('Hellooooooo')
+    const sm = cohort.user(1)
+    // the user clicks after the first "o" (PM position 6) ...
+    sm.view.dispatch(sm.view.state.tr.setSelection(TextSelection.create(sm.view.state.doc, 6)))
+    // ... and hits backspace, deleting the character before the cursor
+    sm.view.dispatch(sm.view.state.tr.delete(5, 6))
+    // the delete suggestion keeps the character, struck through - and the
+    // strike must sit on the backspaced first "o" (text index 4), not on the
+    // far end of the run
+    t.compare(struckTextIndices(sm.view.state.doc), [4], 'the strike sits on the backspaced character')
+    assertCohortConsistency(cohort, 'backspace inside a run of identical characters')
   } finally {
     cohort.destroy()
   }
