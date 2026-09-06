@@ -1010,15 +1010,17 @@ const STANDARD_COHORT = [
  *    damage of issue 5's malformed-delta class), and a fix-diff throw now
  *    surfaces as an `onInternalError` report instead of an escaping error;
  *    issues 3 and 5 likely share the cache-corruption root.
- * 4. Structural wraps over suggestion-rendered content can make two
- *    view-suggestions peers converge to differently ORDERED documents:
- *    schema-fitting materializes filler blocks (complexSchema's `custom` is
- *    the first `block`-group member) per peer during the fix cascade, and
- *    the resulting concurrent writes land in different orders (the
- *    diffing-ambiguity caveat). Reproduced on the unoptimized pipeline; see
- *    {@link testRdtKnownIssueWrapFittingDivergence} for the minimized
- *    trace. Cohort fuzzing therefore skips `wrapRange`/`liftRange`; both
- *    stay fully fuzzed in the non-renderer tiers.
+ * 4. RESOLVED (2026-09-06, yjs/y-prosemirror#258). Structural wraps over
+ *    suggestion-rendered content used to make two view-suggestions peers
+ *    converge to differently ORDERED documents: schema-fitting materialized
+ *    filler blocks (complexSchema's `custom` is the first `block`-group
+ *    member) per peer during the fix cascade, and the resulting concurrent
+ *    writes landed in different orders (the diffing-ambiguity caveat).
+ *    `deltaToPNode` no longer fills non-root nodes: a node whose content the
+ *    schema rejects is dropped, and the drop is written back as the same
+ *    deterministic delete on every peer. The former pin runs as
+ *    {@link testRdtWrapOverSuggestionContentConverges} and cohort fuzzing
+ *    covers `wrapRange`/`liftRange` again.
  * 5. Accepting changes over a region where TRANSIENT content (a pending
  *    insert that was then delete-suggested, cancelled out of the render)
  *    used to live makes `@y/y`'s overlay cascade emit a change positioned
@@ -1090,7 +1092,6 @@ const pickCohortOp = (user, gen) => {
   const top = pickRandomOp(user.view, gen)
   if (top == null) return null
   if (top.op === 'setNodeAttribute') return null // known issue 2
-  if (top.op === 'wrapRange' || top.op === 'liftRange') return null // known issue 4
   if (top.op === 'multiOp') {
     return { ...top, user: user.idx, args: { parts: top.args.parts.filter((/** @type {any} */ part) => part.kind !== 'setNodeAttribute') } }
   }
@@ -2093,20 +2094,18 @@ export const testRdtKnownIssueAttrChangeNonConvergence = _tc => {
 }
 
 /**
- * KNOWN ISSUE pin (skipped): this minimized 3-op trace (from cohort fuzz
- * seed 4220155005, reproduced byte-identically on the UNOPTIMIZED pipeline)
- * leaves the two view-suggestions peers with the same blocks in different
- * ORDER: wrapping suggestion-rendered content makes each peer's fix cascade
+ * Resolved known issue 4 (see the {@link pickCohortOp} notes): this
+ * minimized 3-op trace (from cohort fuzz seed 4220155005) used to leave the
+ * two view-suggestions peers with the same blocks in different ORDER, because
+ * wrapping suggestion-rendered content made each peer's fix cascade
  * materialize schema-filler blocks (`custom` is complexSchema's first
- * `block`-group member) as its own concurrent writes, and the merged order
- * differs per peer (the diffing-ambiguity caveat in CAVEATS.md). Unskip
- * after fixing the fitting/cascade convergence, and drop the
- * `wrapRange`/`liftRange` skip in `pickCohortOp`.
+ * `block`-group member) as its own concurrent writes. Since
+ * yjs/y-prosemirror#258 a schema-invalid non-root node is dropped instead of
+ * filled, so the peers converge; this pin holds that convergence.
  *
  * @param {TestCase} _tc
  */
-export const testRdtKnownIssueWrapFittingDivergence = _tc => {
-  t.skip()
+export const testRdtWrapOverSuggestionContentConverges = _tc => {
   const cohort = new Cohort(STANDARD_COHORT)
   try {
     cohort.seed('lorem ipsum')

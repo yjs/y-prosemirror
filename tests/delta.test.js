@@ -183,20 +183,35 @@ export const testMultipleComplexSteps = () => {
   ])
 }
 
-export const testFilledBlockquote = () => {
+/**
+ * An empty blockquote in the initial Y content is invalid (`block+`), so the
+ * binding drops it instead of filling it (yjs/y-prosemirror#258). With
+ * prosemirror-schema-basic's `doc: block+` the document itself is then
+ * refilled with one paragraph, and the filler reaches Y through the fix.
+ * `testHelper` validates that Y and both views agree.
+ */
+export const testEmptyBlockquoteDroppedAtBind = () => {
   testHelper([
     ({ tr }) => {
-      console.log(tr.doc.toString())
-      return tr
+      t.compare(tr.doc.toJSON(), { type: 'doc', content: [{ type: 'paragraph' }] }, 'the blockquote was dropped and the document refilled')
+      return null
     }
   ],
-  // blockquote needs a paragraph with block+, but we intentionally don't create it here
+  // blockquote needs a paragraph with block+, and we intentionally leave it empty
   delta.create().insert([delta.create('blockquote', {})]).done())
 }
 
-export const testFilledBlockquoteInsert = () => {
+/**
+ * Editing continues normally after the drop: the text lands in the filler
+ * paragraph (position 1 is inside it, position 2 would be the end of the doc).
+ */
+export const testEmptyBlockquoteDroppedThenEdit = () => {
   testHelper([
-    ({ tr }) => tr.insertText('Hello', 2)
+    ({ tr }) => tr.insertText('Hello', 1),
+    ({ tr }) => {
+      t.assert(tr.doc.textContent === 'Hello' && tr.doc.childCount === 1 && tr.doc.firstChild?.type.name === 'paragraph', 'the edit landed in the single paragraph')
+      return null
+    }
   ], delta.create().insert([delta.create('blockquote', {})]).done())
 }
 

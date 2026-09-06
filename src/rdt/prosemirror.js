@@ -444,6 +444,14 @@ export class ProsemirrorRdt extends ObservableV2 {
    * the loss is never written to Y and is not re-asserted on the view —
    * re-asserting a mark the schema cannot hold would loop forever.
    *
+   * A non-root node whose content violates its content expression (the merged
+   * result of concurrent edits, e.g. both paragraphs of a `block+` blockquote
+   * deleted by two peers) is dropped by `deltaToPNode` at construction and
+   * surfaces here as a delete in the fix, so every peer removes it from Y and
+   * converges without per-peer schema fillers (yjs/y-prosemirror#258). The
+   * document node is still filled. A pending-deleted node in that state is
+   * rendered as-is instead (see `deltaToPNodeOrDrop` in sync-utils.js).
+   *
    * The initial binding sync arrives here as a whole-document difference; when
    * its raw steps cannot be fitted (e.g. deleting the only block of a
    * `doc{block+}`), the whole document is replaced via `tr.replaceWith`, which
@@ -497,8 +505,10 @@ export class ProsemirrorRdt extends ObservableV2 {
       try {
         tr = deltaToPSteps(this.view.state.tr, /** @type {any} */ (d), undefined, undefined, this.attributedNodes)
       } catch (_err) {
-        // Raw steps could not express the change against the schema — replace
-        // the whole document through ProseMirror's fitting `replaceWith`.
+        // Raw steps could not express the change against the schema (e.g. a
+        // delete that empties a `block+` parent): replace the whole document
+        // through ProseMirror's fitting `replaceWith`; `deltaToPNode` drops
+        // the now-invalid parent.
         tr = this.view.state.tr
         tr.replaceWith(0, tr.doc.content.size, deltaToPNode(/** @type {any} */ (expected), tr.doc.type.schema, null, this.attributedNodes))
       }

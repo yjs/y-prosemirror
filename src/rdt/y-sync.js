@@ -66,11 +66,16 @@ import { $prosemirrorDelta } from '../sync-utils.js'
  * self-healing behavior, which also absorbs the merged-transaction case
  * (app code wrapping a view dispatch in its own `doc.transact`: the single
  * merged emission carries the app's origin *and contains our write* — the
- * diff nets it out instead of double-applying). The window closes via a
- * drain check (`doc._transaction === null && doc._transactionCleanups.length
- * === 0`) at every entry point: the cleanup queue only resets after every
- * queued patch — including ours — was applied, so an empty queue proves the
- * cache has caught up.
+ * diff nets it out instead of double-applying). The window closes when the
+ * doc's cleanup queue drains (`afterAllTransactions`, with a lazy drain check
+ * at every entry point as a fallback): the queue only resets after every
+ * queued patch, including ours, was applied, so an empty queue proves the
+ * cache has caught up. Catching up is not the same as matching the override,
+ * though: the renderer's deferred bookkeeping decides how a write issued in
+ * the window renders, and a delete in suggestion mode comes back as a
+ * pending delete that the mid-window render did not show yet. Closing the
+ * window therefore emits `diff(override, cache)` so the view sees exactly
+ * what the settled cache serves from then on (see {@link YSyncRdt#_settle}).
  *
  * ## Semantic notes
  *
@@ -146,6 +151,8 @@ export class YSyncRdt extends ObservableV2 {
      */
     this._onDelta = (d, origin) => this._handleDelta(d, origin)
     ytype.on('delta', this._onDelta)
+    this._onDrain = () => this._settle()
+    doc.on('afterAllTransactions', this._onDrain)
   }
 
   /**
@@ -189,17 +196,49 @@ export class YSyncRdt extends ObservableV2 {
   }
 
   /**
-   * Close the uncertain window once the doc's cleanup queue has drained: the
-   * queue only resets after every queued cache patch — including our own —
-   * was applied, so an empty queue proves the maintained cache is current
-   * again.
+   * Lazy drain check (fallback for the `afterAllTransactions` listener):
+   * close the uncertain window once the doc's cleanup queue has drained. The
+   * queue only resets after every queued cache patch, including our own, was
+   * applied, so an empty queue proves the maintained cache is current again.
    */
   _maybeSettle () {
     if (this._stateOverride !== null) {
       const doc = /** @type {import('@y/y').Doc} */ (this.ytype.doc)
       if (doc._transaction === null && doc._transactionCleanups.length === 0) {
-        this._stateOverride = null
+        this._settle()
       }
+    }
+  }
+
+  /**
+   * Close the uncertain window: the maintained cache is current again and
+   * becomes the state. The override served meanwhile was a render taken
+   * before the renderer's deferred bookkeeping for our own mid-window writes
+   * ran, so it can differ from the settled cache. A view-originated delete in
+   * suggestion mode is the structural case: the CRDT delete is immediate, but
+   * the renderer only records it as a pending (still rendered) delete during
+   * the queued cleanup, so the mid-window render showed the node as gone and
+   * the fix returned for that write was empty. Whatever differs is delivered
+   * to the view as a change now, positioned against the override the view was
+   * last brought in line with, so the view catches up instead of holding a
+   * state the next native emission is not positioned against.
+   */
+  _settle () {
+    const override = this._stateOverride
+    if (override === null) return
+    this._stateOverride = null
+    const settled = /** @type {import('lib0/delta').Delta<any>} */ (this.ytype.delta)
+    /** @type {import('lib0/delta').Delta<any> | null} */
+    let change = null
+    try {
+      change = delta.diff(/** @type {any} */ (override), /** @type {any} */ (settled), { compare: this.compare, clone: true })
+    } catch (err) {
+      // same fail-safe as the fix diff in applyDelta: report, keep the settled
+      // cache as the state, never unwind into the transaction's event delivery
+      this._onInternalError?.(/** @type {any} */ (err), 1)
+    }
+    if (change !== null && !change.isEmpty()) {
+      this.emit('delta', [change, this.origin])
     }
   }
 
@@ -296,6 +335,8 @@ export class YSyncRdt extends ObservableV2 {
 
   destroy () {
     this.ytype.off('delta', this._onDelta)
+    const doc = /** @type {import('@y/y').Doc} */ (this.ytype.doc)
+    doc.off('afterAllTransactions', this._onDrain)
     this.emit('destroy', [this])
     super.destroy()
   }

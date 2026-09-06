@@ -87,7 +87,7 @@ ProseMirror schemas are very expressive - content expressions like `title image{
 - User 2 concurrently deletes paragraph B.
 - Merged state: `<blockquote></blockquote>` - schema-invalid.
 
-The only schema-valid resolution is to delete the blockquote entirely, which the binding must do on each peer that receives the merged state. A small remote edit has cascaded into the implicit deletion of a much larger structure on the other peer. Offline users are especially dangerous here: their locally valid edit can invalidate a large number of remote changes on sync.
+The only schema-valid resolution is to delete the blockquote entirely, which the binding does on each peer that receives the merged state. A small remote edit has cascaded into the implicit deletion of a much larger structure on the other peer. Offline users are especially dangerous here: their locally valid edit can invalidate a large number of remote changes on sync.
 
 This is inherent to ProseMirror schemas, not specific to Yjs. `prosemirror-collab` avoids CRDT-style merging by serializing all steps through a central authority; each client rebases its unconfirmed local steps on top of whatever the authority has since accepted. Neither the authority nor the plugin validates schemas. Instead, `rebaseSteps` reapplies each local step via `transform.maybeStep` and silently discards any step whose `.failed` is true - which includes steps whose application would produce a schema-invalid document. For an online user the window for loss is narrow, since each edit round-trips quickly. A user who edits offline, however, accumulates many dependent local steps, and on reconnect can watch a large contiguous run of their work vanish without any warning. The mitigation under `prosemirror-collab` is the same as under Yjs: widen the schema.
 
@@ -96,7 +96,7 @@ This is inherent to ProseMirror schemas, not specific to Yjs. `prosemirror-colla
 - **Prefer `*` over `+` and over bounded repetitions `{n,m}`.** `paragraph*` and `image*` are concurrency-safe; `paragraph+` and `image{2,4}` are not. Use the stricter form only when implicit deletion of the parent on invalidation is an acceptable outcome (for blockquote, it arguably is - an empty blockquote is meaningless anyway).
 - **Consider explicit "invalid-schema" node variants.** Define relaxed variant node types that only the binding can produce - never the user. When concurrent edits would produce an invalid parent, the binding can reshape into the relaxed variant rather than drop content. User-generated content still has to conform to the strict schema.
 
-**Status:** addressable through schema discipline and/or invalid-node variants. Integrators need to be aware of the failure mode.
+**Status:** implemented. We resolve it the way the previous binding did, at node-construction time: `deltaToPNode` drops a node whose content no longer satisfies its content expression, and the fix loop deletes that node from Yjs on every peer that renders the merged state, so all peers converge without writing per-peer schema fillers. The document node is never dropped; it is filled through `createAndFill` as before. We no longer fill any other node either, so content written to Yjs by non-ProseMirror clients has to be schema-complete or it is dropped. Mark constraints are not part of this check (see "Attribution mark names are fixed" below). Integrators still need to be aware of the failure mode, because a concurrent edit can cascade into the deletion of a larger structure.
 
 ## Schema mismatches in suggestion mode
 
@@ -110,6 +110,8 @@ A suggestion is an ordinary node rendered with a mark, attribute, or decoration 
 - Introduce suggestion-specific node types that relax the constraints while preserving the visual / semantic distinction.
 
 Without this, the binding has no choice but to drop invalid content, silently discarding part of the suggestion.
+
+One case cannot be dropped: a node that is already a *pending delete* and then loses its required content (its paragraphs are deleted for real in the base document while the suggestion is still open). The Y side keeps rendering a pending delete until it is resolved, so deleting it from the view would be re-inserted and filling it would be reverted by `@y/y`; either would loop forever. We render such a node as-is instead: an empty struck-through blockquote that is not a valid ProseMirror node (`doc.check()` fails while it is on screen). It disappears as soon as the deletion is accepted or a peer editing the base document drops it for real. A relaxed `<name>--attributed` variant (the invalid-node variant from the previous section) makes that state schema-valid. This handling keys on the reserved `y-attributed-delete` format, so a `mapAttributionToMark` that omits the delete kind loses it.
 
 **Status:** addressable; integrators need to be aware.
 

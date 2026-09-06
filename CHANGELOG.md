@@ -181,6 +181,21 @@ emissions, view-side pulls, and the initial sync.
 
 ### 🐛 Fixes
 
+- Schema-invalid nodes produced by concurrent edits (e.g. both paragraphs of
+  a `block+` blockquote deleted by two peers) are dropped at construction and
+  deleted from Y on every peer, the way the v1 binding handled them, instead
+  of being filled with per-peer schema fillers
+  ([#258](https://github.com/yjs/y-prosemirror/issues/258)). The document
+  node is still filled. A pending-deleted node (suggestion mode) that lost its
+  required content is rendered as-is until the deletion is resolved; see
+  "Schema mismatches in suggestion mode" in CAVEATS.md.
+- Fixed an infinite fix loop when a pending-deleted container (suggestion
+  mode) had its content deleted for real in the base document.
+- The Y-side RDT now delivers the difference between its mid-transaction
+  render and the settled cache to the view when the uncertain window closes.
+  Previously a view-originated delete written during another transaction's
+  cleanup could leave the view without a node the Y side kept rendering, and
+  the next positional change then hit the wrong node.
 - Fixed an infinite reconcile loop (eventually a stack overflow inside
   `lib0/delta.diff`): attribute-level attribution is now stripped when
   rendering deltas to ProseMirror, so the PM↔Y diff reaches an empty fixpoint.

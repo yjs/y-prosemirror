@@ -113,10 +113,10 @@ export const testYSyncRdtNestedWriteEntersUncertainWindow = _tc => {
   ytype.off('delta', onDelta)
   t.assert(sawUncertain, 'the nested write entered the uncertain window')
   t.assert(settled === true, 'the state getter served the override inside the window')
-  // after the outer transaction fully drained, the wrapper settles back to the cache
-  t.assert(rdt._stateOverride !== null, 'override persists until the next entry point')
-  const state = rdt.delta // drain check runs here
-  t.assert(rdt._stateOverride === null, 'settled back to steady state after the drain')
+  // the drain listener (`afterAllTransactions`) settles the wrapper back to
+  // the cache as soon as the outer transaction fully drained
+  t.assert(rdt._stateOverride === null, 'settled back to steady state at the drain')
+  const state = rdt.delta
   t.assert(state.equals(ytype.toDelta({ deep: true })), 'state equals a fresh render after settling')
   t.assert(ytype.delta.equals(ytype.toDelta({ deep: true })), 'cache caught up (no drift)')
 }

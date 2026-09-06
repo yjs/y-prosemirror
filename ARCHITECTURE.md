@@ -32,7 +32,10 @@ fixes back and forth until both sides settle.
 6. `ProsemirrorRdt.applyDelta` converts the delta to ProseMirror steps (`deltaToPSteps`) and
    dispatches one transaction (`y-sync-transaction` meta, `addToHistory: false`). Whatever
    ProseMirror normalizes (createAndFill, content-expression coercion, dropped unknown
-   marks) is returned as a fix and written back to Y.
+   marks) is returned as a fix and written back to Y. A non-root node whose content
+   violates its content expression is dropped at construction (`deltaToPNode`,
+   yjs/y-prosemirror#258) and surfaces in the same fix as a delete; the document node is
+   still filled.
 
 ## View → data (`applyB`)
 

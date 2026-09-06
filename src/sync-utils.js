@@ -53,6 +53,22 @@ export const canonicalNodeName = (name) =>
     : name
 
 /**
+ * Which attribution kinds a rendered op carries, read off the reserved
+ * `y-attributed-*` format keys that the attribution-to-format stage produces.
+ * A custom `mapAttributionToMark` that omits a kind hides it from every
+ * decision made here (the attributed node variants and the pending-delete
+ * handling in {@link deltaToPNodeOrDrop}).
+ *
+ * @param {Record<string, unknown> | null | undefined} format
+ * @return {{ insert: boolean, delete: boolean, format: boolean }}
+ */
+const attributionKinds = format => ({
+  insert: format?.['y-attributed-insert'] != null,
+  delete: format?.['y-attributed-delete'] != null,
+  format: format?.['y-attributed-format'] != null
+})
+
+/**
  * Resolve the PM node name to render for `canonicalName` given the attribution
  * carried in `format`. Returns `canonicalName + ATTRIBUTED_SUFFIX` when the
  * `attributedNodes` predicate opts in *and* the variant exists in the schema;
@@ -65,11 +81,7 @@ export const canonicalNodeName = (name) =>
  * @return {string}
  */
 export const attributedVariant = (canonicalName, format, attributedNodes, schema) => {
-  const kinds = {
-    insert: format?.['y-attributed-insert'] != null,
-    delete: format?.['y-attributed-delete'] != null,
-    format: format?.['y-attributed-format'] != null
-  }
+  const kinds = attributionKinds(format)
   if ((kinds.insert || kinds.delete || kinds.format) && attributedNodes(canonicalName, kinds)) {
     const variant = canonicalName + ATTRIBUTED_SUFFIX
     if (schema.nodes[variant] != null) return variant
@@ -1072,11 +1084,15 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }, attribu
       // it). Delete sizing reads the frozen `pchildren` snapshot, which is what
       // makes the single combined range correct.
       const bundle = /** @type {ReplaceBundle} */ (op)
+      /** @type {Array<Node>} */
       const newPChildren = []
       for (const ins of bundle.inserts) {
         if (delta.$insertOp.check(ins)) {
           for (const n of ins.insert) {
-            newPChildren.push(deltaToPNode(n, schema, ins.format, attributedNodes))
+            // A node whose content cannot satisfy the schema is dropped here;
+            // the RDT fix deletes it from Y (see deltaToPNodeOrDrop).
+            const pNode = deltaToPNodeOrDrop(n, schema, ins.format, attributedNodes)
+            if (pNode !== null) newPChildren.push(pNode)
           }
         } else { // text op
           newPChildren.push(schema.text(ins.insert, formattingAttributesToMarks(ins.format, schema)))
@@ -1106,7 +1122,11 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }, attribu
           }
         }
       }
-      tr.step(new ReplaceStep(currPos.i, currPos.i + deletedSize, new Slice(insertedFrag, 0, 0)))
+      if (deletedSize > 0 || insertedFrag.size > 0) {
+        // Skipped when every inserted node was dropped and nothing is deleted:
+        // an empty replace would only mark the transaction as changed.
+        tr.step(new ReplaceStep(currPos.i, currPos.i + deletedSize, new Slice(insertedFrag, 0, 0)))
+      }
       currPos.i += insertedFrag.size
     }
   })
@@ -1114,13 +1134,42 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }, attribu
 }
 
 /**
+ * Build the ProseMirror node for `d`, or drop it.
+ *
+ * Children are built first (a dropped child is simply absent from the
+ * parent's content), then the node's own content expression is checked with
+ * `contentMatch.matchFragment` plus `validEnd`, and nothing else. Mark
+ * constraints are deliberately not enforced here; the binding only warns
+ * about them at bind time (see `warnUnsupportedAttributionMarks` in
+ * sync-plugin.js).
+ *
+ * - Valid content: created as-is (`createAndFill` adds nothing).
+ * - Invalid content on the schema's top node: filled through `createAndFill`.
+ *   The document itself can never be dropped, and the filler reaches Y through
+ *   the RDT fix. An unfillable top node throws.
+ * - Invalid content on any other node: dropped (`null`). Two individually
+ *   valid concurrent changes can compose into an invalid parent, e.g. both
+ *   paragraphs of a `block+` blockquote deleted by two peers. The only
+ *   schema-valid resolution is deleting the parent, and every peer derives
+ *   that deletion locally through its fix, so all peers converge
+ *   (yjs/y-prosemirror#258). Filling instead would make every peer write its
+ *   own filler into Y.
+ * - Invalid content on a node rendered as a pending delete
+ *   (`y-attributed-delete`): created UNFILLED and UNCHECKED through
+ *   `NodeType.create`. The view can neither delete such a node (the Y side
+ *   keeps rendering it until the suggestion is resolved) nor fill it (the Y
+ *   side reverts writes into a deleted node with their inverse, which the
+ *   view cannot apply without emptying the node again); either would loop
+ *   forever. Rendering it as-is makes the fix empty. The node disappears once
+ *   the deletion is accepted or a peer editing the base document drops it.
+ *
  * @param {ProsemirrorDelta} d
  * @param {import('prosemirror-model').Schema} schema
  * @param {delta.Formats|null} dformat
- * @param {AttributedNodesPredicate} [attributedNodes]
- * @return {Node}
+ * @param {AttributedNodesPredicate} attributedNodes
+ * @return {Node|null} `null` when the node was dropped
  */
-export const deltaToPNode = (d, schema, dformat, attributedNodes = defaultAttributedNodes) => {
+const deltaToPNodeOrDrop = (d, schema, dformat, attributedNodes) => {
   /**
    * @type {Object<string,any>}
    */
@@ -1128,26 +1177,63 @@ export const deltaToPNode = (d, schema, dformat, attributedNodes = defaultAttrib
   for (const attr of d.attrs) {
     attrs[attr.key] = attr.value
   }
-  const dc = d.children.map(c => delta.$insertOp.check(c) ? c.insert.map(cn => deltaToPNode(cn, schema, c.format, attributedNodes)) : (delta.$textOp.check(c) ? [schema.text(c.insert, formattingAttributesToMarks(c.format, schema))] : []))
-  const canonical = d.name == null ? 'doc' : canonicalNodeName(d.name)
+  /**
+   * @type {Array<Node>}
+   */
+  const inputChildren = []
+  for (const c of d.children) {
+    if (delta.$insertOp.check(c)) {
+      for (const cn of c.insert) {
+        const child = deltaToPNodeOrDrop(cn, schema, c.format, attributedNodes)
+        if (child !== null) inputChildren.push(child)
+      }
+    } else if (delta.$textOp.check(c)) {
+      inputChildren.push(schema.text(c.insert, formattingAttributesToMarks(c.format, schema)))
+    }
+  }
+  const canonical = d.name == null ? schema.topNodeType.name : canonicalNodeName(d.name)
   const nodeType = schema.nodes[attributedVariant(canonical, dformat, attributedNodes, schema)]
   if (!nodeType) {
     throw new Error(
       '[y/prosemirror]: node type does not exist in the schema: ' + d.name
     )
   }
-  const inputChildren = dc.flat(1)
   const inputMarks = formattingAttributesToMarks(dformat, schema)
   const finalAttrs = canonical !== nodeType.name
     ? object.assign({
       'y-attributed': true
     }, attrs)
     : attrs
+  const content = Fragment.from(inputChildren)
+  const match = nodeType.contentMatch.matchFragment(content)
+  if ((match === null || !match.validEnd) && nodeType !== schema.topNodeType) {
+    if (!attributionKinds(dformat).delete) return null
+    return nodeType.create(finalAttrs, content, inputMarks)
+  }
   const pNode = nodeType.createAndFill(
     finalAttrs,
-    inputChildren,
+    content,
     inputMarks
   )
+  if (pNode === null) {
+    throw new Error('[y/prosemirror]: failed to create node: ' + d.name)
+  }
+  return pNode
+}
+
+/**
+ * Public node factory: {@link deltaToPNodeOrDrop} with a non-null contract.
+ * Invalid descendants are dropped; a `d` that is itself invalid (and not the
+ * document node) throws instead of being returned as `null`.
+ *
+ * @param {ProsemirrorDelta} d
+ * @param {import('prosemirror-model').Schema} schema
+ * @param {delta.Formats|null} dformat
+ * @param {AttributedNodesPredicate} [attributedNodes]
+ * @return {Node}
+ */
+export const deltaToPNode = (d, schema, dformat, attributedNodes = defaultAttributedNodes) => {
+  const pNode = deltaToPNodeOrDrop(d, schema, dformat, attributedNodes)
   if (pNode === null) {
     throw new Error('[y/prosemirror]: failed to create node: ' + d.name)
   }
