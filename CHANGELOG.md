@@ -1,10 +1,6 @@
 # Changelog
 
-## Unreleased
-
-Everything since v2.0.0-4. The 2.0.0-5 … 2.0.0-8 prereleases were cut from this
-range without notes of their own, so this section describes the whole change
-from 2.0.0-4 to the next release.
+## v2.0.0-8
 
 This release rebuilds the sync engine on lib0's RDT/binding architecture, tracks
 the breaking `AttributionManager → Renderer` rename in Yjs v14, adds several
