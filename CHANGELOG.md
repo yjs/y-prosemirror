@@ -42,7 +42,7 @@ Yjs also moved the renderer argument into an options object on the delta APIs:
 #### Dependencies
 
 - `@y/y` moved from `peerDependencies` to `dependencies`: `^14.0.0-rc.23`.
-- `lib0` bumped to `^1.0.0-rc.22` (was `^1.0.0-rc.13` at v2.0.0-4).
+- `lib0` bumped to `^1.0.0-rc.30` (was `^1.0.0-rc.13` at v2.0.0-4).
 - Remaining peers unchanged: `@y/protocols`, `prosemirror-model`, `prosemirror-state`, `prosemirror-view`.
 
 ### ✨ The new RDT binding
@@ -70,7 +70,15 @@ propagates fixes back and forth until both sides settle.
 - **Performance:** in steady state the Y side does **zero full re-renders**.
   It consumes Yjs's native change deltas (identical on every peer) and the
   maintained `ytype.delta` cache; a local write's fix is a diff of two
-  already-materialized deltas. Only the *uncertain window* (writes issued
+  already-materialized deltas, and that diff is O(change): `expected` is a
+  structure-sharing `clone` of the cache and `actual` is the live cache, so
+  memoized fingerprints let the diff skip every untouched subtree instead of
+  two deep clones and a cold re-hash of the whole document (fixes
+  [#248](https://github.com/yjs/y-prosemirror/issues/248) "slow syncing":
+  on the Y side a keystroke on a 4000-paragraph nested document drops from
+  about 140 ms to 0.2 ms, on a flat one to about 5 ms). The cache's
+  fingerprints are warmed once at bind so the first keystroke is as cheap as
+  every later one. Only the *uncertain window* (writes issued
   mid-transaction/mid-cleanup, or app code wrapping a binding dispatch in its
   own `ydoc.transact()`) falls back to full-render diffing until the
   transaction queue drains.
@@ -92,7 +100,9 @@ propagates fixes back and forth until both sides settle.
 The current architecture is *iteration 1* of a staged plan:
 
 1. **Done — Y side incremental:** steady-state changes are native Yjs deltas
-   applied against the maintained delta cache; no `toDeltaDeep` renders.
+   applied against the maintained delta cache; no `toDeltaDeep` renders, and
+   since #248 a local write's fix is computed in O(change) through a
+   structure-sharing clone of the cache and memoized fingerprints.
 2. **Done — view side incremental:** `ProsemirrorRdt` no longer rebuilds and
    diffs the full document on every pull. Canonical snapshots are memoized per
    PM node (`nodeToDeltaCached`; unchanged subtrees are reference-shared as

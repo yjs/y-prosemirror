@@ -22,6 +22,9 @@
  *      modified" error surfaces anywhere (strict traced-op dispatch).
  *   F. Old `_state` snapshot objects stay deep-intact as later operations run
  *      (a persistence ring catches silent aliasing corruption).
+ *   G. The bound Y side is back in steady state after every op and serves the
+ *      live `ytype.delta` cache, which carries no stale memoized fingerprint
+ *      (and, without a renderer, equals a fresh deep render).
  *
  * Two tiers: tier 1 drives a bare, unbound view + a directly-constructed
  * `ProsemirrorRdt` (manual `pull()`, surgical emission capture); tier 2
@@ -39,6 +42,7 @@ import { Fragment, Schema } from 'prosemirror-model'
 import { EditorState, Plugin, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { ProsemirrorRdt } from '../src/rdt/prosemirror.js'
+import { YSyncRdt } from '../src/rdt/y-sync.js'
 import { pmDocDiff } from '../src/sync-utils.js'
 import {
   applyTracedOp,
@@ -136,10 +140,45 @@ const normalizeDeltaJson = node => {
 const canonicalDeltaJSON = d => stableStringify(normalizeDeltaJson(d.toJSON()))
 
 /**
- * Invariant A + E: `_state` equals the reference snapshot (deep equality and
- * fingerprint), no stale fingerprint memo anywhere in the tree, and the PM
- * document validates. Skipped while the initial-content gate or a desync is
- * active - in those windows `_state` intentionally diverges from the doc.
+ * The live Y-side RDT of a bound view (tier 2); `null` for an unbound view.
+ *
+ * @param {EditorView} view
+ * @return {YSyncRdt | null}
+ */
+const getYRdt = view => /** @type {any} */ (YPM.ySyncPluginKey.getState(view.state))?.binding?.a ?? null
+
+/**
+ * Invariant G (Y side): after every op the Y-side RDT is back in steady state
+ * and serves the live `ytype.delta` cache; the cache carries no stale
+ * memoized fingerprint (a `cloneDeep` recomputes every fingerprint and must
+ * agree), its root is still a mutable builder, and without a renderer it
+ * equals a fresh deep render. Since yjs/y-prosemirror#248 a local write's fix
+ * is diffed against the live cache and its memoized fingerprints instead of
+ * a deep clone, so a stale memo would fabricate a revert; this oracle is what
+ * keeps that honest. Renderer-backed caches skip the render comparison: their
+ * incremental patches can legitimately drift from a fresh render (known
+ * issues 3 and 5).
+ *
+ * @param {YSyncRdt} yRdt
+ * @param {string} label
+ */
+const checkYCacheOracle = (yRdt, label) => {
+  const state = /** @type {any} */ (yRdt.delta) // runs the lazy drain check
+  t.assert(yRdt._stateOverride === null, `${label}: Y side settled to steady state`)
+  t.assert(state === yRdt.ytype.delta, `${label}: Y state is the live maintained cache`)
+  t.assert(delta.cloneDeep(state).fingerprint === state.fingerprint, `${label}: no stale memoized fingerprint in the Y cache`)
+  t.assert(!state.isDone, `${label}: the Y cache root stays a mutable builder`)
+  if (yRdt.renderer == null) {
+    t.assert(state.equals(yRdt.ytype.toDelta({ deep: true })), `${label}: Y cache equals a fresh deep render`)
+  }
+}
+
+/**
+ * Invariant A + E (+ G for a bound view): `_state` equals the reference
+ * snapshot (deep equality and fingerprint), no stale fingerprint memo
+ * anywhere in the tree, and the PM document validates. Skipped while the
+ * initial-content gate or a desync is active - in those windows `_state`
+ * intentionally diverges from the doc.
  *
  * @param {ProsemirrorRdt} rdt
  * @param {EditorView} view
@@ -147,6 +186,8 @@ const canonicalDeltaJSON = d => stableStringify(normalizeDeltaJson(d.toJSON()))
  */
 const checkStateOracle = (rdt, view, label) => {
   t.assert(rdt._pullStats.walkError === 0, `${label}: no pull ever errored out of the incremental walk`)
+  const yRdt = getYRdt(view)
+  if (yRdt !== null) checkYCacheOracle(yRdt, label)
   if (rdt._defaultFingerprint != null || rdt._desynced) return
   const ref = referenceState(view)
   t.compare(/** @type {any} */ (rdt._state), /** @type {any} */ (ref), `${label}: _state equals a from-scratch canonical snapshot`)
@@ -2267,5 +2308,27 @@ export const testRdtPerfPullLargeDoc = _tc => {
     checkStateOracle(soloRdt, solo, 'solo large doc')
   } finally {
     solo.destroy()
+  }
+  // the Y side in isolation: a local write's fix computation against the
+  // maintained cache (yjs/y-prosemirror#248)
+  const yPerfDoc = new Y.Doc({ gc: false })
+  const yPerfType = yPerfDoc.get(PM_KEY)
+  yPerfType.applyDelta(delta.create().insert(Array.from({ length: 400 }, (_, i) => delta.create('paragraph', {}, `paragraph number ${i} with some real text in it`))).done())
+  const keystroke = (/** @type {number} */ i) => delta.create().retain(i).modify(delta.create().retain(3).insert('x')).done()
+  const yRdt = new YSyncRdt({ ytype: yPerfType, renderer: null, origin: 'perf' })
+  try {
+    t.measureTime('Y-side first local write after bind (fingerprints warmed at bind)', () => {
+      yRdt.applyDelta(keystroke(200), null)
+    })
+    t.measureTime('Y-side steady-state local write', () => {
+      yRdt.applyDelta(keystroke(201), null)
+    })
+    t.measureTime('pre-#248 cost model (two deep clones + cold diff)', () => {
+      const e = delta.cloneDeep(/** @type {any} */ (yPerfType.delta))
+      e.apply(delta.cloneDeep(/** @type {any} */ (keystroke(202))), { final: true, move: true })
+      delta.diff(e, delta.cloneDeep(/** @type {any} */ (yPerfType.delta)), { clone: true })
+    })
+  } finally {
+    yRdt.destroy()
   }
 }

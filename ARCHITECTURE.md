@@ -111,7 +111,12 @@ Since the upstream cache-drift fixes landed (yjs `testRdt*CacheDrift` pins), the
 are forwarded as the native `'delta'` payloads, the RDT state is the maintained
 `ytype.delta` cache (patched by Yjs right before each emission, so it is exactly the
 post-change state every consumer needs), and a local write's fix is a diff of two
-already-materialized deltas — no full re-renders. The legacy self-healing behavior
+already-materialized deltas: `expected` is a structure-sharing `clone` of the cache with
+the change applied (lib0's copy-on-write isolates the touched path, the same mechanism
+as the view side's memoized snapshots), `actual` is the live cache itself, and both keep
+memoized fingerprints on every untouched subtree, so the diff walks only the changed
+path and the fix costs O(change) rather than O(document). No full re-renders, no deep
+clones (yjs/y-prosemirror#248). The legacy self-healing behavior
 (full-render override, diff-based emissions) survives only inside the **uncertain
 window**: a write issued mid-transaction/mid-cleanup defers its cache patch and renderer
 attribution, so the wrapper serves a fresh render until the doc's cleanup queue drains

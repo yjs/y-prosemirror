@@ -11,9 +11,10 @@ import { $prosemirrorDelta } from '../sync-utils.js'
  * bound directly (see below), but it carries all the state and change
  * information, so this wrapper does **no full re-renders in steady state**:
  * foreign changes are forwarded as the native event payloads, the RDT state is
- * the ytype's maintained cache, and the only per-write work is a diff of two
- * already-materialized deltas. The wrapper adds exactly what the native
- * surface cannot express:
+ * the ytype's maintained cache, and the only per-write work is a
+ * structure-sharing clone of that cache plus a diff that walks only the
+ * changed path (see "Structure sharing" below). The wrapper adds exactly what
+ * the native surface cannot express:
  *
  * 1. **Fix computation** — applying a view-originated change can *change its
  *    meaning*: under a `DiffRenderer` in suggestion mode a plain insert comes
@@ -45,7 +46,8 @@ import { $prosemirrorDelta } from '../sync-utils.js'
  * against it. (That the incrementally-maintained cache equals a fresh deep
  * render — even under an active `DiffRenderer`, through suggestion edits and
  * accept/reject overlay updates — is pinned upstream by the yjs
- * `testRdt*CacheDrift` suite and continuously by `.dbg-fuzz.mjs`.) One known
+ * `testRdt*CacheDrift` suite, and on this side by the Y cache oracle that
+ * tests/prosemirror-rdt.test.js runs after every fuzz op.) One known
  * upstream exception: accepting changes over a region where transient
  * content (a pending insert that was then delete-suggested) was cancelled
  * out of the render patches the cache — and emits — in the pre-cancellation
@@ -76,6 +78,27 @@ import { $prosemirrorDelta } from '../sync-utils.js'
  * pending delete that the mid-window render did not show yet. Closing the
  * window therefore emits `diff(override, cache)` so the view sees exactly
  * what the settled cache serves from then on (see {@link YSyncRdt#_settle}).
+ *
+ * ## Structure sharing (why a local write costs O(change))
+ *
+ * We never deep-clone the state. For a local write we take a
+ * structure-sharing `delta.clone` of the cache as `expected`: the root ops
+ * are copied, the nested child deltas are shared by reference and marked
+ * `done`. lib0 treats a `done` child as frozen and copy-on-write clones it
+ * before `apply` descends into it, so applying the change to `expected`
+ * allocates only along the touched path. The cache patches Yjs runs inside
+ * our transact go through the same copy-on-write (the cache already stores
+ * every inserted child `done`-marked), so the cache and `expected` never
+ * mutate a subtree the other one holds. `actual` is the live cache itself.
+ * Both carry lib0's memoized Merkle fingerprints on every untouched subtree
+ * (lib0 resets the memo of everything it mutates in place), so `diff`
+ * short-circuits on equal fingerprints and descends only into what changed.
+ * We warm the cache's fingerprint once at bind so the first keystroke pays
+ * no one-time full hash either. The fix is diffed with `clone: true` and
+ * aliases nothing in the cache. tests/y-sync-rdt.test.js pins identity and
+ * memo preservation of untouched children across a write, and the Y cache
+ * oracle in tests/prosemirror-rdt.test.js pins that the cache never carries
+ * a stale memo (yjs/y-prosemirror#248).
  *
  * ## Semantic notes
  *
@@ -141,9 +164,13 @@ export class YSyncRdt extends ObservableV2 {
       // uncertain window instead and let the cache materialize after the drain.
       this._stateOverride = this._render()
     } else {
-      // Materialize the maintained cache — the steady-state source of truth.
-      // From here on Yjs keeps it current on every event of this type.
-      this.ytype.delta // eslint-disable-line no-unused-expressions
+      // Materialize the maintained cache, the steady-state source of truth.
+      // From here on Yjs keeps it current on every event of this type. We
+      // also warm its memoized fingerprints now: the first local write diffs
+      // against the cache, and a cold cache would make that one diff hash
+      // the whole document. Paying it at bind, where the render is O(doc)
+      // anyway, keeps the first keystroke as cheap as every later one.
+      this.ytype.delta.fingerprint // eslint-disable-line no-unused-expressions
     }
     /**
      * @param {import('lib0/delta').Delta<any>} d
@@ -277,8 +304,18 @@ export class YSyncRdt extends ObservableV2 {
     // state until the queue drains.
     const uncertain = this._stateOverride !== null || doc._transaction !== null || doc._transactionCleanups.length > 0
     // Pin `expected` before the transact: renderer 'change' cascades fire
-    // synchronously inside it and must not shift the baseline.
-    const expected = delta.cloneDeep(/** @type {any} */ (this.delta))
+    // synchronously inside it and must not shift the baseline. A
+    // structure-sharing `clone` pins it without copying the document: the
+    // root ops are copied, the nested child deltas are shared and marked
+    // `done`, and lib0's `apply` copy-on-write clones a shared child before
+    // it descends into it (`InsertOp#_modValue`). The cache patches Yjs runs
+    // inside the transact go through the same copy-on-write, so the cache
+    // and `expected` never mutate a subtree the other one holds, and every
+    // untouched child keeps its memoized fingerprint. `final: true` must
+    // stay explicit (`clone` does not carry `isFinal`), and the applied
+    // change must be a private deep clone: `move: true` re-parents its
+    // content into `expected`.
+    const expected = delta.clone(/** @type {any} */ (this.delta))
     expected.apply(delta.cloneDeep(/** @type {any} */ (d)), { final: true, move: true })
     this._applying = true
     try {
@@ -302,24 +339,26 @@ export class YSyncRdt extends ObservableV2 {
     }
     // `actual`: in steady state the transact above ran top-level, so its
     // cleanup (cache patch, renderer cascades, chained formatting-cleanup
-    // transactions) completed inside it — the cache *is* the post-write
-    // state, no render needed. It must be `cloneDeep`ed for the diff though:
-    // lib0's in-place `apply` does not invalidate memoized fingerprints when
-    // an insert merges into an existing op, so once a previous diff memoized
-    // the live cache's fingerprints, a later `diff` against it trims changed
-    // content as unchanged and fabricates a revert (pinned upstream by lib0
-    // `testFingerprintInvalidatedByInplaceApplyMerge`; the pre-workaround
-    // repro here was `node .dbg-fuzz.mjs 140276057 10`). The clone computes
-    // fresh fingerprints. Once fixed upstream, the clone can be dropped.
-    // In the uncertain window the cache lags — fall back to a fresh render
-    // and keep serving it until the drain.
-    const actual = uncertain ? this._render() : /** @type {import('lib0/delta').Delta<any>} */ (/** @type {any} */ (delta.cloneDeep(/** @type {any} */ (this.ytype.delta))))
+    // transactions) completed inside it. The cache *is* the post-write
+    // state and we diff against it directly. We rely on lib0 resetting the
+    // memoized fingerprint of every op and delta it mutates in place
+    // (`_mergeChildWithPrev` included, which the lib0 floor in package.json,
+    // 1.0.0-rc.30, guarantees), so the memo a previous diff left on
+    // untouched subtrees is trustworthy and the diff descends only into
+    // what changed. Cloning the cache here would drop every memo and re-hash
+    // the whole document per write (yjs/y-prosemirror#248); the Y cache
+    // oracle in tests/prosemirror-rdt.test.js pins that the memo is never
+    // stale. In the uncertain window the cache lags: fall back to a fresh
+    // render and keep serving it until the drain.
+    const actual = uncertain ? this._render() : /** @type {import('lib0/delta').Delta<any>} */ (this.ytype.delta)
     if (uncertain) {
       this._stateOverride = actual
     }
     /** @type {import('lib0/delta').Delta<any> | null} */
     let fix = null
     try {
+      // `clone: true`: the fix is a shared read value handed to the binding
+      // and must not alias the live cache.
       fix = delta.diff(/** @type {any} */ (expected), /** @type {any} */ (actual), { compare: this.compare, clone: true })
     } catch (err) {
       // Fail-safe: when the maintained cache was corrupted by a wrong-space

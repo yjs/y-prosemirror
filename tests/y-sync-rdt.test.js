@@ -278,3 +278,170 @@ export const testInitRaceFirstRenderReplacesGatedSkeleton = _tc => {
     view2.destroy()
   }
 }
+
+/**
+ * The nested child deltas behind a state delta's top-level insert ops, in
+ * order. Lets a test pin object identity and memoized fingerprints of the
+ * cache's children across a write.
+ *
+ * @param {any} d
+ * @return {Array<any>}
+ */
+const childrenOf = d => {
+  /** @type {Array<any>} */
+  const out = []
+  for (const op of d.children) {
+    if (Array.isArray(op.insert)) out.push(...op.insert)
+  }
+  return out
+}
+
+/**
+ * A local write shares structure with the maintained cache instead of deep
+ * cloning it (yjs/y-prosemirror#248): the fix is diffed between a
+ * structure-sharing `clone` of the cache with the change applied and the live
+ * cache itself. We pin what that relies on: the cache's fingerprints are
+ * warmed at bind, untouched children keep their object identity and their
+ * memoized fingerprint across the write, the touched child is replaced by a
+ * copy-on-write clone, the cache root stays a mutable builder, and the cache
+ * never carries a stale memo (a `cloneDeep` recomputes every fingerprint and
+ * must agree). The last local write merges into the text op the first one
+ * created, the in-place merge that the old `cloneDeep` workaround guarded
+ * against.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testYSyncRdtLocalWriteSharesCacheStructure = _tc => {
+  const doc = new Y.Doc({ gc: false })
+  const ytype = doc.get('prosemirror')
+  ytype.applyDelta(delta.create().insert([paragraph('one'), paragraph('two'), paragraph('three')]).done())
+  const rdt = new YSyncRdt({ ytype, renderer: null, origin: PLUGIN_ORIGIN })
+  try {
+    const cache = /** @type {any} */ (ytype.delta)
+    const before = childrenOf(cache)
+    t.assert(before.length === 3, 'three top-level children')
+    t.assert(cache._fingerprint != null, 'the cache fingerprint is warmed at bind')
+    t.assert(before.every(c => c._fingerprint != null), 'every child fingerprint is warmed at bind')
+    const memo = before.map(c => c._fingerprint)
+    /**
+     * @param {string} label
+     */
+    const checkCache = label => {
+      t.assert(rdt._stateOverride === null, `${label}: steady state`)
+      t.assert(ytype.delta === cache, `${label}: the cache is still the same object`)
+      t.assert(!cache.isDone, `${label}: the cache root stays a mutable builder`)
+      t.assert(delta.cloneDeep(cache).fingerprint === cache.fingerprint, `${label}: no stale memoized fingerprint in the cache`)
+      t.assert(cache.equals(ytype.toDelta({ deep: true })), `${label}: the cache equals a fresh render`)
+    }
+    // a local write into the middle paragraph: "two" becomes "tXwo"
+    const fix = rdt.applyDelta(delta.create().retain(1).modify(delta.create().retain(1).insert('X')).done(), null)
+    t.assert(fix === null, 'no renderer, no fix')
+    const after = childrenOf(cache)
+    t.assert(after[0] === before[0] && after[2] === before[2], 'untouched children keep their identity')
+    t.assert(after[0]._fingerprint === memo[0] && after[2]._fingerprint === memo[2], 'untouched children keep their memoized fingerprint')
+    t.assert(after[1] !== before[1], 'the touched child was replaced by a copy-on-write clone')
+    t.assert(JSON.stringify(after[1].toJSON()).includes('tXwo'), 'the touched child carries the write')
+    checkCache('after the first local write')
+    // a foreign write lands through the native channel and patches the cache in place
+    ytype.applyDelta(delta.create().modify(delta.create().insert('R')).done(), 'remote-peer')
+    t.assert(JSON.stringify(childrenOf(cache)[0].toJSON()).includes('Rone'), 'the foreign write landed')
+    checkCache('after a foreign write')
+    // a second local write right behind the first one merges into the text op it created
+    const fix2 = rdt.applyDelta(delta.create().retain(1).modify(delta.create().retain(2).insert('Y')).done(), null)
+    t.assert(fix2 === null, 'no fix for the merging write')
+    t.assert(JSON.stringify(childrenOf(cache)[1].toJSON()).includes('tXYwo'), 'the merging write landed')
+    checkCache('after the merging local write')
+  } finally {
+    rdt.destroy()
+  }
+}
+
+/**
+ * A nested document: `n` paragraphs grouped 10 per blockquote and 10
+ * blockquotes per outer blockquote, so every level has bounded fan-out and
+ * the document size only shows up in the number of outer blockquotes.
+ *
+ * @param {number} n
+ * @return {Y.Node}
+ */
+const nestedYtype = n => {
+  const doc = new Y.Doc({ gc: false })
+  const paragraphs = Array.from({ length: n }, (_, i) => paragraph(`paragraph ${i} lorem ipsum dolor sit amet`))
+  /**
+   * @param {Array<any>} items
+   * @return {Array<any>}
+   */
+  const group = items => {
+    /** @type {Array<any>} */
+    const out = []
+    for (let i = 0; i < items.length; i += 10) {
+      const bq = delta.create('blockquote')
+      bq.insert(items.slice(i, i + 10))
+      out.push(bq.done())
+    }
+    return out
+  }
+  const ytype = doc.get('prosemirror')
+  ytype.applyDelta(delta.create().insert(group(group(paragraphs))).done())
+  return ytype
+}
+
+/**
+ * The median wall time of a keystroke write through `rdt` into paragraph `k`
+ * of a {@link nestedYtype} document: three warm-up writes, then `samples`
+ * timed ones.
+ *
+ * @param {YSyncRdt} rdt
+ * @param {number} k
+ * @param {number} [samples]
+ * @return {number} milliseconds
+ */
+const medianKeystrokeMs = (rdt, k, samples = 15) => {
+  /** @type {Array<number>} */
+  const times = []
+  const outer = Math.floor(k / 100)
+  const inner = Math.floor(k / 10) % 10
+  const para = k % 10
+  for (let i = 0; i < samples + 3; i++) {
+    const d = delta.create().retain(outer).modify(
+      delta.create().retain(inner).modify(
+        delta.create().retain(para).modify(delta.create().retain(3).insert('x'))
+      )
+    ).done()
+    const start = performance.now()
+    const fix = rdt.applyDelta(d, null)
+    const ms = performance.now() - start
+    t.assert(fix === null, 'no renderer, no fix')
+    if (i >= 3) times.push(ms)
+  }
+  times.sort((a, b) => a - b)
+  return times[times.length >> 1]
+}
+
+/**
+ * The cost of a local write must follow the size of the change, not the size
+ * of the document (yjs/y-prosemirror#248). Sixteen times more paragraphs must
+ * not cost more than a few times more per keystroke: two deep clones plus a
+ * cold diff scale linearly (about 16x here), structure sharing stays flat.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testYSyncRdtLocalWriteScalesWithChange = _tc => {
+  const small = nestedYtype(200)
+  const large = nestedYtype(3200)
+  const rdtSmall = new YSyncRdt({ ytype: small, renderer: null, origin: PLUGIN_ORIGIN })
+  const rdtLarge = new YSyncRdt({ ytype: large, renderer: null, origin: PLUGIN_ORIGIN })
+  try {
+    const msSmall = medianKeystrokeMs(rdtSmall, 100)
+    const msLarge = medianKeystrokeMs(rdtLarge, 1600)
+    t.info(`keystroke median: 200 paragraphs ${msSmall.toFixed(2)}ms, 3200 paragraphs ${msLarge.toFixed(2)}ms (ratio ${(msLarge / msSmall).toFixed(1)})`)
+    t.assert(msLarge < 5 * msSmall + 0.5, `a 16x larger document must not cost more than 5x per keystroke (${msSmall.toFixed(2)}ms vs ${msLarge.toFixed(2)}ms)`)
+    t.assert(msLarge < 30, `a keystroke on 3200 paragraphs stays cheap (${msLarge.toFixed(2)}ms)`)
+    const cache = /** @type {any} */ (large.delta)
+    t.assert(delta.cloneDeep(cache).fingerprint === cache.fingerprint, 'no stale memoized fingerprint in the cache')
+    t.assert(cache.equals(large.toDelta({ deep: true })), 'the cache equals a fresh render')
+  } finally {
+    rdtSmall.destroy()
+    rdtLarge.destroy()
+  }
+}
