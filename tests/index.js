@@ -37,6 +37,7 @@ runTests({
   prosemirrorRdt,
   swallowFormats
   // prosemirror,
+  // v1Compat: node-only (npm-alias devDependency y-prosemirror-v1 + yjs@13, see tests/index.node.js)
   // tr
 }).then(success => {
   /* istanbul ignore next */

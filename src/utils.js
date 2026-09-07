@@ -11,8 +11,10 @@ import * as buf from 'lib0/buffer'
  * low-order bytes, so slicing the leading bytes off a degree-64 fingerprint
  * collides for near-identical inputs (e.g. `{id:4}` vs `{id:5}`). The 4 bytes
  * encode to 8 base64 chars - the length `hashedMarkNameRegex` expects - so
- * documents written by older (sha256-based) versions still parse: the suffix is
- * only ever stripped on read (by pattern), never recomputed.
+ * keys written by older (sha256-based) versions still parse. Keys are
+ * recomputed on every canonical render, though, so the first bind of such a
+ * document re-keys its overlapping marks once (pinned in
+ * tests/v1-compat.test.js, see CAVEATS.md).
  *
  * @param {any} json
  * @return {string}

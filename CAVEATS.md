@@ -26,12 +26,15 @@ One refinement to "the ytype wins": a fresh editor is never truly empty, because
 
 ## Compatibility with older `y-prosemirror`
 
-The new binding is not yet fully update-compatible with documents produced by the old `y-prosemirror`:
+Documents written by the old binding (`y-prosemirror` 1.x on Yjs 13) load in the new binding and can be edited further. That is the compatibility we promise, and tests/v1-compat.test.js exercises it against the real packages. The old binding cannot read what the new one writes, so a document must not be edited by old and new clients at the same time.
 
-1. **Inline text representation.** The old binding represented inline text as a nested `Y.Text` (which decodes to an anonymous, `name === null` child type); the new binding represents it as inline text inside the parent type. The default pipeline now includes a compat stage (`src/transformers/inline-anonymous-nodes.js`) that flattens anonymous text containers at every depth for rendering, so old documents render and round-trip: edits strictly inside a flattened container are routed back *into* the nested type (the old representation is preserved in Y), while newly inserted nodes are written flat - mixed documents are fine. Remaining gaps: there is no eager migration of the stored representation; relative-position mapping (`src/positions.js`) assumes the flat 1:1 structure and is wrong inside old-representation paragraphs (cursors, undo positions); the `fragmentToPm`/`pmToFragment` utilities bypass the pipeline and do not flatten.
-2. **Overlapping marks.** The old binding supported multiple concurrent instances of the same mark type carrying different values (e.g., two `bold` marks with different payloads). This is not yet migrated, but could be.
+**What works.** The old binding represented inline text as a nested `Y.Text` (which decodes to an anonymous, `name === null` child type); the new binding represents it as inline text inside the parent type. The default pipeline includes a compat stage (`src/transformers/inline-anonymous-nodes.js`) that flattens anonymous text containers at every depth for rendering, so old documents render identically and round-trip: edits strictly inside a flattened container are routed back *into* the nested type (the old representation is preserved in Y), while newly inserted nodes are written flat. Mixed documents are fine. Position mapping runs through the binding transformer, so cursors, undo bookmarks and relative positions created by the old binding resolve correctly inside old-representation paragraphs, and `fragmentToPm` applies the same flattening.
 
-**Status:** in progress. We intend for old documents to remain loadable.
+**One-time normalizations.** Two constructs are rewritten by the first bind of an old document, once, and never again. Overlapping marks: the old binding keyed them with a sha256-based hash and we use a faster Rabin fingerprint, so the `comment--<hash>` keys are recomputed. Node attributes holding `null`: the old binding omitted them and we store every attribute the ProseMirror node holds. Both writes converge between concurrent new clients. A document without those constructs binds without any write.
+
+**What does not work.** The old binding cannot decode inline text stored flat: an old client that receives content written by the new binding throws in its render, or deletes the node where it catches the error. We therefore do not support old and new clients collaborating on one document, and we do not migrate the stored representation eagerly; old documents keep their nested containers until edits rewrite the content.
+
+The API changed as well; the changelog lists the old exports next to their replacements.
 
 ## Node splitting, merging, and lifting
 

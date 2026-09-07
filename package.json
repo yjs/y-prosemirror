@@ -12,7 +12,6 @@
     "clean": "rm -rf dist",
     "dist": "npm run clean && PRODUCTION=1 tsc --skipLibCheck --noEmit false && test -e dist/src/index.d.ts",
     "test": "node ./tests/index.node.js",
-    "bench": "node benchmarks/edit-roundtrip.mjs && node benchmarks/keystroke.mjs",
     "test:debug": "node --inspect-brk ./tests/index.node.js",
     "lint": "standard && tsc --skipLibCheck",
     "watch": "rollup -wc",
@@ -80,7 +79,10 @@
     "prosemirror-view": "^1.26.2",
     "rollup": "^4.52.5",
     "standard": "^17.0.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "y-prosemirror-v1": "npm:y-prosemirror@1.3.7",
+    "y-protocols": "^1.0.6",
+    "yjs": "^13.6.30"
   },
   "engines": {
     "npm": ">=8.0.0",

@@ -185,7 +185,7 @@ const warnUnsupportedAttributionMarks = (schema) => {
  * @param {Array<(($d: s.Schema<any>) => dt.Template<any, any>)>} [opts.transformers] Optional custom transformer stages, slotted into the pipeline **between** the built-in compat flattening stage ({@link inlineAnonymousNodes}) and `attributionToFormat`, in data→view (`applyA`) order (i.e. before the closing `attributionToFormat` / {@link swallowFormats} pair). Each is a `$d => Template` factory (see `lib0/delta/transformer`); the input schema is threaded left to right. Custom transformers see changes in the flattened document space (old-representation anonymous text containers already spliced into their parents), with the complete accumulated attribution on every attribution-bearing op.
  * @param {null|((err:Error,errCode:number)=>any)} [opts.onInternalError] Listen to internal
  * errors for debugging purposes. This API is unstable and can be changed/removed at any time!
- * (errCode 0: applyDelta failed)
+ * (errCode 0: the Y-side write failed, 1: the Y-side fix diff failed, 2: the view-side reconcile diff failed)
  * @returns {Plugin}
  */
 export const syncPlugin = (opts = {}) => {

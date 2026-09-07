@@ -10,6 +10,7 @@ import * as s from 'lib0/schema'
 import { Slice, Fragment } from 'prosemirror-model'
 import { ReplaceStep } from 'prosemirror-transform'
 import { hashOfJSON } from './utils.js'
+import { inlineAnonymousNodes } from './transformers/inline-anonymous-nodes.js'
 
 /** @import { Node } from 'prosemirror-model' */
 
@@ -533,7 +534,9 @@ export function pmToFragment (node, fragment, { renderer = null } = {}) {
 }
 
 /**
- * Applies a {@link Y.XmlFragment}'s content as a ProseMirror {@link Transaction}
+ * Applies a {@link Y.XmlFragment}'s content as a ProseMirror {@link Transaction}.
+ * Documents in the old y-prosemirror representation (nested anonymous text
+ * containers) are flattened the way the binding renders them.
  * @param {Y.Node} fragment
  * @param {import('prosemirror-state').Transaction} tr
  * @param {object} ctx
@@ -547,8 +550,15 @@ export function fragmentToTr (fragment, tr, {
   mapAttributionToMark = defaultMapAttributionToMark,
   attributedNodes = defaultAttributedNodes
 } = {}) {
+  const rendered = fragment.toDelta({ renderer, deep: true })
+  // Documents written by the old y-prosemirror nest inline text in anonymous
+  // containers. The binding flattens them through its pipeline (see
+  // transformers/inline-anonymous-nodes.js); this standalone path applies the
+  // same stage to the rendered state, as lib0's Binding does at initial sync.
+  // A transformer consumes its input, hence the deep clone of the render.
+  const flattened = inlineAnonymousNodes(delta.$deltaAny).init().applyA(delta.cloneDeep(rendered)).b ?? delta.create()
   const fragmentContent = deltaAttributionToFormat(
-    fragment.toDelta({ renderer, deep: true }),
+    /** @type {any} */ (flattened),
     mapAttributionToMark,
     // attr-attribution lift is schema-gated, mirroring the sync-plugin's gate
     tr.doc.type.schema.marks[Y_ATTRS_MARK] != null ? defaultMapAttrAttribution : null
