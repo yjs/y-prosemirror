@@ -113,6 +113,8 @@ Without this, the binding has no choice but to drop invalid content, silently di
 
 One case cannot be dropped: a node that is already a *pending delete* and then loses its required content (its paragraphs are deleted for real in the base document while the suggestion is still open). The Y side keeps rendering a pending delete until it is resolved, so deleting it from the view would be re-inserted and filling it would be reverted by `@y/y`; either would loop forever. We render such a node as-is instead: an empty struck-through blockquote that is not a valid ProseMirror node (`doc.check()` fails while it is on screen). It disappears as soon as the deletion is accepted or a peer editing the base document drops it for real. A relaxed `<name>--attributed` variant (the invalid-node variant from the previous section) makes that state schema-valid. This handling keys on the reserved `y-attributed-delete` format, so a `mapAttributionToMark` that omits the delete kind loses it.
 
+The same rules cover a *required attribute* (one without a schema default) that Y does not hold. Y does not validate schemas, so a peer with a different schema can write an image without its `src`. On a live node that is schema-invalid content and the node is dropped, exactly like content the schema rejects. On a pending delete the attribute is held as `null` instead (ProseMirror accepts `null`, only `undefined` is "missing"), and the view never writes it back: a fix that would land inside a pending-deleted node is not sent, because `@y/y` would revert it and the fix loop would never settle. Inside a pending delete the projection is best-effort and read-only.
+
 **Status:** addressable; integrators need to be aware.
 
 ## Attribution mark names are fixed

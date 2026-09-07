@@ -57,16 +57,26 @@ export const canonicalNodeName = (name) =>
  * `y-attributed-*` format keys that the attribution-to-format stage produces.
  * A custom `mapAttributionToMark` that omits a kind hides it from every
  * decision made here (the attributed node variants and the pending-delete
- * handling in {@link deltaToPNodeOrDrop}).
+ * handling in {@link deltaToPNodeOrDrop}) and in the fix filter of
+ * `ProsemirrorRdt.applyDelta` (rdt/prosemirror.js).
  *
  * @param {Record<string, unknown> | null | undefined} format
  * @return {{ insert: boolean, delete: boolean, format: boolean }}
  */
-const attributionKinds = format => ({
+export const attributionKinds = format => ({
   insert: format?.['y-attributed-insert'] != null,
   delete: format?.['y-attributed-delete'] != null,
   format: format?.['y-attributed-format'] != null
 })
+
+/**
+ * Whether a ProseMirror node is rendered as a pending delete: the mark form
+ * of the `y-attributed-delete` format {@link attributionKinds} reads.
+ *
+ * @param {Node} node
+ * @return {boolean}
+ */
+const isPendingDeleteNode = node => node.marks.some(m => m.type.name === 'y-attributed-delete')
 
 /**
  * Resolve the PM node name to render for `canonicalName` given the attribution
@@ -977,6 +987,25 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }, attribu
     if (delta.$setAttrOp.check(attr)) {
       // can be a delete attr op iff attribution node is transformed back to a normal node
       tr.setNodeAttribute(currPos.i - 1, attr.key, attr.value)
+    } else if (delta.$deleteAttrOp.check(attr)) {
+      // Y no longer holds the attribute (a change render of a hard-deleted
+      // attr). A ProseMirror node materializes every attribute, so the
+      // deletion becomes the schema default. A required attr has none: on a
+      // pending-deleted node it becomes `null`, mirroring the fresh render in
+      // `deltaToPNodeOrDrop` so peers agree whichever path rendered the node
+      // (writes into a pending delete are never re-asserted, see
+      // `ProsemirrorRdt.applyDelta`); on a live node it is left alone and the
+      // fix re-asserts the last known value into Y.
+      const pos = currPos.i - 1
+      const node = pos < 0 ? tr.doc : tr.doc.nodeAt(pos)
+      const spec = node?.type.spec.attrs?.[attr.key]
+      if (node == null || spec == null) continue
+      if (object.hasProperty(spec, 'default')) {
+        if (pos < 0) tr.setDocAttribute(attr.key, spec.default)
+        else tr.setNodeAttribute(pos, attr.key, spec.default)
+      } else if (pos >= 0 && isPendingDeleteNode(node)) {
+        tr.setNodeAttribute(pos, attr.key, null)
+      }
     }
   }
   // Group ops into maximal runs bounded by retain/modify ops (the only ops that
@@ -1162,6 +1191,13 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }, attribu
  *   view cannot apply without emptying the node again); either would loop
  *   forever. Rendering it as-is makes the fix empty. The node disappears once
  *   the deletion is accepted or a peer editing the base document drops it.
+ * - A required attribute (no schema default) that Y does not hold makes the
+ *   node exactly as invalid as rejected content and takes the same path:
+ *   dropped, or - on the top node and on a pending delete, which cannot be
+ *   dropped - held as `null` (`computeAttrs` treats only `undefined` as
+ *   missing). Y content like that comes from outside the binding (a peer with
+ *   a different schema, or an accept that shipped a node without its attrs);
+ *   throwing here would escape into Y's event delivery and desync the view.
  *
  * @param {ProsemirrorDelta} d
  * @param {import('prosemirror-model').Schema} schema
@@ -1175,7 +1211,9 @@ const deltaToPNodeOrDrop = (d, schema, dformat, attributedNodes) => {
    */
   const attrs = {}
   for (const attr of d.attrs) {
-    attrs[attr.key] = attr.value
+    // only a `setAttr` carries a value; a `deleteAttr` (a change render of a
+    // hard-deleted attribute) leaves the key unset, handled below
+    if (delta.$setAttrOp.check(attr)) attrs[attr.key] = attr.value
   }
   /**
    * @type {Array<Node>}
@@ -1204,6 +1242,15 @@ const deltaToPNodeOrDrop = (d, schema, dformat, attributedNodes) => {
       'y-attributed': true
     }, attrs)
     : attrs
+  const undroppable = nodeType === schema.topNodeType || attributionKinds(dformat).delete
+  const attrSpecs = nodeType.spec.attrs
+  for (const key in attrSpecs) {
+    // required = no `default` in the spec (`Attribute.hasDefault` in prosemirror-model)
+    if (!object.hasProperty(attrSpecs[key], 'default') && finalAttrs[key] === undefined) {
+      if (!undroppable) return null
+      finalAttrs[key] = null
+    }
+  }
   const content = Fragment.from(inputChildren)
   const match = nodeType.contentMatch.matchFragment(content)
   if ((match === null || !match.validEnd) && nodeType !== schema.topNodeType) {

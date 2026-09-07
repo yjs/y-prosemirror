@@ -350,3 +350,132 @@ export const testSuggestionModeDropBecomesPendingDelete = _tc => {
     cohort.destroy()
   }
 }
+
+// === Required attributes ===
+
+/**
+ * A paragraph holding one inline image: `'a'`, the image, `'b'`. Positions in
+ * the rendered document: paragraph open 0, `'a'` 1..2, image 2..3, `'b'` 3..4.
+ *
+ * @param {Record<string, any>} imageAttrs
+ */
+const imageParagraphDelta = imageAttrs => delta.create().insert([
+  delta.create('paragraph', {}).insert('a').insert([delta.create('image', imageAttrs)]).insert('b')
+]).done()
+
+/**
+ * The image node of {@link imageParagraphDelta}'s paragraph in a view.
+ *
+ * @param {import('prosemirror-view').EditorView} view
+ */
+const imageOf = view => view.state.doc.child(0).child(1)
+
+/**
+ * A required attribute is part of a node's validity. Y does not validate
+ * schemas, so a live node can arrive without one (a peer with a different
+ * schema; `@y/y` 14.0.0-rc.25's range accept shipped a node without its
+ * attrs). Building it used to throw `RangeError: No value supplied for
+ * attribute src` out of `deltaToPNode` and out of Y's event delivery, which
+ * desynced the view and starved every later observer of the transaction. It
+ * is dropped like rejected content instead: the fix deletes it from Y, an
+ * observer registered after the binding still receives the transaction, and
+ * later valid inserts still land.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testMissingRequiredAttrDropped = _tc => {
+  const ydoc = new Y.Doc({ gc: false })
+  const ytype = ydoc.get(PM_KEY)
+  ytype.applyDelta(seedDelta())
+  const view = createPMView(ytype)
+  let observed = 0
+  const laterObserver = () => { observed++ }
+  ytype.on('delta', laterObserver)
+  try {
+    installLoopBreaker([view])
+    const before = stableStringify(view.state.doc.toJSON())
+    // an image without its required `src`, after "he" of paragraph('head')
+    ytype.applyDelta(delta.create().modify(delta.create().retain(2).insert([delta.create('image', {})])).done())
+    view.state.doc.check()
+    t.compare(stableStringify(view.state.doc.toJSON()), before, 'the attr-less image never reached the view')
+    t.assert(observed > 0, 'an observer registered after the binding still received the transaction')
+    t.assert(!JSON.stringify(ytype.toDeltaDeep().toJSON()).includes('"image"'), 'the fix deleted the attr-less image from Y')
+    ytype.applyDelta(delta.create().modify(delta.create().retain(2).insert([delta.create('image', { src: 'ok.png' })])).done())
+    view.state.doc.check()
+    const image = view.state.doc.child(0).child(1)
+    t.assert(image.type.name === 'image' && image.attrs.src === 'ok.png', 'a valid image still lands')
+  } finally {
+    ytype.off('delta', laterObserver)
+    view.destroy()
+  }
+}
+
+/**
+ * The pending-delete counterpart, which can never be dropped: the
+ * suggestion-mode user pending-deletes an image, then the base doc really
+ * deletes the image's required `src` (and its optional `title`). The change
+ * arrives as `deleteAttr` ops on a pending-deleted node. The view applies
+ * them as far as the schema allows - the optional attr falls back to its
+ * default, the required one is held as `null` - keeps a schema-valid
+ * document, and never writes the attributes back into the deleted node
+ * (`@y/y` would revert that and the fix loop would never settle).
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testPendingDeletedNodeLosesRequiredAttr = _tc => {
+  const cohort = new Cohort(['suggestion-mode'])
+  try {
+    const base = cohort.baseDoc.get(PM_KEY)
+    base.applyDelta(imageParagraphDelta({ src: 'x.png', title: 't' }))
+    const user = cohort.user(0)
+    const view = user.view
+    const counter = installLoopBreaker([view])
+    t.compare({ ...imageOf(view).attrs }, { src: 'x.png', alt: null, title: 't' }, 'the image renders with its attrs')
+    view.dispatch(view.state.tr.delete(2, 3)) // pending delete of the image
+    t.assert(imageOf(view).marks.some(m => m.type.name === 'y-attributed-delete'), 'the image is a pending delete')
+    counter.n = 0
+    base.applyDelta(delta.create().modify(delta.create().retain(1).modify(delta.create().deleteAttr('src').deleteAttr('title'))).done())
+    t.assert(counter.n < 50, `the fix loop settled (${counter.n} emissions)`)
+    view.state.doc.check()
+    t.assert(imageOf(view).marks.some(m => m.type.name === 'y-attributed-delete'), 'still rendered as a pending delete')
+    t.compare({ ...imageOf(view).attrs }, { src: null, alt: null, title: null }, 'the required attr is held as null, the optional one as its default')
+    const rendered = JSON.stringify(/** @type {Y.Doc} */ (user.suggestionDoc).get(PM_KEY).toDeltaDeep({ renderer: user.renderer }).toJSON())
+    t.assert(!rendered.includes('"src"') && !rendered.includes('"title"'), 'nothing was written back into the pending-deleted node')
+  } finally {
+    cohort.destroy()
+  }
+}
+
+/**
+ * The same state at bind time, i.e. the fresh-render path of
+ * `deltaToPNodeOrDrop` rather than a change: the base doc holds an image
+ * without `src`, the suggestion doc has it pending-deleted, and a
+ * suggestion-mode view binding to it renders the pending delete with
+ * `src: null` instead of throwing.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testPendingDeletedNodeWithoutRequiredAttrAtBind = _tc => {
+  const base = new Y.Doc({ gc: false })
+  base.clientID = 0
+  const sugg = new Y.Doc({ isSuggestionDoc: true, gc: false })
+  sugg.clientID = 1
+  const renderer = Y.createDiffRenderer(base, sugg, { attributions: Y.createContentMap() })
+  renderer.suggestionMode = true
+  base.get(PM_KEY).applyDelta(imageParagraphDelta({}))
+  sugg.get(PM_KEY).applyDelta(delta.create().modify(delta.create().retain(1).delete(1)).done()) // pending delete of the image
+  const view = createPMView(sugg.get(PM_KEY), renderer)
+  try {
+    const counter = installLoopBreaker([view])
+    view.state.doc.check()
+    const image = imageOf(view)
+    t.assert(image.type.name === 'image', 'the pending-deleted image is rendered')
+    t.assert(image.marks.some(m => m.type.name === 'y-attributed-delete'), 'as a pending delete')
+    t.compare({ ...image.attrs }, { src: null, alt: null, title: null }, 'with its missing required attr held as null')
+    t.assert(counter.n < 50, `the bind settled (${counter.n} emissions)`)
+    t.assert(!JSON.stringify(sugg.get(PM_KEY).toDeltaDeep({ renderer }).toJSON()).includes('"src"'), 'nothing was written into the pending-deleted node')
+  } finally {
+    view.destroy()
+    renderer.destroy()
+  }
+}

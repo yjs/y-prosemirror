@@ -3,6 +3,7 @@ import * as delta from 'lib0/delta'
 import * as env from 'lib0/environment'
 import {
   $prosemirrorDelta,
+  attributionKinds,
   defaultAttributedNodes,
   deltaToPNode,
   deltaToPSteps,
@@ -452,6 +453,10 @@ export class ProsemirrorRdt extends ObservableV2 {
    * document node is still filled. A pending-deleted node in that state is
    * rendered as-is instead (see `deltaToPNodeOrDrop` in sync-utils.js).
    *
+   * The fix never writes INTO a pending-deleted node: Y reverts such writes,
+   * so the view's rendering of a pending delete is a best-effort read-only
+   * projection (see {@link stripFixesIntoPendingDeletes}).
+   *
    * The initial binding sync arrives here as a whole-document difference; when
    * its raw steps cannot be fitted (e.g. deleting the only block of a
    * `doc{block+}`), the whole document is replaced via `tr.replaceWith`, which
@@ -531,6 +536,11 @@ export class ProsemirrorRdt extends ObservableV2 {
       // fail-safe (see method doc): report, adopt the dispatched document,
       // return no fix — never unwind into the Y transaction's event delivery
       this._onInternalError?.(/** @type {any} */ (err), 2)
+    }
+    if (fix != null && !fix.isEmpty()) {
+      const kept = stripFixesIntoPendingDeletes(/** @type {any} */ (fix), /** @type {any} */ (expected))
+      kept.done(false)
+      fix = /** @type {any} */ (kept)
     }
     this._state = actual
     this._pmstate = actualDoc
@@ -669,4 +679,79 @@ const buildAttributionCorrection = (change, state) => {
   }
   correction.done(false)
   return touched && !correction.isEmpty() ? correction : null
+}
+
+/**
+ * Rebuild a fix without the parts that would write INTO a pending-deleted
+ * node (a node whose retaining op carries the `y-attributed-delete` format):
+ * every such `modify` becomes a plain `retain(1)` (its own format and
+ * attribution are kept; they address the node, not its inside).
+ *
+ * `@y/y` reverts modifications into a deleted-but-rendered node with their
+ * inverse (the "edits into suggestion-deleted child nodes are reverted"
+ * caveat in ARCHITECTURE.md). A fix that modifies such a node can therefore
+ * never land: the view receives the inverse, its schema forces the same
+ * normalization again, and the two sides ping-pong through the unbounded
+ * propagate loop forever. The first such loop found was a pending-deleted
+ * image whose required `src` Y no longer held (known issue 7 in
+ * tests/prosemirror-rdt.test.js); an attr change on content inside
+ * suggestion-wrapped structure looped the same way (known issue 2). Inside a
+ * pending delete the projection is best-effort and read-only: the view keeps
+ * what it could render, `_state` adopts it, and since a node's attrs and
+ * children never affect the positions of its siblings, the adopted state
+ * stays positionally aligned with Y.
+ *
+ * `fix` is `diff(expected, actual)`, so it is expressed against `expected`:
+ * the walk reads the target of every `modify` off `expected` with the usual
+ * cursor rule (retain/delete/modify consume `expected` positions, inserts do
+ * not). `expected` is a state, so its children are text and insert ops only.
+ *
+ * @param {delta.DeltaAny} fix
+ * @param {delta.DeltaAny} expected
+ * @return {delta.DeltaBuilderAny} the rebuilt fix, not yet `done`
+ */
+const stripFixesIntoPendingDeletes = (fix, expected) => {
+  const out = /** @type {delta.DeltaBuilderAny} */ (delta.cloneShallow(fix))
+  let cur = expected.children.start
+  let off = 0
+  /**
+   * @param {number} n
+   */
+  const consume = n => {
+    while (n > 0 && cur != null) {
+      const take = Math.min(cur.length - off, n)
+      off += take
+      n -= take
+      if (off >= cur.length) {
+        cur = cur.next
+        off = 0
+      }
+    }
+  }
+  for (const op of fix.children) {
+    if (delta.$textOp.check(op) || delta.$insertOp.check(op)) {
+      out.insert(/** @type {any} */ (op.insert), op.format, op.attribution)
+    } else if (delta.$retainOp.check(op)) {
+      out.retain(op.retain, op.format, op.attribution)
+      consume(op.retain)
+    } else if (delta.$deleteOp.check(op)) {
+      out.delete(op.delete)
+      consume(op.delete)
+    } else { // $modifyOp
+      const target = cur != null && delta.$insertOp.check(cur) ? cur : null
+      const el = target != null ? target.insert[off] : null
+      consume(1)
+      if (target != null && attributionKinds(target.format).delete) {
+        out.retain(1, op.format, op.attribution)
+      } else {
+        const sub = delta.$deltaAny.check(el) ? stripFixesIntoPendingDeletes(op.value, el) : op.value
+        if (sub.isEmpty()) {
+          out.retain(1, op.format, op.attribution)
+        } else {
+          out.modify(sub, op.format, op.attribution)
+        }
+      }
+    }
+  }
+  return out
 }

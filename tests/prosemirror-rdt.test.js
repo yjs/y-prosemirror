@@ -1018,9 +1018,8 @@ const STANDARD_COHORT = [
  * `y-attributed-*` mark, which must be reverted by the corrective pull).
  *
  * KNOWN ISSUES (pre-existing, found by this suite, reproduced on the
- * unoptimized pipeline; see {@link testRdtKnownIssueAttrChangeNonConvergence}).
- * The numbering is stable - `pickCohortOp` refers to it by number - so a
- * resolved entry stays in place:
+ * unoptimized pipeline). The numbering is stable - `pickCohortOp` used to
+ * refer to it by number - so a resolved entry stays in place:
  *
  * 1. RESOLVED. `code_block` used to declare `marks: ''` while the attribution
  *    render applied `y-attributed-*` marks to suggestion-inserted content
@@ -1034,12 +1033,17 @@ const STANDARD_COHORT = [
  *    them at bind time instead (`warnUnsupportedAttributionMarks` in
  *    sync-plugin.js); `testSwallowSchemaForbiddenMark` in
  *    swallow-formats.test.js covers what happens when a schema still refuses.
- * 2. A `setNodeAttribute` on content inside suggestion-wrapped structure can
- *    drive the reconcile fix loop into non-convergence (an infinite
- *    propagate loop - the unbounded-propagate caveat in ARCHITECTURE.md),
- *    with or without `y-attributed-attrs` declared. Cohort fuzzing therefore
- *    skips node-attr ops (and strips them out of `multiOp`); the attr paths
- *    stay fully fuzzed in the non-renderer tiers.
+ * 2. RESOLVED (2026-09-07). A `setNodeAttribute` on content inside
+ *    suggestion-wrapped structure used to drive the reconcile fix loop into
+ *    non-convergence (an infinite propagate loop - the unbounded-propagate
+ *    caveat in ARCHITECTURE.md), with or without `y-attributed-attrs`
+ *    declared: the fix cascade kept writing into the pending-deleted
+ *    original of the wrap, which `@y/y` reverts with its inverse, and the
+ *    view's schema normalization produced the same fix again. Fixes never
+ *    write into a pending-deleted node any more
+ *    (`stripFixesIntoPendingDeletes` in src/rdt/prosemirror.js); the former
+ *    pin runs as {@link testRdtAttrChangeInsideSuggestionWrapConverges} and
+ *    cohort fuzzing covers node-attr ops (and `multiOp` attr parts) again.
  * 3. Rare op sequences surface `Unexpected case` from lib0's `diff` inside
  *    `YSyncRdt.applyDelta`'s fix computation (a non-insert op in a state
  *    delta, i.e. the maintained ytype cache or the applied expectation is
@@ -1049,8 +1053,10 @@ const STANDARD_COHORT = [
  *    when it surfaces. Since issue 5's fail-safes landed, seed 4028796619
  *    runs clean end-to-end (the `Unexpected case` there was downstream
  *    damage of issue 5's malformed-delta class), and a fix-diff throw now
- *    surfaces as an `onInternalError` report instead of an escaping error;
- *    issues 3 and 5 likely share the cache-corruption root.
+ *    surfaces as an `onInternalError` report instead of an escaping error.
+ *    Issue 5's root cause turned out to be issue 7's (a range accept
+ *    shipping nodes without their nested structs); issue 3 most likely
+ *    shares it (not verified against the fixed accept yet).
  * 4. RESOLVED (2026-09-06, yjs/y-prosemirror#258). Structural wraps over
  *    suggestion-rendered content used to make two view-suggestions peers
  *    converge to differently ORDERED documents: schema-fitting materialized
@@ -1062,22 +1068,24 @@ const STANDARD_COHORT = [
  *    deterministic delete on every peer. The former pin runs as
  *    {@link testRdtWrapOverSuggestionContentConverges} and cohort fuzzing
  *    covers `wrapRange`/`liftRange` again.
- * 5. Accepting changes over a region where TRANSIENT content (a pending
- *    insert that was then delete-suggested, cancelled out of the render)
- *    used to live makes `@y/y`'s overlay cascade emit a change positioned
- *    against the pre-cancellation space - it deletes rendered content that
- *    was never there and patches the maintained `ytype.delta` cache into a
- *    corrupt state (retain residue inside a state delta - the same
- *    corruption signature as issue 3, likely the same root). Reproduced on
- *    the unmodified baseline (cohort fuzz seed 2230075410); minimized in
- *    {@link testRdtAcceptAfterTransientCancellation} (active - pins the
- *    RDTs' fail-safe: adopt the dispatched document, report through
- *    `onInternalError`, never unwind into Y event delivery) and
- *    {@link testRdtKnownIssueAcceptDropsTransientSibling} (skipped - the
- *    full semantics only the upstream fix can restore). No vocabulary
- *    constraint: the fail-safe keeps runs stable, and
- *    {@link runRdtCohortSim} aborts gracefully when the malformation is
- *    reported mid-run.
+ * 5. RESOLVED (2026-09-07, upstream `@y/y` 14.0.0-rc.26 - the same fix as
+ *    issue 7). Accepting changes over a region where TRANSIENT content (a
+ *    pending insert that was then delete-suggested, cancelled out of the
+ *    render) used to live made `@y/y`'s overlay cascade emit a change
+ *    positioned against the pre-cancellation space - it deleted rendered
+ *    content that was never there and patched the maintained `ytype.delta`
+ *    cache into a corrupt state (retain residue inside a state delta - the
+ *    same corruption signature as issue 3). Reproduced on the unmodified
+ *    baseline (cohort fuzz seed 2230075410). The root cause was the range
+ *    accept shipping nodes without their nested structs (issue 7); with the
+ *    subtree accepted the trace runs with no internal error, the accepted
+ *    "m" survives, the cache stays a pure state delta and all six users
+ *    converge - {@link testRdtAcceptKeepsTransientSibling} (the former skip)
+ *    holds those semantics, and {@link testRdtAcceptAfterTransientCancellation}
+ *    keeps pinning the RDTs' fail-safe contract (adopt the dispatched
+ *    document, report through `onInternalError`, never unwind into Y event
+ *    delivery) for any malformation that still reaches the reconcile diff.
+ *    {@link runRdtCohortSim} still aborts gracefully on such a report.
  * 6. RESOLVED (2026-09-06, upstream lib0 1.0.0-rc.30). A local delete next
  *    to attributed content could leave a peer with a durably diverged
  *    `y-attributed-*` projection over converged content (cohort fuzz seed
@@ -1094,20 +1102,30 @@ const STANDARD_COHORT = [
  *    `--yprosemirror-debug` walk/diff cross-check. The consistency oracles
  *    compare the full projection again (the `ignoreAttributionProjection`
  *    escape hatch remains in tests/cohort.js for triage).
- * 7. Accepting a PENDING IMAGE insert (a node with a required attr), then a
- *    small unrelated `replaceRangeWith`, spins the reconcile fix loop: the
- *    fuzz loop-breaker throw is swallowed by y-sync's "ytype.applyDelta
- *    failed - reverting the unappliable part" recovery path, and the run
- *    then dies on `RangeError: No value supplied for attribute src`
- *    escaping from `deltaToPNode`'s `createAndFill` - somewhere in the fix
- *    cascade an image insert loses its required attr - leaving the
- *    suggestion-mode peers diverged. Found by stress fuzz seed 75993960 at
- *    `--repetition-time 20000`, reproduced byte-identically on lib0
- *    1.0.0-rc.29 (pre-existing, unrelated to the rc.30 bump). Minimized
- *    3-op trace in {@link testRdtKnownIssueAcceptedImageReplaceLoop}.
- *    Image ops stay fully fuzzed (no vocabulary constraint);
- *    {@link runRdtCohortSim} aborts the run gracefully when the escaping
- *    RangeError surfaces - drop that abort branch together with the fix.
+ * 7. RESOLVED (2026-09-07, upstream `@y/y` 14.0.0-rc.26 plus binding
+ *    hardening). Range-accepting a PENDING IMAGE insert (a node with a
+ *    required attr) and then deleting the range holding it in suggestion
+ *    mode used to spin the reconcile fix loop and die on `RangeError: No
+ *    value supplied for attribute src` escaping from `deltaToPNode`. Root
+ *    cause (`DiffRenderer.acceptChanges` up to rc.25):
+ *    `collectSuggestedChanges` walked only the top-level item chain of the
+ *    accepted range, so the range accept shipped the image struct into the
+ *    base doc WITHOUT its attr entries; `src` stayed a pending insert that
+ *    the later delete cancelled, and base held an image without `src`.
+ *    Found by stress fuzz seed 75993960 at `--repetition-time 20000`,
+ *    byte-identical on lib0 1.0.0-rc.29 (unrelated to the rc.30 bump).
+ *    rc.26 ships the subtree of an accepted node
+ *    ({@link testRdtRangeAcceptShipsNestedStructs} pins that at the `@y/y`
+ *    level, {@link testRdtAcceptedImageSurvivesReplace} the six-user trace).
+ *    The binding is also hardened against that class of Y content: a
+ *    required attr Y does not hold drops the node like rejected content or,
+ *    on a pending delete, renders as `null` (`deltaToPNodeOrDrop`),
+ *    `deltaToPSteps` applies `deleteAttr`, and fixes never write into a
+ *    pending-deleted node (issue 2's loop was the same class);
+ *    tests/broken-schema.test.js pins the three rules and
+ *    {@link testRdtAcceptedImageReplaceNoLoop} holds the renderer-side
+ *    convergence of the trace. Image ops stay fully fuzzed, and the driver
+ *    no longer tolerates the escaping RangeError.
  *
  * @param {import('./cohort.js').CohortUser} user
  * @param {prng.PRNG} gen
@@ -1132,22 +1150,18 @@ const pickCohortOp = (user, gen) => {
   }
   const top = pickRandomOp(user.view, gen)
   if (top == null) return null
-  if (top.op === 'setNodeAttribute') return null // known issue 2
-  if (top.op === 'multiOp') {
-    return { ...top, user: user.idx, args: { parts: top.args.parts.filter((/** @type {any} */ part) => part.kind !== 'setNodeAttribute') } }
-  }
   return { ...top, user: user.idx }
 }
 
 /**
- * Guard against the KNOWN pre-existing reconcile non-convergence (see
- * {@link testRdtKnownIssueAttrChangeNonConvergence}): some op sequences send
- * the fix loop into an infinite propagate cycle INSIDE a synchronous
- * dispatch, which would hang CI. Every propagate cycle emits a `'delta'` on
- * a view-side RDT, so we count emissions per traced op and throw a
- * loop-breaker error past the threshold; the strict dispatcher rethrows it
- * (see `isDeltaContractError` in cohort.js) and the fuzz driver aborts the
- * run gracefully. Legitimate ops stay far below the threshold.
+ * Guard against reconcile non-convergence: an op sequence that sends the fix
+ * loop into an infinite propagate cycle INSIDE a synchronous dispatch would
+ * hang CI (known issues 2 and 7 were loops of that kind). Every propagate
+ * cycle emits a `'delta'` on a view-side RDT, so we count emissions per
+ * traced op and throw a loop-breaker error past the threshold; the strict
+ * dispatcher rethrows it (see `isDeltaContractError` in cohort.js) and the
+ * fuzz driver aborts the run gracefully. Legitimate ops stay far below the
+ * threshold.
  *
  * @param {Cohort} cohort
  */
@@ -1159,7 +1173,7 @@ const installLoopBreaker = cohort => {
     const anyRdt = /** @type {any} */ (rdt)
     anyRdt.emit = (/** @type {any} */ name, /** @type {any} */ args) => {
       if (name === 'delta' && ++counter.current > 300) {
-        throw new Error('rdt-fuzz-loop-breaker: reconcile loop did not converge (known pre-existing issue)')
+        throw new Error('rdt-fuzz-loop-breaker: reconcile loop did not converge')
       }
       return origEmit(name, args)
     }
@@ -1180,9 +1194,10 @@ const installLoopBreaker = cohort => {
  *   (errCode 1/2, the RDTs' fail-safe for known issue 5's malformed deltas)
  *   aborts the run gracefully: we only claim post-corruption convergence for
  *   the pinned trace, not in general
- * @return {boolean} `false` when the run was aborted by the loop breaker
- *   (known pre-existing non-convergence) or a known internal-error report -
- *   final assertions must be skipped, the cohort state is mid-loop
+ * @return {boolean} `false` when the run was aborted by the loop breaker (a
+ *   non-convergence with no known issue left behind it - investigate) or a
+ *   known internal-error report - final assertions must be skipped, the
+ *   cohort state is mid-loop
  */
 const runRdtCohortSim = (cohort, gen, iterations, label, internalErrors = []) => {
   const counter = installLoopBreaker(cohort)
@@ -1196,15 +1211,11 @@ const runRdtCohortSim = (cohort, gen, iterations, label, internalErrors = []) =>
     } catch (err) {
       const msg = /** @type {Error} */ (err).message
       if (msg.includes('rdt-fuzz-loop-breaker')) {
-        t.info(`${label} op=${i}: aborted - known pre-existing non-convergence (see testRdtKnownIssueAttrChangeNonConvergence); op=${JSON.stringify(top)}`)
+        t.info(`${label} op=${i}: aborted - reconcile loop did not converge (no known issue covers this any more; see the pickCohortOp notes); op=${JSON.stringify(top)}`)
         return false
       }
       if (/unexpected case/i.test(msg)) {
         t.info(`${label} op=${i}: aborted - pre-existing pipeline error surfaced (known issue 3 in the pickCohortOp notes); op=${JSON.stringify(top)}`)
-        return false
-      }
-      if (/No value supplied for attribute/i.test(msg)) {
-        t.info(`${label} op=${i}: aborted - the reconcile cascade dropped a required node attr (known issue 7 in the pickCohortOp notes); op=${JSON.stringify(top)}`)
         return false
       }
       throw err
@@ -2042,6 +2053,13 @@ const ACCEPT_AFTER_CANCELLATION_TRACE = [
  * state oracle holds for all six users, and the mode groups still converge
  * on this trace.
  *
+ * The malformation was a symptom of the upstream range accept shipping nodes
+ * without their nested structs (known issue 7's root cause, fixed in `@y/y`
+ * 14.0.0-rc.26): with that fix the trace no longer malforms, the fail-safe
+ * stays idle, and the full semantics of
+ * {@link testRdtAcceptKeepsTransientSibling} hold instead - which is what
+ * this test asserts in that case, so it holds on either side of the upgrade.
+ *
  * @param {TestCase} _tc
  */
 export const testRdtAcceptAfterTransientCancellation = _tc => {
@@ -2057,32 +2075,34 @@ export const testRdtAcceptAfterTransientCancellation = _tc => {
       })
     }
     t.compare(findDivergences(cohort), [], 'mode groups converge')
-    t.assert(internalErrors.length > 0, 'the malformed delta was reported through onInternalError, not swallowed')
     t.assert(
       internalErrors.every(e => e.errCode === 1 || e.errCode === 2),
       `only reconcile-diff fail-safe reports (errCodes=[${internalErrors.map(e => e.errCode)}])`
     )
+    if (internalErrors.length === 0) {
+      t.info('no malformed delta: the installed @y/y ships nested structs with an accepted node - asserting the full semantics')
+      t.compare(cohort.user(2).view.state.doc.child(2).textContent, 'm', 'the accepted "m" survives on the view-suggestions user')
+    } else {
+      t.info(`the malformed delta was reported through onInternalError, not swallowed (errCodes=[${internalErrors.map(e => e.errCode)}])`)
+    }
   } finally {
     cohort.destroy()
   }
 }
 
 /**
- * KNOWN ISSUE pin (skipped): the full semantics of
- * {@link ACCEPT_AFTER_CANCELLATION_TRACE} that only the `@y/y` fix can
- * restore - the accept cascade must emit in the rendered space and keep the
- * maintained cache a pure state. Today the phantom `delete(1)` eats the
- * accepted "m" on every renderer user and leaves retain residue in
- * `ytype.delta` (the drift the upstream `testRdt*CacheDrift` suite is
- * missing). The exact accepted base content is also open upstream: in the
- * broken cascade the accepted delete-suggestion of "f" never reached the
- * base doc (it ends with "fm"). Unskip when the upstream fix lands, and
- * tighten the assertions to the semantics it settles on.
+ * Resolved known issue 5 (see the {@link pickCohortOp} notes): the full
+ * semantics of {@link ACCEPT_AFTER_CANCELLATION_TRACE} - the accept cascade
+ * emits in the rendered space and keeps the maintained cache a pure state.
+ * Up to `@y/y` 14.0.0-rc.25 the phantom `delete(1)` ate the accepted "m" on
+ * every renderer user, left retain residue in `ytype.delta`, and the
+ * accepted delete-suggestion of "f" never reached the base doc; rc.26's
+ * range accept ships nested structs with an accepted node (issue 7's
+ * root-cause fix, see {@link testRdtRangeAcceptShipsNestedStructs}).
  *
  * @param {TestCase} _tc
  */
-export const testRdtKnownIssueAcceptDropsTransientSibling = _tc => {
-  t.skip()
+export const testRdtAcceptKeepsTransientSibling = _tc => {
   /** @type {Array<{ err: Error, errCode: number }>} */
   const internalErrors = []
   const cohort = new Cohort(STANDARD_COHORT, { onInternalError: (err, errCode) => internalErrors.push({ err, errCode }) })
@@ -2103,22 +2123,23 @@ export const testRdtKnownIssueAcceptDropsTransientSibling = _tc => {
 }
 
 /**
- * KNOWN ISSUE pin (skipped): this minimized 5-op trace (from
- * `rdt suggestion cohort fuzz --seed 777` on the UNOPTIMIZED pipeline)
- * drives the reconcile fix loop into an infinite propagate loop - the
- * process hangs on the final `setNodeAttribute` (an image `title` change on
- * content sitting inside suggestion-wrapped blockquotes). Reproduced both
- * with and without the `y-attributed-attrs` mark declared. Unskip after
- * fixing the non-convergence, and drop the `setNodeAttribute` skip in
- * `pickCohortOp`.
+ * Resolved known issue 2 (see the {@link pickCohortOp} notes): this
+ * minimized 5-op trace (from `rdt suggestion cohort fuzz --seed 777` on the
+ * unoptimized pipeline) used to drive the reconcile fix loop into an
+ * infinite propagate loop - the process hung on the final
+ * `setNodeAttribute` (an image `title` change on content sitting inside
+ * suggestion-wrapped blockquotes), with or without the `y-attributed-attrs`
+ * mark declared. Fixes no longer write into pending-deleted nodes, so the
+ * cascade settles; this pin holds the convergence with the loop breaker
+ * armed and the state oracle checked on every user.
  *
  * @param {TestCase} _tc
  */
-export const testRdtKnownIssueAttrChangeNonConvergence = _tc => {
-  t.skip()
+export const testRdtAttrChangeInsideSuggestionWrapConverges = _tc => {
   const cohort = new Cohort(STANDARD_COHORT)
   try {
     cohort.seed('lorem ipsum dolor sit amet')
+    const counter = installLoopBreaker(cohort)
     /** @type {Array<TracedOp>} */
     const trace = [
       { user: 4, op: 'insertPlainText', args: { pos: 3, text: 'e' } },
@@ -2127,7 +2148,14 @@ export const testRdtKnownIssueAttrChangeNonConvergence = _tc => {
       { user: 4, op: 'wrapRange', args: { from: 15, to: 20, typeName: 'blockquote' } },
       { user: 1, op: 'setNodeAttribute', args: { pos: 17, attr: 'title', value: 'vx' } }
     ]
-    for (const step of trace) applyTracedOp(cohort, step)
+    for (const step of trace) {
+      counter.current = 0
+      applyTracedOp(cohort, step, undefined, { strict: true })
+      t.assert(counter.current < 50, `${JSON.stringify(step)} settled (${counter.current} emissions)`)
+    }
+    cohort.users.forEach(u => {
+      checkStateOracle(getPmRdt(u.view), u.view, `attr change inside suggestion wrap user=${u.idx} (${u.mode})`)
+    })
     assertCohortConsistency(cohort, 'attr change inside suggestion-wrapped structure')
   } finally {
     cohort.destroy()
@@ -2207,34 +2235,122 @@ export const testRdtDeleteRangeKeepsNeighborAttribution = _tc => {
 }
 
 /**
- * KNOWN ISSUE pin (skipped): this minimized 3-op trace (from stress fuzz
- * seed 75993960, reproduced byte-identically on lib0 1.0.0-rc.29 - it is
- * unrelated to the rc.30 diff rework) accepts a PENDING IMAGE insert and
- * then performs a small unrelated `replaceRangeWith`, which spins the
- * reconcile fix loop past the fuzz loop breaker. The breaker's throw is
- * swallowed by y-sync's "ytype.applyDelta failed - reverting the
- * unappliable part" recovery path, and the dispatch then dies on
- * `RangeError: No value supplied for attribute src` escaping from
- * `deltaToPNode`'s `createAndFill` - somewhere in the cascade an image
- * insert loses its required attr - leaving the suggestion-mode peers
- * diverged. Known issue 7 in the {@link pickCohortOp} notes. Unskip after
- * fixing the cascade, and drop the matching graceful-abort branch in
- * {@link runRdtCohortSim} so the fuzz re-covers the path strictly.
+ * Resolved known issue 7's root cause (see the {@link pickCohortOp} notes)
+ * at the `@y/y` level. Up to 14.0.0-rc.25 `DiffRenderer.acceptChanges`
+ * collected only the top-level item chain of the accepted range, so
+ * accepting a pending node shipped the node struct into the base doc without
+ * its nested structs: the image below reached base without `src` (a
+ * suggested paragraph without its text, a suggested blockquote without its
+ * paragraphs). rc.26 collects the subtree of an accepted node in
+ * `collectSuggestedChanges`; this pin guards the installed version.
  *
  * @param {TestCase} _tc
  */
-export const testRdtKnownIssueAcceptedImageReplaceLoop = _tc => {
-  t.skip()
+export const testRdtRangeAcceptShipsNestedStructs = _tc => {
+  const base = new Y.Doc({ gc: false })
+  base.clientID = 0
+  const sugg = new Y.Doc({ gc: false, isSuggestionDoc: true })
+  sugg.clientID = 1
+  const renderer = Y.createDiffRenderer(base, sugg, { attributions: Y.createContentMap() })
+  renderer.suggestionMode = true
+  base.get(PM_KEY).applyDelta(delta.create().insert([delta.create('paragraph', {}, 'ab')]).done())
+  // the image item takes clock 0 of the suggestion client, its `src` entry clock 1
+  sugg.get(PM_KEY).applyDelta(delta.create().modify(delta.create().retain(1).insert([delta.create('image', { src: 'x.png' })])).done())
+  renderer.acceptChanges(Y.createID(1, 0), Y.createID(1, 0))
+  const rendered = /** @type {any} */ (base.get(PM_KEY).toDeltaDeep().toJSON())
+  const image = rendered.children[0].insert[0].children[1].insert[0]
+  t.assert(image.name === 'image', 'the accepted image reached the base doc')
+  t.compare(image.attrs?.src?.value, 'x.png', 'together with its required attr')
+}
+
+/**
+ * The renderer-side half of known issue 7 (see the {@link pickCohortOp}
+ * notes), pinned independently of the upstream accept fix: the minimized
+ * 3-op trace (stress fuzz seed 75993960) on a cohort without base-bound
+ * users. Up to `@y/y` 14.0.0-rc.25 the range accept left the base doc with
+ * an image that has no `src`, and the suggestion-mode delete then rendered
+ * that image as a pending delete whose `src` Y no longer held; since rc.26
+ * the image keeps its `src`. Either way the views must
+ * stay schema-valid, never write into the pending-deleted node, settle
+ * within a handful of emissions, and converge - this used to spin the fix
+ * loop past the breaker and throw out of `deltaToPNode`.
+ *
+ * @param {TestCase} _tc
+ */
+export const testRdtAcceptedImageReplaceNoLoop = _tc => {
+  /** @type {Array<{ err: Error, errCode: number }>} */
+  const internalErrors = []
+  const cohort = new Cohort(
+    ['view-suggestions', 'view-suggestions', 'suggestion-mode', 'suggestion-mode'],
+    { onInternalError: (err, errCode) => internalErrors.push({ err, errCode }) }
+  )
+  try {
+    cohort.seed('lorem ipsum dolor sit amet')
+    const counter = installLoopBreaker(cohort)
+    /** @type {Array<TracedOp>} */
+    const trace = [
+      { user: 2, op: 'insertNode', args: { pos: 16, typeName: 'image', attrs: { src: 'wwbvi.png' } } },
+      { user: 0, op: 'acceptRangeChanges', args: { from: 16, to: 17 } },
+      { user: 2, op: 'replaceRangeWith', args: { from: 2, to: 3, typeName: 'paragraph', attrs: null, text: '' } }
+    ]
+    for (const step of trace) {
+      counter.current = 0
+      applyTracedOp(cohort, step, undefined, { strict: true })
+      t.assert(counter.current < 50, `${JSON.stringify(step)} settled (${counter.current} emissions)`)
+    }
+    t.compare(internalErrors, [], 'no internal errors')
+    for (const u of cohort.users) {
+      u.view.state.doc.check()
+      /** @type {Array<import('prosemirror-model').Node>} */
+      const images = []
+      u.view.state.doc.descendants(n => { if (n.type.name === 'image') images.push(n) })
+      const pending = images.find(n => n.marks.some(m => m.type.name === 'y-attributed-delete'))
+      t.assert(pending != null, `user ${u.idx} (${u.mode}) renders the accepted image as a pending delete`)
+      t.info(`user ${u.idx} (${u.mode}) pending-deleted image src=${JSON.stringify(pending?.attrs.src)}`)
+      checkStateOracle(getPmRdt(u.view), u.view, `accepted image replace user=${u.idx} (${u.mode})`)
+    }
+    assertCohortConsistency(cohort, 'replace after an accepted pending image')
+  } finally {
+    cohort.destroy()
+  }
+}
+
+/**
+ * Resolved known issue 7 (see the {@link pickCohortOp} notes): the full
+ * six-user trace (stress fuzz seed 75993960, byte-identical on lib0
+ * 1.0.0-rc.29). A suggestion-mode user inserts an image, a view-suggestions
+ * user range-accepts exactly that image, and the first user then replaces a
+ * small unrelated range - which deletes the paragraph holding the image in
+ * suggestion mode. Up to `@y/y` 14.0.0-rc.25 the base-bound users received
+ * the accepted image without its `src` (and, with the hardening, dropped
+ * it); since rc.26 the accepted image survives with its `src` on every
+ * user, the cascade settles, and all mode groups converge.
+ *
+ * @param {TestCase} _tc
+ */
+export const testRdtAcceptedImageSurvivesReplace = _tc => {
   const cohort = new Cohort(STANDARD_COHORT)
   try {
     cohort.seed('lorem ipsum dolor sit amet')
+    const counter = installLoopBreaker(cohort)
     /** @type {Array<TracedOp>} */
     const trace = [
       { user: 4, op: 'insertNode', args: { pos: 16, typeName: 'image', attrs: { src: 'wwbvi.png' } } },
       { user: 2, op: 'acceptRangeChanges', args: { from: 16, to: 17 } },
       { user: 4, op: 'replaceRangeWith', args: { from: 2, to: 3, typeName: 'paragraph', attrs: null, text: '' } }
     ]
-    for (const step of trace) applyTracedOp(cohort, step, undefined, { strict: true })
+    for (const step of trace) {
+      counter.current = 0
+      applyTracedOp(cohort, step, undefined, { strict: true })
+      t.assert(counter.current < 50, `${JSON.stringify(step)} settled (${counter.current} emissions)`)
+    }
+    for (const u of cohort.users) {
+      u.view.state.doc.check()
+      /** @type {Array<import('prosemirror-model').Node>} */
+      const images = []
+      u.view.state.doc.descendants(n => { if (n.type.name === 'image') images.push(n) })
+      t.assert(images.some(n => n.attrs.src === 'wwbvi.png'), `user ${u.idx} (${u.mode}) keeps the accepted image with its src`)
+    }
     assertCohortConsistency(cohort, 'replace after an accepted pending image')
   } finally {
     cohort.destroy()

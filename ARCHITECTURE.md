@@ -172,3 +172,17 @@ lib0 transformer needed local modification;
   returning the inverse as its fix (the wrapper's own render-diff fix subsumes it). The
   binding stays convergent; the user-visible behavior is that e.g. formatting a
   suggestion-deleted paragraph is undone rather than becoming a format-suggestion.
+- **Fixes never write into a pending-deleted node.** Because of the previous caveat, a
+  schema normalization that lands inside a pending delete could only ping-pong (the view
+  receives the inverse, its schema forces the same normalization again), so
+  `ProsemirrorRdt.applyDelta` strips those parts of its fix
+  (`stripFixesIntoPendingDeletes`). The view's rendering of a pending delete is a
+  best-effort read-only projection - a required attribute Y no longer holds is shown as
+  `null` - and since a node's attrs and children never move its siblings, the adopted
+  `_state` stays positionally aligned with Y.
+- **A required attribute Y does not hold is schema-invalid content.** Y does not validate
+  schemas. `deltaToPNodeOrDrop` drops such a node like content the schema rejects (the fix
+  deletes it from Y on every peer) and holds the attribute as `null` where the node cannot
+  be dropped (the document node, a pending delete); `deltaToPSteps` applies a `deleteAttr`
+  the same way (schema default, `null` on a pending delete, untouched on a live node so the
+  fix re-asserts the last known value).
