@@ -2,11 +2,13 @@ import * as YPM from '@y/prosemirror'
 import * as Y from '@y/y'
 import * as delta from 'lib0/delta'
 import * as t from 'lib0/testing'
-import { Schema } from 'prosemirror-model'
+import { DOMSerializer, Schema } from 'prosemirror-model'
 import { EditorState } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { nodes, marks, schema as complexSchema } from './complexSchema.js'
 import { setupTwoWaySync } from './cohort.js'
+import { schema as demoSchema } from '../demo/schema.js'
+import { schema as yhubDemoSchema } from '../yhub-demo/schema.js'
 
 /**
  * Tests for the `y-attributed-attrs` mark: a suggestion that changes a node
@@ -249,9 +251,11 @@ export const testFreshInsertAttrsMarkSemantics = _tc => {
  * @param {t.TestCase} _tc
  */
 export const testTwoAttributedAttrs = _tc => {
-  const { editor, viewer } = setup(schema, delta.create().insert([
-    delta.create('paragraph', {}, [delta.create('image', { src: 'a.png', alt: 'old', title: 'old' })])
-  ]).done())
+  // the inner builder is cast: nesting two typed `delta.create` calls trips
+  // TS2589 (type instantiation depth) once nothing else in the program has
+  // instantiated the builder types first
+  const imageDelta = /** @type {any} */ (delta.create('image', { src: 'a.png', alt: 'old', title: 'old' }))
+  const { editor, viewer } = setup(schema, delta.create().insert([delta.create('paragraph', {}, [imageDelta])]).done())
 
   // image sits at pos 1 (inside the paragraph)
   editor.dispatch(editor.state.tr.setNodeAttribute(1, 'alt', 'new-alt'))
@@ -315,4 +319,48 @@ export const testAttrChangeWithoutAttrMark = _tc => {
   }
   assertDocJSON(editor.state.doc, expected, 'editor: value applies, no attrs mark (only the text insert mark)')
   assertDocJSON(viewer.state.doc, expected, 'viewer: value applies, no attrs mark (only the text insert mark)')
+}
+
+/**
+ * The in-repo demos must RENDER a suggested attribute change: the demo
+ * schemas declare `y-attributed-attrs` (with the default `excludes`, see the
+ * note in demo/schema.js) and serialize it to a `<y-attr>` wrapper that
+ * their stylesheets outline. demo/schema.js is bound into the standard
+ * suggestion setup: a suggested heading-level change must carry the mark and
+ * serialize to `<y-attr>` on both suggestion views. yhub-demo/schema.js
+ * resolves its own prosemirror-model copy (yhub-demo/node_modules), so it
+ * cannot be bound from this process; its mark spec is checked structurally
+ * instead. Either way the demo schemas cannot drift away from what the sync
+ * plugin's attr-attribution gate expects.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testDemoSchemasRenderAttrAttribution = _tc => {
+  const { base, viewer, editor } = setup(demoSchema)
+  editor.dispatch(editor.state.tr.setNodeAttribute(0, 'level', 2))
+  /** @type {Array<[string, EditorView]>} */
+  const views = [['editor', editor], ['viewer', viewer]]
+  for (const [name, view] of views) {
+    const heading = view.state.doc.child(0)
+    t.assert(heading.attrs.level === 2, `demo ${name}: renders level 2`)
+    const mark = heading.marks.find(m => m.type.name === 'y-attributed-attrs')
+    t.assert(mark != null && mark.attrs.changes?.level != null, `demo ${name}: carries the attrs mark for level`)
+    const dom = document.createElement('div')
+    dom.appendChild(DOMSerializer.fromSchema(demoSchema).serializeFragment(view.state.doc.content))
+    const wrapper = dom.querySelector('y-attr')
+    t.assert(wrapper != null && wrapper.querySelector('h2') != null, `demo ${name}: serializes to <y-attr> around the h2`)
+  }
+  t.assert(base.state.doc.child(0).attrs.level === 1, 'demo: base keeps level 1')
+  base.destroy()
+  viewer.destroy()
+  editor.destroy()
+
+  // yhub-demo: structural check of the mark spec (own prosemirror-model copy)
+  const yhubMark = /** @type {any} */ (yhubDemoSchema).marks['y-attributed-attrs']
+  t.assert(yhubMark != null, 'yhub-demo declares y-attributed-attrs')
+  t.assert(yhubMark.spec.excludes === undefined, 'yhub-demo keeps the default excludes (a re-render must replace the mark)')
+  t.assert(yhubMark.spec.attrs?.changes != null, 'yhub-demo declares the changes attr')
+  const rendered = yhubMark.spec.toDOM(yhubMark.create({ changes: { level: { userIds: ['u1'], timestamp: null } } }), false)
+  t.assert(rendered[0] === 'y-attr', 'yhub-demo serializes the mark to <y-attr>')
+  t.assert(/** @type {any} */ (yhubDemoSchema).nodes.heading.markSet == null || /** @type {any} */ (yhubDemoSchema).nodes.doc.spec.marks.includes('y-attributed-attrs'), 'yhub-demo allows the mark on block content')
 }

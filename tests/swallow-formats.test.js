@@ -227,7 +227,7 @@ export const testSwallowRecursesIntoModify = _tc => {
   const tr = mkTransformer()
   const inner = delta.create().retain(1, { [Y_INS]: { userIds: ['a'] } }).insert('q').done(false)
   const d = delta.create()
-    .modify(/** @type {any} */ (inner), { 'y-attributed-attrs': { level: { userIds: ['a'] } } })
+    .modify(inner, { 'y-attributed-attrs': { level: { userIds: ['a'] } } })
     .done(false)
   const res = tr.applyB(/** @type {any} */ (d))
   t.compare(

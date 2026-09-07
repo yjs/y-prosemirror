@@ -26,6 +26,19 @@
  *       - `'view-suggestions'` — sees pending suggestions, own edits commit to base.
  *       - `'suggestion-mode'`  — sees pending suggestions, own edits stay as suggestions.
  *
+ *   - **Fixture casts** (temporary): a nested typed
+ *     `delta.create(name, attrs, [..])`, a `.modify(builder)` argument or a
+ *     builder inserted into a named node is wrapped in
+ *     `/** @type {any} *\/ (..)` throughout the tests. Against lib0's
+ *     emitted declarations (up to 1.0.0-rc.31) the conf helper `_SanifyDelta`
+ *     infers a builder's conf through `Delta<infer Conf>`, which TypeScript
+ *     matches structurally in a declaration file and recurses to its
+ *     instantiation-depth limit (TS2589) on such sites; lib0's own source
+ *     check never took that path. lib0 infers from `DeltaBuilder` since the
+ *     fix in its src/delta/delta.js (pinned by lib0's dist-check/consumer.js).
+ *     Once that lib0 is installed here, revert every such cast and drop this
+ *     note. The casts change nothing at runtime.
+ *
  *   - **`TracedOp`**: a serialised, deterministic PM operation
  *     `{ user, op, args }`. The same shape is produced by the fuzz framework
  *     (record) and consumed by the cohort-replay regression tests (replay).
@@ -126,6 +139,49 @@ export const stableStringify = (v) => {
   if (Array.isArray(v)) return '[' + v.map(stableStringify).join(',') + ']'
   const keys = Object.keys(v).sort()
   return '{' + keys.map(k => JSON.stringify(k) + ':' + stableStringify(v[k])).join(',') + '}'
+}
+
+/**
+ * A delta's fingerprint recomputed from scratch, ignoring every memoized
+ * `_fingerprint` in its tree. Since lib0 1.0.0-rc.31 a `clone`/`cloneDeep`
+ * carries the cached fingerprint of every content-identical op and nested
+ * delta over, so `cloneDeep(d).fingerprint` re-hashes only the root from the
+ * (possibly stale) memos below it and no longer detects a stale nested memo.
+ * This resets the memo on every delta and op of a private deep clone before
+ * reading its root fingerprint; `d` itself is left untouched, memos included.
+ * The stale-memo oracles of the RDT suites (the maintained `ytype.delta`
+ * cache, `ProsemirrorRdt._state`) must go through this.
+ *
+ * @param {ldelta.Delta<any>} d
+ * @returns {string}
+ */
+export const freshFingerprint = d => {
+  const copy = ldelta.cloneDeep(/** @type {any} */ (d))
+  resetFingerprints(copy)
+  return copy.fingerprint
+}
+
+/**
+ * Reset the memoized fingerprint of a delta and of everything below it.
+ *
+ * @param {any} d
+ */
+const resetFingerprints = d => {
+  d._fingerprint = null
+  for (const attr of d.attrs) {
+    attr._fingerprint = null
+    if (ldelta.$deltaAny.check(attr.value)) resetFingerprints(attr.value)
+  }
+  for (const op of d.children) {
+    op._fingerprint = null
+    if (ldelta.$insertOp.check(op)) {
+      for (const el of op.insert) {
+        if (ldelta.$deltaAny.check(el)) resetFingerprints(el)
+      }
+    } else if (ldelta.$modifyOp.check(op)) {
+      resetFingerprints(op.value)
+    }
+  }
 }
 
 /**

@@ -3,7 +3,7 @@ import * as Y from '@y/y'
 import * as delta from 'lib0/delta'
 import { Schema } from 'prosemirror-model'
 import { YSyncRdt } from '../src/rdt/y-sync.js'
-import { createPMView, setupTwoWaySync, normalizeDoc, stableStringify } from './cohort.js'
+import { createPMView, freshFingerprint, setupTwoWaySync, normalizeDoc, stableStringify } from './cohort.js'
 import { schema as complexSchema } from './complexSchema.js'
 
 /**
@@ -91,7 +91,7 @@ export const testYSyncRdtNestedWriteEntersUncertainWindow = _tc => {
   const { suggestionDoc, ytype, rdt } = setup(true)
   // suggestion-delete the base paragraph so a tombstone (deleted-but-rendered
   // node) exists — a modify into it is fully reverted and emits nothing
-  rdt.applyDelta(delta.create().modify(delta.create().delete('base para'.length), undefined).done(), null)
+  rdt.applyDelta(delta.create().modify(/** @type {any} */ (delta.create().delete('base para'.length)), undefined).done(), null)
   /** @type {any} */
   let nestedFix = 'unset'
   let sawUncertain = false
@@ -100,7 +100,7 @@ export const testYSyncRdtNestedWriteEntersUncertainWindow = _tc => {
   const onDelta = () => {
     if (nestedFix !== 'unset') return // only act on the first (trigger) event
     // we are inside the trigger transaction's cleanup: a write now defers its events
-    nestedFix = rdt.applyDelta(delta.create().modify(delta.create().retain(2).insert('X'), undefined).done(), null)
+    nestedFix = rdt.applyDelta(delta.create().modify(/** @type {any} */ (delta.create().retain(2).insert('X')), undefined).done(), null)
     sawUncertain = rdt._stateOverride !== null
     // the state getter must already serve the post-write truth (fresh render)
     settled = rdt.delta === rdt._stateOverride
@@ -304,8 +304,7 @@ const childrenOf = d => {
  * warmed at bind, untouched children keep their object identity and their
  * memoized fingerprint across the write, the touched child is replaced by a
  * copy-on-write clone, the cache root stays a mutable builder, and the cache
- * never carries a stale memo (a `cloneDeep` recomputes every fingerprint and
- * must agree). The last local write merges into the text op the first one
+ * never carries a stale memo (a from-scratch rehash must agree). The last local write merges into the text op the first one
  * created, the in-place merge that the old `cloneDeep` workaround guarded
  * against.
  *
@@ -330,11 +329,11 @@ export const testYSyncRdtLocalWriteSharesCacheStructure = _tc => {
       t.assert(rdt._stateOverride === null, `${label}: steady state`)
       t.assert(ytype.delta === cache, `${label}: the cache is still the same object`)
       t.assert(!cache.isDone, `${label}: the cache root stays a mutable builder`)
-      t.assert(delta.cloneDeep(cache).fingerprint === cache.fingerprint, `${label}: no stale memoized fingerprint in the cache`)
+      t.assert(freshFingerprint(cache) === cache.fingerprint, `${label}: no stale memoized fingerprint in the cache`)
       t.assert(cache.equals(ytype.toDelta({ deep: true })), `${label}: the cache equals a fresh render`)
     }
     // a local write into the middle paragraph: "two" becomes "tXwo"
-    const fix = rdt.applyDelta(delta.create().retain(1).modify(delta.create().retain(1).insert('X')).done(), null)
+    const fix = rdt.applyDelta(delta.create().retain(1).modify(/** @type {any} */ (delta.create().retain(1).insert('X'))).done(), null)
     t.assert(fix === null, 'no renderer, no fix')
     const after = childrenOf(cache)
     t.assert(after[0] === before[0] && after[2] === before[2], 'untouched children keep their identity')
@@ -343,11 +342,11 @@ export const testYSyncRdtLocalWriteSharesCacheStructure = _tc => {
     t.assert(JSON.stringify(after[1].toJSON()).includes('tXwo'), 'the touched child carries the write')
     checkCache('after the first local write')
     // a foreign write lands through the native channel and patches the cache in place
-    ytype.applyDelta(delta.create().modify(delta.create().insert('R')).done(), 'remote-peer')
+    ytype.applyDelta(delta.create().modify(/** @type {any} */ (delta.create().insert('R'))).done(), 'remote-peer')
     t.assert(JSON.stringify(childrenOf(cache)[0].toJSON()).includes('Rone'), 'the foreign write landed')
     checkCache('after a foreign write')
     // a second local write right behind the first one merges into the text op it created
-    const fix2 = rdt.applyDelta(delta.create().retain(1).modify(delta.create().retain(2).insert('Y')).done(), null)
+    const fix2 = rdt.applyDelta(delta.create().retain(1).modify(/** @type {any} */ (delta.create().retain(2).insert('Y'))).done(), null)
     t.assert(fix2 === null, 'no fix for the merging write')
     t.assert(JSON.stringify(childrenOf(cache)[1].toJSON()).includes('tXYwo'), 'the merging write landed')
     checkCache('after the merging local write')
@@ -404,9 +403,9 @@ const medianKeystrokeMs = (rdt, k, samples = 15) => {
   const para = k % 10
   for (let i = 0; i < samples + 3; i++) {
     const d = delta.create().retain(outer).modify(
-      delta.create().retain(inner).modify(
-        delta.create().retain(para).modify(delta.create().retain(3).insert('x'))
-      )
+      /** @type {any} */ (delta.create().retain(inner).modify(
+        /** @type {any} */ (delta.create().retain(para).modify(/** @type {any} */ (delta.create().retain(3).insert('x'))))
+      ))
     ).done()
     const start = performance.now()
     const fix = rdt.applyDelta(d, null)
@@ -438,10 +437,37 @@ export const testYSyncRdtLocalWriteScalesWithChange = _tc => {
     t.assert(msLarge < 5 * msSmall + 0.5, `a 16x larger document must not cost more than 5x per keystroke (${msSmall.toFixed(2)}ms vs ${msLarge.toFixed(2)}ms)`)
     t.assert(msLarge < 30, `a keystroke on 3200 paragraphs stays cheap (${msLarge.toFixed(2)}ms)`)
     const cache = /** @type {any} */ (large.delta)
-    t.assert(delta.cloneDeep(cache).fingerprint === cache.fingerprint, 'no stale memoized fingerprint in the cache')
+    t.assert(freshFingerprint(cache) === cache.fingerprint, 'no stale memoized fingerprint in the cache')
     t.assert(cache.equals(large.toDelta({ deep: true })), 'the cache equals a fresh render')
   } finally {
     rdtSmall.destroy()
     rdtLarge.destroy()
   }
+}
+
+/**
+ * The stale-memo oracle must rehash from scratch. Since lib0 1.0.0-rc.31 a
+ * `clone`/`cloneDeep` carries the memoized fingerprint of every
+ * content-identical op and nested delta over, so `cloneDeep(d).fingerprint`
+ * re-hashes only the root from the memos below it and no longer detects a
+ * stale nested memo. `freshFingerprint` resets every memo on a private deep
+ * clone first: a corrupted nested memo must show up there, and the original
+ * tree must be left untouched.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testYSyncRdtFreshFingerprintDetectsStaleMemo = _tc => {
+  const d = delta.create().insert([paragraph('one'), paragraph('two')]).done()
+  const memo = d.fingerprint
+  t.assert(freshFingerprint(d) === memo, 'a warmed, consistent tree rehashes to its memo')
+  const first = /** @type {any} */ ([...d.children][0])
+  const nested = first.insert[1]
+  nested._fingerprint = 'stale'
+  first._fingerprint = null
+  d._fingerprint = null
+  t.assert(d.fingerprint !== memo, 'the corrupted nested memo poisons the root memo')
+  t.assert(freshFingerprint(d) === memo, 'a from-scratch rehash ignores the stale memo')
+  t.assert(freshFingerprint(d) !== d.fingerprint, 'the oracle flags the stale memo')
+  t.assert(nested._fingerprint === 'stale', 'the original tree is left untouched')
+  t.info(`cloneDeep alone ${delta.cloneDeep(d).fingerprint === d.fingerprint ? 'would NOT' : 'would'} have caught it on this lib0`)
 }

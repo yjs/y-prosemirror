@@ -7,18 +7,11 @@ import * as fun from 'lib0/function'
 import * as math from 'lib0/math'
 import * as object from 'lib0/object'
 import * as s from 'lib0/schema'
-import { Node, Slice, Fragment } from 'prosemirror-model'
-import {
-  AddMarkStep,
-  AddNodeMarkStep,
-  AttrStep,
-  DocAttrStep,
-  RemoveMarkStep,
-  RemoveNodeMarkStep,
-  ReplaceAroundStep,
-  ReplaceStep
-} from 'prosemirror-transform'
+import { Slice, Fragment } from 'prosemirror-model'
+import { ReplaceStep } from 'prosemirror-transform'
 import { hashOfJSON } from './utils.js'
+
+/** @import { Node } from 'prosemirror-model' */
 
 export const $prosemirrorDelta = delta.$delta({ name: s.$string, attrs: s.$record(s.$string, s.$any), text: true, recursiveChildren: true })
 
@@ -514,21 +507,6 @@ export const formattingAttributesToMarks = (formatting, schema) =>
   }).filter(m => m != null)
 
 /**
- * @param {Array<Node>} ns
- * @return {ProsemirrorDelta}
- */
-export const nodesToDelta = ns => {
-  /**
-   * @type {delta.DeltaBuilderAny}
-   */
-  const d = delta.create($prosemirrorDelta)
-  ns.forEach(n => {
-    d.insert(n.isText ? (n.text ?? []) : [nodeToDelta(n)], marksToFormattingAttributes(n.marks))
-  })
-  return d.done(false)
-}
-
-/**
  * Transforms a {@link Node} into a {@link Y.XmlFragment}
  * @param {Node} node
  * @param {Y.Node} fragment
@@ -606,7 +584,7 @@ export function fragmentToPm (fragment, tr) {
  * other snapshot that holds it).
  *
  * Only the `(nodeName = default, canonicalize = true)` shape is ever cached;
- * non-canonical callers ({@link docToDelta}, {@link nodesToDelta}) bypass the
+ * the non-canonical caller ({@link docToDelta}) bypasses the
  * memo entirely, so an attributed-variant render can never poison a
  * canonical snapshot or vice versa.
  *
@@ -1285,199 +1263,4 @@ export const deltaToPNode = (d, schema, dformat, attributedNodes = defaultAttrib
     throw new Error('[y/prosemirror]: failed to create node: ' + d.name)
   }
   return pNode
-}
-
-/**
- * @param {Node} beforeDoc
- * @param {Node} afterDoc
- */
-export const docDiffToDelta = (beforeDoc, afterDoc) => {
-  const initialDelta = nodeToDelta(beforeDoc)
-  const finalDelta = nodeToDelta(afterDoc)
-  return delta.diff(initialDelta.done(), finalDelta.done())
-}
-
-/**
- * @param {import('prosemirror-state').Transaction} tr
- */
-export const trToDelta = (tr) => {
-  // const d = delta.create($prosemirrorDelta)
-  // tr.steps.forEach((step, i) => {
-  //   const stepDelta = stepToDelta(step, tr.docs[i])
-  //   console.log('stepDelta', JSON.stringify(stepDelta.toJSON(), null, 2))
-  //   console.log('d', JSON.stringify(d.toJSON(), null, 2))
-  //   d.apply(stepDelta)
-  // })
-  // return d.done()
-  // Calculate delta from initial and final document states to avoid composition issues with delete operations
-  // This is more reliable than composing step-by-step, which can lose delete operations and cause "Unexpected case" errors
-  // after lib0 upgrades that change delta composition behavior
-  const initialDelta = nodeToDelta(tr.before)
-  const finalDelta = nodeToDelta(tr.doc)
-  const resultDelta = delta.diff(initialDelta.done(), finalDelta.done())
-  return resultDelta
-}
-
-const _stepToDelta = s.match({ beforeDoc: Node, afterDoc: Node })
-  .if([ReplaceStep, ReplaceAroundStep], (step, { beforeDoc, afterDoc }) => {
-    const oldStart = beforeDoc.resolve(step.from)
-    const oldEnd = beforeDoc.resolve(step.to)
-    const newStart = afterDoc.resolve(step.from)
-
-    const newEnd = afterDoc.resolve(step instanceof ReplaceAroundStep ? step.getMap().map(step.to) : step.from + step.slice.size)
-
-    const oldBlockRange = oldStart.blockRange(oldEnd)
-    const newBlockRange = newStart.blockRange(newEnd)
-    const oldDelta = deltaForBlockRange(oldBlockRange)
-    const newDelta = deltaForBlockRange(newBlockRange)
-    const diffD = delta.diff(oldDelta, newDelta)
-    const stepDelta = deltaModifyNodeAt(beforeDoc, oldBlockRange?.start || newBlockRange?.start || 0, d => { d.append(diffD) })
-    return stepDelta
-  })
-  .if(AddMarkStep, (step, { beforeDoc }) =>
-    deltaModifyNodeAt(beforeDoc, step.from, d => { d.retain(step.to - step.from, marksToFormattingAttributes([step.mark])) })
-  )
-  .if(AddNodeMarkStep, (step, { beforeDoc }) =>
-    deltaModifyNodeAt(beforeDoc, step.pos, d => { d.retain(1, marksToFormattingAttributes([step.mark])) })
-  )
-  .if(RemoveMarkStep, (step, { beforeDoc }) =>
-    deltaModifyNodeAt(beforeDoc, step.from, d => { d.retain(step.to - step.from, { [markToYattrName(step.mark)]: null }) })
-  )
-  .if(RemoveNodeMarkStep, (step, { beforeDoc }) =>
-    deltaModifyNodeAt(beforeDoc, step.pos, d => { d.retain(1, { [markToYattrName(step.mark)]: null }) })
-  )
-  .if(AttrStep, (step, { beforeDoc }) =>
-    deltaModifyNodeAt(beforeDoc, step.pos, d => { d.modify(delta.create().setAttr(step.attr, step.value)) })
-  )
-  .if(DocAttrStep, step =>
-    delta.create().setAttr(step.attr, step.value)
-  )
-  .else(_step => {
-    // unknown step kind
-    error.unexpectedCase()
-  })
-  .done()
-
-/**
- * @param {import('prosemirror-transform').Step} step
- * @param {import('prosemirror-model').Node} beforeDoc
- * @return {ProsemirrorDelta}
- */
-export const stepToDelta = (step, beforeDoc) => {
-  const stepResult = step.apply(beforeDoc)
-  if (stepResult.failed) {
-    throw new Error('[y/prosemirror]: step failed to apply')
-  }
-  return _stepToDelta(step, { beforeDoc, afterDoc: /** @type {Node} */ (stepResult.doc) })
-}
-
-/**
- * @param {import('prosemirror-model').NodeRange | null} blockRange
- * @return {ProsemirrorDelta}
- */
-function deltaForBlockRange (blockRange) {
-  if (blockRange === null) {
-    return delta.create($prosemirrorDelta).done()
-  }
-  const { startIndex, endIndex, parent } = blockRange
-  return nodesToDelta(parent.content.content.slice(startIndex, endIndex))
-}
-
-/**
- * This function is used to find the delta offset for a given prosemirror offset in a node.
- * Given the following document:
- * <doc><p>Hello world</p><blockquote><p>Hello world!</p></blockquote></doc>
- * The delta structure would look like this:
- *  0: p
- *   - 0: text("Hello world")
- *  1: blockquote
- *   - 0: p
- *     - 0: text("Hello world!")
- * So the prosemirror position 10 would be within the delta offset path: 0, 0 and have an offset into the text node of 9 (since it is the 9th character in the text node).
- *
- * So the return value would be [0, 9], which is the path of: p, text("Hello wor")
- *
- * @param {Node} node
- * @param {number} searchPmOffset The p offset to find the delta offset for
- * @return {number[]} The delta offset path for the search pm offset
- */
-export function pmToDeltaPath (node, searchPmOffset = 0) {
-  if (searchPmOffset === 0) {
-    // base case
-    return [0]
-  }
-
-  const resolvedOffset = node.resolve(searchPmOffset)
-  const depth = resolvedOffset.depth
-  const path = []
-  if (depth === 0) {
-    // if the offset is at the root node, return the index of the node
-    return [resolvedOffset.index(0)]
-  }
-  // otherwise, add the index of each parent node to the path
-  for (let d = 0; d < depth; d++) {
-    path.push(resolvedOffset.index(d))
-  }
-
-  // add any offset into the parent node to the path
-  path.push(resolvedOffset.parentOffset)
-
-  return path
-}
-
-/**
- * Inverse of {@link pmToDeltaPath}
- * @param {number[]} deltaPath
- * @param {Node} node
- * @return {number} The prosemirror offset for the delta path
- */
-export function deltaPathToPm (deltaPath, node) {
-  let pmOffset = 0
-  let curNode = node
-
-  // Special case: if path has only one element, it's a child index at depth 0
-  if (deltaPath.length === 1) {
-    const childIndex = deltaPath[0]
-    // Add sizes of all children before the target index
-    for (let j = 0; j < childIndex; j++) {
-      pmOffset += curNode.children[j].nodeSize
-    }
-    return pmOffset
-  }
-
-  // Handle all elements except the last (which is an offset)
-  for (let i = 0; i < deltaPath.length - 1; i++) {
-    const childIndex = deltaPath[i]
-    // Add sizes of all children before the target child
-    for (let j = 0; j < childIndex; j++) {
-      pmOffset += curNode.children[j].nodeSize
-    }
-    // Add 1 for the opening tag of the target child, then navigate into it
-    pmOffset += 1
-    curNode = curNode.children[childIndex]
-  }
-
-  // Last element is an offset within the current node
-  pmOffset += deltaPath[deltaPath.length - 1]
-
-  return pmOffset
-}
-
-/**
- * @param {Node} node
- * @param {number} pmOffset
- * @param {(d:delta.DeltaBuilderAny)=>any} mod
- * @return {ProsemirrorDelta}
- */
-export const deltaModifyNodeAt = (node, pmOffset, mod) => {
-  const dpath = pmToDeltaPath(node, pmOffset)
-  let currentOp = delta.create($prosemirrorDelta)
-  const lastIndex = dpath.length - 1
-  currentOp.retain(lastIndex >= 0 ? dpath[lastIndex] : 0)
-  mod(currentOp)
-  for (let i = lastIndex - 1; i >= 0; i--) {
-    // @ts-ignore
-    currentOp = delta.create($prosemirrorDelta).retain(dpath[i]).modify(currentOp)
-  }
-  return currentOp
 }

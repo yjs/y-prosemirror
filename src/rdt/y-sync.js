@@ -47,13 +47,13 @@ import { $prosemirrorDelta } from '../sync-utils.js'
  * render — even under an active `DiffRenderer`, through suggestion edits and
  * accept/reject overlay updates — is pinned upstream by the yjs
  * `testRdt*CacheDrift` suite, and on this side by the Y cache oracle that
- * tests/prosemirror-rdt.test.js runs after every fuzz op.) One known
- * upstream exception: accepting changes over a region where transient
- * content (a pending insert that was then delete-suggested) was cancelled
- * out of the render patches the cache — and emits — in the pre-cancellation
- * space, corrupting the cache with retain residue (known issue 5 in
- * tests/prosemirror-rdt.test.js). Both RDTs fail safe on the resulting diff
- * errors (see `onInternalError`).
+ * tests/prosemirror-rdt.test.js runs after every fuzz op.) One upstream bug
+ * used to break this: before `@y/y` 14.0.0-rc.26, accepting changes over a
+ * region where transient content (a pending insert that was then
+ * delete-suggested) was cancelled out of the render patched the cache - and
+ * emitted - in the pre-cancellation space, corrupting the cache with retain
+ * residue (known issue 5 in tests/prosemirror-rdt.test.js, resolved). Both
+ * RDTs still fail safe on a diff error of that kind (see `onInternalError`).
  *
  * The cache is only *eventually* consistent while the doc is mid-transaction
  * or mid-cleanup: a write we issue in that window (the binding maps a view
@@ -311,7 +311,8 @@ export class YSyncRdt extends ObservableV2 {
     // it descends into it (`InsertOp#_modValue`). The cache patches Yjs runs
     // inside the transact go through the same copy-on-write, so the cache
     // and `expected` never mutate a subtree the other one holds, and every
-    // untouched child keeps its memoized fingerprint. `final: true` must
+    // untouched child keeps its memoized fingerprint (since lib0 1.0.0-rc.31
+    // the copied root ops keep theirs too). `final: true` must
     // stay explicit (`clone` does not carry `isFinal`), and the applied
     // change must be a private deep clone: `move: true` re-parents its
     // content into `expected`.
@@ -342,14 +343,16 @@ export class YSyncRdt extends ObservableV2 {
     // transactions) completed inside it. The cache *is* the post-write
     // state and we diff against it directly. We rely on lib0 resetting the
     // memoized fingerprint of every op and delta it mutates in place
-    // (`_mergeChildWithPrev` included, which the lib0 floor in package.json,
-    // 1.0.0-rc.30, guarantees), so the memo a previous diff left on
-    // untouched subtrees is trustworthy and the diff descends only into
-    // what changed. Cloning the cache here would drop every memo and re-hash
-    // the whole document per write (yjs/y-prosemirror#248); the Y cache
+    // (`_mergeChildWithPrev` included, guaranteed since lib0 1.0.0-rc.30, the
+    // floor in package.json), so the memo a previous diff left on untouched
+    // subtrees is trustworthy and the diff descends only into what changed.
+    // Cloning the cache here would copy the whole document per write
+    // (yjs/y-prosemirror#248; since lib0 1.0.0-rc.31 a clone carries the
+    // memos over, so the cost is the allocation, not a re-hash); the Y cache
     // oracle in tests/prosemirror-rdt.test.js pins that the memo is never
-    // stale. In the uncertain window the cache lags: fall back to a fresh
-    // render and keep serving it until the drain.
+    // stale (with a from-scratch rehash - a `cloneDeep` no longer recomputes
+    // anything below the root). In the uncertain window the cache lags: fall
+    // back to a fresh render and keep serving it until the drain.
     const actual = uncertain ? this._render() : /** @type {import('lib0/delta').Delta<any>} */ (this.ytype.delta)
     if (uncertain) {
       this._stateOverride = actual
@@ -362,9 +365,10 @@ export class YSyncRdt extends ObservableV2 {
       fix = delta.diff(/** @type {any} */ (expected), /** @type {any} */ (actual), { compare: this.compare, clone: true })
     } catch (err) {
       // Fail-safe: when the maintained cache was corrupted by a wrong-space
-      // patch (the accept-over-cancelled-transient-content upstream bug —
-      // known issues 3 and 5 in tests/prosemirror-rdt.test.js), `expected`
-      // or `actual` is no longer a pure state delta and the diff throws.
+      // patch (the accept-over-cancelled-transient-content upstream bug of
+      // `@y/y` before 14.0.0-rc.26 - known issues 3 and 5 in
+      // tests/prosemirror-rdt.test.js, resolved there), `expected` or
+      // `actual` is no longer a pure state delta and the diff throws.
       // The write above already landed — report and return no fix rather
       // than unwinding into the caller's dispatch / event delivery.
       this._onInternalError?.(/** @type {any} */ (err), 1)

@@ -204,9 +204,9 @@ export const testPositionsHeadingAndParagraph = (_tc) => {
 export const testPositionsBlockquote = (_tc) => {
   const { view, ytype } = createSetup(
     delta.create().insert([
-      delta.create('blockquote', {}, [
+      /** @type {any} */ (delta.create('blockquote', {}, [
         delta.create('paragraph', {}, 'quoted text')
-      ])
+      ]))
     ]).done()
   )
   assertRoundTripAllPositions(view, ytype)
@@ -220,11 +220,11 @@ export const testPositionsBlockquote = (_tc) => {
 export const testPositionsNestedBlockquotes = (_tc) => {
   const { view, ytype } = createSetup(
     delta.create().insert([
-      delta.create('blockquote', {}, [
-        delta.create('blockquote', {}, [
+      /** @type {any} */ (delta.create('blockquote', {}, [
+        /** @type {any} */ (delta.create('blockquote', {}, [
           delta.create('paragraph', {}, 'deep')
-        ])
-      ])
+        ]))
+      ]))
     ]).done()
   )
   assertRoundTripAllPositions(view, ytype)
@@ -238,14 +238,14 @@ export const testPositionsNestedBlockquotes = (_tc) => {
 export const testPositionsBulletList = (_tc) => {
   const { view, ytype } = createSetup(
     delta.create().insert([
-      delta.create('bullet_list', {}, [
-        delta.create('list_item', {}, [
+      /** @type {any} */ (delta.create('bullet_list', {}, [
+        /** @type {any} */ (delta.create('list_item', {}, [
           delta.create('paragraph', {}, 'item one')
-        ]),
-        delta.create('list_item', {}, [
+        ])),
+        /** @type {any} */ (delta.create('list_item', {}, [
           delta.create('paragraph', {}, 'item two')
-        ])
-      ])
+        ]))
+      ]))
     ]).done()
   )
   assertRoundTripAllPositions(view, ytype)
@@ -259,16 +259,16 @@ export const testPositionsBulletList = (_tc) => {
 export const testPositionsNestedList = (_tc) => {
   const { view, ytype } = createSetup(
     delta.create().insert([
-      delta.create('bullet_list', {}, [
-        delta.create('list_item', {}, [
+      /** @type {any} */ (delta.create('bullet_list', {}, [
+        /** @type {any} */ (delta.create('list_item', {}, [
           delta.create('paragraph', {}, 'parent'),
-          delta.create('bullet_list', {}, [
-            delta.create('list_item', {}, [
+          /** @type {any} */ (delta.create('bullet_list', {}, [
+            /** @type {any} */ (delta.create('list_item', {}, [
               delta.create('paragraph', {}, 'child')
-            ])
-          ])
-        ])
-      ])
+            ]))
+          ]))
+        ]))
+      ]))
     ]).done()
   )
   assertRoundTripAllPositions(view, ytype)
@@ -288,21 +288,21 @@ export const testPositionsComplexDocument = (_tc) => {
         .insert([delta.create('hard_break').done()])
         .insert('more text')
         .done(),
-      delta.create('blockquote', {}, [
+      /** @type {any} */ (delta.create('blockquote', {}, [
         delta.create('paragraph', {}, 'quoted')
-      ]),
-      delta.create('bullet_list', {}, [
-        delta.create('list_item', {}, [
+      ])),
+      /** @type {any} */ (delta.create('bullet_list', {}, [
+        /** @type {any} */ (delta.create('list_item', {}, [
           delta.create('paragraph', {}, 'first')
-        ]),
-        delta.create('list_item', {}, [
+        ])),
+        /** @type {any} */ (delta.create('list_item', {}, [
           delta.create('paragraph')
             .insert('second')
             .insert([delta.create('hard_break').done()])
             .insert('line')
             .done()
-        ])
-      ]),
+        ]))
+      ])),
       delta.create('paragraph', {}, 'end')
     ]).done()
   )
@@ -348,17 +348,17 @@ export const testPositionsCodeBlock = (_tc) => {
 export const testPositionsOrderedList = (_tc) => {
   const { view, ytype } = createSetup(
     delta.create().insert([
-      delta.create('ordered_list', {}, [
-        delta.create('list_item', {}, [
+      /** @type {any} */ (delta.create('ordered_list', {}, [
+        /** @type {any} */ (delta.create('list_item', {}, [
           delta.create('paragraph', {}, 'one')
-        ]),
-        delta.create('list_item', {}, [
+        ])),
+        /** @type {any} */ (delta.create('list_item', {}, [
           delta.create('paragraph', {}, 'two')
-        ]),
-        delta.create('list_item', {}, [
+        ])),
+        /** @type {any} */ (delta.create('list_item', {}, [
           delta.create('paragraph', {}, 'three')
-        ])
-      ])
+        ]))
+      ]))
     ]).done()
   )
   assertRoundTripAllPositions(view, ytype)
@@ -372,14 +372,14 @@ export const testPositionsOrderedList = (_tc) => {
 export const testPositionsBlockquoteWithHardBreak = (_tc) => {
   const { view, ytype } = createSetup(
     delta.create().insert([
-      delta.create('blockquote', {}, [
+      /** @type {any} */ (delta.create('blockquote', {}, [
         delta.create('paragraph')
           .insert('line1')
           .insert([delta.create('hard_break').done()])
           .insert('line2')
           .done(),
         delta.create('paragraph', {}, 'another')
-      ])
+      ]))
     ]).done()
   )
   assertRoundTripAllPositions(view, ytype)
@@ -393,15 +393,15 @@ export const testPositionsBlockquoteWithHardBreak = (_tc) => {
 export const testPositionsDeeplyNested = (_tc) => {
   const { view, ytype } = createSetup(
     delta.create().insert([
-      delta.create('blockquote', {}, [
-        delta.create('blockquote', {}, [
-          delta.create('bullet_list', {}, [
-            delta.create('list_item', {}, [
+      /** @type {any} */ (delta.create('blockquote', {}, [
+        /** @type {any} */ (delta.create('blockquote', {}, [
+          /** @type {any} */ (delta.create('bullet_list', {}, [
+            /** @type {any} */ (delta.create('list_item', {}, [
               delta.create('paragraph', {}, 'deep')
-            ])
-          ])
-        ])
-      ])
+            ]))
+          ]))
+        ]))
+      ]))
     ]).done()
   )
   assertRoundTripAllPositions(view, ytype)
@@ -431,12 +431,12 @@ export const testPositionsHorizontalRule = (_tc) => {
 export const testPositionsListItemWithMultipleBlocks = (_tc) => {
   const { view, ytype } = createSetup(
     delta.create().insert([
-      delta.create('bullet_list', {}, [
-        delta.create('list_item', {}, [
+      /** @type {any} */ (delta.create('bullet_list', {}, [
+        /** @type {any} */ (delta.create('list_item', {}, [
           delta.create('paragraph', {}, 'text'),
           delta.create('code_block', {}, 'code here')
-        ])
-      ])
+        ]))
+      ]))
     ]).done()
   )
   assertRoundTripAllPositions(view, ytype)
@@ -514,9 +514,9 @@ export const testStoreMappingRoundTrip = (_tc) => {
     delta.create().insert([
       delta.create('heading', { level: 1 }, 'Title'),
       delta.create('paragraph', {}, 'hello world'),
-      delta.create('blockquote', {}, [
+      /** @type {any} */ (delta.create('blockquote', {}, [
         delta.create('paragraph', {}, 'quoted')
-      ])
+      ]))
     ]).done()
   )
   const doc = view.state.doc
@@ -619,14 +619,14 @@ export const testStoreMappingBookmarkNodeSelection = (_tc) => {
 const complexFixture = () => createSetup(
   delta.create().insert([
     delta.create('heading', { level: 1 }, 'Title'),
-    delta.create('bullet_list', {}, [
-      delta.create('list_item', {}, [
+    /** @type {any} */ (delta.create('bullet_list', {}, [
+      /** @type {any} */ (delta.create('list_item', {}, [
         delta.create('paragraph', {}, 'de')
-      ]),
-      delta.create('list_item', {}, [
+      ])),
+      /** @type {any} */ (delta.create('list_item', {}, [
         delta.create('paragraph', {}, 'fg')
-      ])
-    ]),
+      ]))
+    ])),
     delta.create('paragraph')
       .insert('hi')
       .insert([delta.create('hard_break').done()])

@@ -115,7 +115,7 @@ export const testDeleteRangeOverPartialNodes = () => {
 
 export const testDeleteRangeOverPartialNodes2 = () => {
   testHelper([
-    () => delta.create(null, {}, [delta.create('paragraph', {}, '123'), delta.create('paragraph', {}, '456'), delta.create('paragraph', {}, '789')]),
+    () => /** @type {any} */ (delta.create(null, {}, [delta.create('paragraph', {}, '123'), delta.create('paragraph', {}, '456'), delta.create('paragraph', {}, '789')])),
     ({ tr }) => tr.delete(2, 12)
   ])
 }

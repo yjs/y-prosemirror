@@ -10,8 +10,8 @@
  *   A. `rdt._state` deep-equals a from-scratch canonical snapshot of the
  *      document, built over a fresh node tree (`schema.nodeFromJSON`) so a
  *      node-keyed memo cannot serve cached entries. Fingerprints must match,
- *      and a `cloneDeep` (which recomputes all fingerprints) must agree with
- *      the memoized fingerprint - a mismatch means a stale memo.
+ *      and a from-scratch rehash (`freshFingerprint`, every memo reset) must
+ *      agree with the memoized fingerprint - a mismatch means a stale memo.
  *   B. The change emitted by `pull()` replays the previous `_state` onto the
  *      new `_state` (outcome equality via an empty diff; op granularity and
  *      modify-pairing may legitimately differ between implementations).
@@ -24,7 +24,7 @@
  *      (a persistence ring catches silent aliasing corruption).
  *   G. The bound Y side is back in steady state after every op and serves the
  *      live `ytype.delta` cache, which carries no stale memoized fingerprint
- *      (and, without a renderer, equals a fresh deep render).
+ *      and equals a fresh deep render (through its renderer, if any).
  *
  * Two tiers: tier 1 drives a bare, unbound view + a directly-constructed
  * `ProsemirrorRdt` (manual `pull()`, surgical emission capture); tier 2
@@ -52,7 +52,8 @@ import {
   findDivergences,
   normalizeDoc,
   setupTwoWaySync,
-  stableStringify
+  stableStringify,
+  freshFingerprint
 } from './cohort.js'
 import { marks as complexMarks, nodes as complexNodes, schema as complexSchema } from './complexSchema.js'
 
@@ -150,14 +151,15 @@ const getYRdt = view => /** @type {any} */ (YPM.ySyncPluginKey.getState(view.sta
 /**
  * Invariant G (Y side): after every op the Y-side RDT is back in steady state
  * and serves the live `ytype.delta` cache; the cache carries no stale
- * memoized fingerprint (a `cloneDeep` recomputes every fingerprint and must
- * agree), its root is still a mutable builder, and without a renderer it
- * equals a fresh deep render. Since yjs/y-prosemirror#248 a local write's fix
+ * memoized fingerprint (a from-scratch rehash must agree - since lib0
+ * 1.0.0-rc.31 a `cloneDeep` carries the memos over, see `freshFingerprint`),
+ * its root is still a mutable builder, and it equals a fresh deep render
+ * (through its renderer, when it has one). Since yjs/y-prosemirror#248 a local write's fix
  * is diffed against the live cache and its memoized fingerprints instead of
  * a deep clone, so a stale memo would fabricate a revert; this oracle is what
- * keeps that honest. Renderer-backed caches skip the render comparison: their
- * incremental patches can legitimately drift from a fresh render (known
- * issues 3 and 5).
+ * keeps that honest. Renderer-backed caches used to skip the render
+ * comparison while known issues 3 and 5 (incremental patches drifting from a
+ * fresh render) were open; they are compared through their renderer now.
  *
  * @param {YSyncRdt} yRdt
  * @param {string} label
@@ -166,11 +168,9 @@ const checkYCacheOracle = (yRdt, label) => {
   const state = /** @type {any} */ (yRdt.delta) // runs the lazy drain check
   t.assert(yRdt._stateOverride === null, `${label}: Y side settled to steady state`)
   t.assert(state === yRdt.ytype.delta, `${label}: Y state is the live maintained cache`)
-  t.assert(delta.cloneDeep(state).fingerprint === state.fingerprint, `${label}: no stale memoized fingerprint in the Y cache`)
+  t.assert(freshFingerprint(state) === state.fingerprint, `${label}: no stale memoized fingerprint in the Y cache`)
   t.assert(!state.isDone, `${label}: the Y cache root stays a mutable builder`)
-  if (yRdt.renderer == null) {
-    t.assert(state.equals(yRdt.ytype.toDelta({ deep: true })), `${label}: Y cache equals a fresh deep render`)
-  }
+  t.assert(state.equals(yRdt.ytype.toDeltaDeep({ renderer: yRdt.renderer })), `${label}: Y cache equals a fresh deep render`)
 }
 
 /**
@@ -193,7 +193,7 @@ const checkStateOracle = (rdt, view, label) => {
   t.compare(/** @type {any} */ (rdt._state), /** @type {any} */ (ref), `${label}: _state equals a from-scratch canonical snapshot`)
   t.assert(rdt._state.fingerprint === ref.fingerprint, `${label}: _state fingerprint equals the reference fingerprint`)
   t.assert(
-    delta.cloneDeep(/** @type {any} */ (rdt._state)).fingerprint === rdt._state.fingerprint,
+    freshFingerprint(/** @type {any} */ (rdt._state)) === rdt._state.fingerprint,
     `${label}: no stale memoized fingerprint in _state`
   )
   view.state.doc.check()
@@ -725,15 +725,15 @@ const opForeignDelta = (rdt, gen) => {
   let d
   if (kind === 0) {
     // unknown node type: unappliable, must be survivable
-    d = delta.create('doc').retain(prng.int32(gen, 0, childCnt)).insert([delta.create('no-such-node', {}, randomWord(gen))])
+    d = delta.create('doc').retain(prng.int32(gen, 0, childCnt)).insert(/** @type {any} */ ([delta.create('no-such-node', {}, randomWord(gen))]))
   } else if (kind === 1) {
-    d = delta.create('doc').retain(prng.int32(gen, 0, childCnt)).insert([delta.create('paragraph', {}, randomWord(gen))])
+    d = delta.create('doc').retain(prng.int32(gen, 0, childCnt)).insert(/** @type {any} */ ([delta.create('paragraph', {}, randomWord(gen))]))
   } else if (kind === 2 && childCnt > 0) {
     d = delta.create('doc').retain(prng.int32(gen, 0, childCnt - 1)).delete(1)
   } else if (childCnt > 0) {
     d = prng.bool(gen)
-      ? delta.create('doc').retain(prng.int32(gen, 0, childCnt - 1)).modify(delta.create().insert(randomWord(gen)))
-      : delta.create('doc').retain(prng.int32(gen, 0, childCnt - 1)).modify(delta.create().setAttr('level', prng.int32(gen, 1, 6)))
+      ? delta.create('doc').retain(prng.int32(gen, 0, childCnt - 1)).modify(/** @type {any} */ (delta.create().insert(randomWord(gen))))
+      : delta.create('doc').retain(prng.int32(gen, 0, childCnt - 1)).modify(/** @type {any} */ (delta.create().setAttr('level', prng.int32(gen, 1, 6))))
   } else {
     return
   }
@@ -1044,19 +1044,24 @@ const STANDARD_COHORT = [
  *    (`stripFixesIntoPendingDeletes` in src/rdt/prosemirror.js); the former
  *    pin runs as {@link testRdtAttrChangeInsideSuggestionWrapConverges} and
  *    cohort fuzzing covers node-attr ops (and `multiOp` attr parts) again.
- * 3. Rare op sequences surface `Unexpected case` from lib0's `diff` inside
- *    `YSyncRdt.applyDelta`'s fix computation (a non-insert op in a state
- *    delta, i.e. the maintained ytype cache or the applied expectation is
- *    off; reproduced on the unoptimized pipeline, e.g. cohort fuzz seed
- *    4028796619). Before this suite's strict dispatch the error was
- *    silently swallowed inside the dispatch. The driver aborts the run
- *    when it surfaces. Since issue 5's fail-safes landed, seed 4028796619
- *    runs clean end-to-end (the `Unexpected case` there was downstream
- *    damage of issue 5's malformed-delta class), and a fix-diff throw now
- *    surfaces as an `onInternalError` report instead of an escaping error.
- *    Issue 5's root cause turned out to be issue 7's (a range accept
- *    shipping nodes without their nested structs); issue 3 most likely
- *    shares it (not verified against the fixed accept yet).
+ * 3. RESOLVED (2026-09-07, by inference - the `@y/y` 14.0.0-rc.26 fix for
+ *    issues 5 and 7). Rare op sequences surfaced `Unexpected case` from
+ *    lib0's `diff` inside `YSyncRdt.applyDelta`'s fix computation (a
+ *    non-insert op in a state delta, i.e. the maintained ytype cache or the
+ *    applied expectation was off; reproduced on the unoptimized pipeline,
+ *    cohort fuzz seed 4028796619). Before this suite's strict dispatch the
+ *    error was silently swallowed inside the dispatch. That corruption
+ *    signature (retain residue in a state delta) is what a range accept
+ *    shipping nodes without their nested structs left behind (issue 7, the
+ *    root of issue 5 as well). The original trace cannot be replayed any
+ *    more (the picker's vocabulary changed with issues 1, 2 and 4), so the
+ *    evidence is indirect: the seed runs clean, repeated extensive cohort
+ *    runs on rc.26 (lib0 1.0.0-rc.31) show no internal-error report and no
+ *    non-convergence, and {@link runRdtCohortSim} FAILS on any
+ *    `onInternalError` report, escaping pipeline error or loop-breaker trip
+ *    instead of aborting gracefully, so a recurrence fails the fuzz with its
+ *    seed. The `checkYCacheOracle` render comparison covers renderer-backed
+ *    caches again for the same reason.
  * 4. RESOLVED (2026-09-06, yjs/y-prosemirror#258). Structural wraps over
  *    suggestion-rendered content used to make two view-suggestions peers
  *    converge to differently ORDERED documents: schema-fitting materialized
@@ -1085,7 +1090,7 @@ const STANDARD_COHORT = [
  *    keeps pinning the RDTs' fail-safe contract (adopt the dispatched
  *    document, report through `onInternalError`, never unwind into Y event
  *    delivery) for any malformation that still reaches the reconcile diff.
- *    {@link runRdtCohortSim} still aborts gracefully on such a report.
+ *    {@link runRdtCohortSim} fails on any such report.
  * 6. RESOLVED (2026-09-06, upstream lib0 1.0.0-rc.30). A local delete next
  *    to attributed content could leave a peer with a durably diverged
  *    `y-attributed-*` projection over converged content (cohort fuzz seed
@@ -1183,21 +1188,19 @@ const installLoopBreaker = cohort => {
 
 /**
  * Drive random cohort ops with strict dispatch and periodic per-user state
- * oracles (every op under `--extensive`).
+ * oracles (every op under `--extensive`). Nothing is tolerated any more: an
+ * escaping pipeline error, a loop-breaker trip (a reconcile loop that does
+ * not converge) and an `onInternalError` report (the RDTs' reconcile-diff
+ * fail-safe, errCode 1/2) each fail the run with the op that triggered it -
+ * with issues 3, 5 and 7 resolved no known issue is left that a graceful
+ * abort could point at.
  *
  * @param {Cohort} cohort
  * @param {prng.PRNG} gen
  * @param {number} iterations
  * @param {string} label
  * @param {Array<{ err: Error, errCode: number }>} [internalErrors] the
- *   cohort's `onInternalError` collector - a reported reconcile-diff failure
- *   (errCode 1/2, the RDTs' fail-safe for known issue 5's malformed deltas)
- *   aborts the run gracefully: we only claim post-corruption convergence for
- *   the pinned trace, not in general
- * @return {boolean} `false` when the run was aborted by the loop breaker (a
- *   non-convergence with no known issue left behind it - investigate) or a
- *   known internal-error report - final assertions must be skipped, the
- *   cohort state is mid-loop
+ *   cohort's `onInternalError` collector, checked after every op
  */
 const runRdtCohortSim = (cohort, gen, iterations, label, internalErrors = []) => {
   const counter = installLoopBreaker(cohort)
@@ -1209,29 +1212,19 @@ const runRdtCohortSim = (cohort, gen, iterations, label, internalErrors = []) =>
     try {
       if (top != null) applyTracedOp(cohort, top, undefined, { strict: true })
     } catch (err) {
-      const msg = /** @type {Error} */ (err).message
-      if (msg.includes('rdt-fuzz-loop-breaker')) {
-        t.info(`${label} op=${i}: aborted - reconcile loop did not converge (no known issue covers this any more; see the pickCohortOp notes); op=${JSON.stringify(top)}`)
-        return false
-      }
-      if (/unexpected case/i.test(msg)) {
-        t.info(`${label} op=${i}: aborted - pre-existing pipeline error surfaced (known issue 3 in the pickCohortOp notes); op=${JSON.stringify(top)}`)
-        return false
-      }
+      t.info(`${label} op=${i}: pipeline error; op=${JSON.stringify(top)}`)
       throw err
     }
-    const knownReports = internalErrors.filter(e => e.errCode === 1 || e.errCode === 2)
-    if (knownReports.length > 0) {
-      t.info(`${label} op=${i}: aborted - reconcile diff failed on a malformed pipeline delta (known issue 5 in the pickCohortOp notes; errCodes=[${knownReports.map(e => e.errCode)}]); op=${JSON.stringify(top)}`)
-      return false
-    }
+    t.assert(
+      internalErrors.length === 0,
+      `${label} op=${i}: no internal-error report (errCodes=[${internalErrors.map(e => e.errCode)}]); op=${JSON.stringify(top)}`
+    )
     if (t.extensive || i % 10 === 9 || i === iterations - 1) {
       cohort.users.forEach(u => {
         checkStateOracle(getPmRdt(u.view), u.view, `${label} op=${i} user=${u.idx} (${u.mode})`)
       })
     }
   }
-  return true
 }
 
 /**
@@ -1247,20 +1240,19 @@ export const testRdtSuggestionCohortFuzz = tc => {
   const cohort = new Cohort(STANDARD_COHORT, { onInternalError: (err, errCode) => internalErrors.push({ err, errCode }) })
   try {
     cohort.seed('lorem ipsum dolor sit amet')
-    if (runRdtCohortSim(cohort, tc.prng, 30, `seed=${tc.seed}`, internalErrors)) {
-      t.assert(
-        cohort.users.reduce((n, u) => n + getPmRdt(u.view)._pullStats.walk, 0) > 0,
-        `seed=${tc.seed}: the incremental walk ran somewhere in the cohort`
-      )
-      assertCohortConsistency(cohort, `rdt cohort seed=${tc.seed}`)
-      assertNoAttributionLeak(/** @type {any} */ (cohort.baseDoc.get(PM_KEY).toDeltaDeep()), 'baseDoc')
-      for (const u of cohort.users) {
-        if (u.suggestionDoc != null) {
-          assertNoAttributionLeak(/** @type {any} */ (u.suggestionDoc.get(PM_KEY).toDeltaDeep()), `suggestionDoc ${u.idx}`)
-        }
+    runRdtCohortSim(cohort, tc.prng, 30, `seed=${tc.seed}`, internalErrors)
+    t.assert(
+      cohort.users.reduce((n, u) => n + getPmRdt(u.view)._pullStats.walk, 0) > 0,
+      `seed=${tc.seed}: the incremental walk ran somewhere in the cohort`
+    )
+    assertCohortConsistency(cohort, `rdt cohort seed=${tc.seed}`)
+    assertNoAttributionLeak(/** @type {any} */ (cohort.baseDoc.get(PM_KEY).toDeltaDeep()), 'baseDoc')
+    for (const u of cohort.users) {
+      if (u.suggestionDoc != null) {
+        assertNoAttributionLeak(/** @type {any} */ (u.suggestionDoc.get(PM_KEY).toDeltaDeep()), `suggestionDoc ${u.idx}`)
       }
-      t.compare(internalErrors, [], 'no internal errors surfaced')
     }
+    t.compare(internalErrors, [], 'no internal errors surfaced')
   } finally {
     cohort.destroy()
   }
@@ -1279,9 +1271,8 @@ export const testRepeatRdtCohortFuzzShort = tc => {
   const cohort = new Cohort(STANDARD_COHORT, { onInternalError: (err, errCode) => internalErrors.push({ err, errCode }) })
   try {
     cohort.seed('lorem ipsum')
-    if (runRdtCohortSim(cohort, tc.prng, 8, `seed=${tc.seed}`, internalErrors)) {
-      assertCohortConsistency(cohort, `rdt cohort short seed=${tc.seed}`)
-    }
+    runRdtCohortSim(cohort, tc.prng, 8, `seed=${tc.seed}`, internalErrors)
+    assertCohortConsistency(cohort, `rdt cohort short seed=${tc.seed}`)
   } finally {
     cohort.destroy()
   }
@@ -1621,13 +1612,13 @@ export const testRdtEdgeDesyncRecovery = _tc => {
   const { view, rdt } = mkSolo(mkDoc(p('base')), [filter])
   try {
     allow = false
-    const foreign1 = /** @type {any} */ (delta.create('doc').retain(1).insert([delta.create('paragraph', {}, 'first')]).done(false))
+    const foreign1 = /** @type {any} */ (delta.create('doc').retain(1).insert(/** @type {any} */ ([delta.create('paragraph', {}, 'first')])).done(false))
     t.assert(rdt.applyDelta(foreign1, 'peer') == null, 'blocked applyDelta returns no fix')
     t.assert(rdt._desynced, 'RDT is desynced after the filtered dispatch')
     t.assert(rdt.delta.childCnt === 2, 'projection tracks the foreign content')
     t.assert(recordedPull(rdt).changes.length === 0, 'desynced pull emits nothing')
     // second foreign delta while still blocked: the !_recover() branch
-    const foreign2 = /** @type {any} */ (delta.create('doc').retain(2).insert([delta.create('paragraph', {}, 'second')]).done(false))
+    const foreign2 = /** @type {any} */ (delta.create('doc').retain(2).insert(/** @type {any} */ ([delta.create('paragraph', {}, 'second')])).done(false))
     t.assert(rdt.applyDelta(foreign2, 'peer') == null, 'still-blocked applyDelta returns no fix')
     t.assert(rdt.delta.childCnt === 3, 'projection keeps tracking')
     t.assert(view.state.doc.childCount === 1, 'the document itself is still behind')
@@ -1724,7 +1715,7 @@ export const testRdtEdgePullAfterEveryPath = _tc => {
   try {
     view.dispatch(view.state.tr.insertText('X', 1))
     checkPull(rdt, 'after local edit')
-    rdt.applyDelta(/** @type {any} */ (delta.create('doc').retain(1).insert([delta.create('paragraph', {}, 'peer')]).done(false)), 'peer')
+    rdt.applyDelta(/** @type {any} */ (delta.create('doc').retain(1).insert(/** @type {any} */ ([delta.create('paragraph', {}, 'peer')])).done(false)), 'peer')
     t.assert(recordedPull(rdt).changes.length === 0, 'pull after applyDelta emits nothing')
     checkStateOracle(rdt, view, 'after foreign delta')
   } finally {
@@ -1765,7 +1756,7 @@ export const testRdtEdgeFrozenShareIsCopyOnWrite = _tc => {
       view.dispatch(view.state.tr.insertText(String.fromCharCode(97 + i), 1 + i))
       checkPull(rdt, `edit ${i} after external freeze`)
     }
-    rdt.applyDelta(/** @type {any} */ (delta.create('doc').retain(1).insert([delta.create('paragraph', {}, 'peer')]).done(false)), 'peer')
+    rdt.applyDelta(/** @type {any} */ (delta.create('doc').retain(1).insert(/** @type {any} */ ([delta.create('paragraph', {}, 'peer')])).done(false)), 'peer')
     t.assert(s0.equals(c0), 'the pre-freeze snapshot is deep-intact')
     checkStateOracle(rdt, view, 'after freeze + edits + foreign delta')
   } finally {
@@ -2255,7 +2246,7 @@ export const testRdtRangeAcceptShipsNestedStructs = _tc => {
   renderer.suggestionMode = true
   base.get(PM_KEY).applyDelta(delta.create().insert([delta.create('paragraph', {}, 'ab')]).done())
   // the image item takes clock 0 of the suggestion client, its `src` entry clock 1
-  sugg.get(PM_KEY).applyDelta(delta.create().modify(delta.create().retain(1).insert([delta.create('image', { src: 'x.png' })])).done())
+  sugg.get(PM_KEY).applyDelta(delta.create().modify(/** @type {any} */ (delta.create().retain(1).insert([delta.create('image', { src: 'x.png' })]))).done())
   renderer.acceptChanges(Y.createID(1, 0), Y.createID(1, 0))
   const rendered = /** @type {any} */ (base.get(PM_KEY).toDeltaDeep().toJSON())
   const image = rendered.children[0].insert[0].children[1].insert[0]
@@ -2430,7 +2421,7 @@ export const testRdtPerfPullLargeDoc = _tc => {
   const yPerfDoc = new Y.Doc({ gc: false })
   const yPerfType = yPerfDoc.get(PM_KEY)
   yPerfType.applyDelta(delta.create().insert(Array.from({ length: 400 }, (_, i) => delta.create('paragraph', {}, `paragraph number ${i} with some real text in it`))).done())
-  const keystroke = (/** @type {number} */ i) => delta.create().retain(i).modify(delta.create().retain(3).insert('x')).done()
+  const keystroke = (/** @type {number} */ i) => delta.create().retain(i).modify(/** @type {any} */ (delta.create().retain(3).insert('x'))).done()
   const yRdt = new YSyncRdt({ ytype: yPerfType, renderer: null, origin: 'perf' })
   try {
     t.measureTime('Y-side first local write after bind (fingerprints warmed at bind)', () => {

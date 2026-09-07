@@ -32,10 +32,10 @@ const PM_KEY = 'prosemirror'
  */
 const seedDelta = () => delta.create().insert([
   delta.create('paragraph', {}, 'head'),
-  delta.create('blockquote', {}, [
+  /** @type {any} */ (delta.create('blockquote', {}, [
     delta.create('paragraph', {}, 'one'),
     delta.create('paragraph', {}, 'two')
-  ]),
+  ])),
   delta.create('paragraph', {}, 'tail')
 ]).done()
 
@@ -43,7 +43,7 @@ const seedDelta = () => delta.create().insert([
  * Really delete both paragraphs of the fixture's blockquote at the Y level,
  * which is what the merged state of two concurrent deletes looks like.
  */
-const emptyBlockquoteDelta = () => delta.create().retain(1).modify(delta.create().delete(2)).done()
+const emptyBlockquoteDelta = () => delta.create().retain(1).modify(/** @type {any} */ (delta.create().delete(2))).done()
 
 /**
  * Top-level node type names of a ProseMirror document.
@@ -175,8 +175,8 @@ export const testEmptyBlockquoteDroppedAtBind = _tc => {
   ytype.applyDelta(delta.create().insert([
     delta.create('paragraph', {}, 'a'),
     delta.create('blockquote', {}), // invalid: block+ without children
-    delta.create('blockquote', {}, [delta.create('blockquote', {})]), // nested cascade
-    delta.create('blockquote', {}, [delta.create('paragraph', {}, 'kept')]),
+    /** @type {any} */ (delta.create('blockquote', {}, [delta.create('blockquote', {})])), // nested cascade
+    /** @type {any} */ (delta.create('blockquote', {}, [delta.create('paragraph', {}, 'kept')])),
     delta.create('paragraph', {}, 'b')
   ]).done())
   const view = createPMView(ytype)
@@ -211,7 +211,8 @@ export const testInvalidRemoteInsertDropped = _tc => {
     view.state.doc.check()
     t.compare(stableStringify(view.state.doc.toJSON()), before, 'the invalid insert never reached the view')
     t.assert(ytype.length === 3, `the fix deleted the invalid insert from Y (got ${ytype.length} children)`)
-    ytype.applyDelta(delta.create().retain(1).insert([delta.create('blockquote', {}, [delta.create('paragraph', {}, 'ok')])]).done())
+    const ok = /** @type {any} */ (delta.create('blockquote', {}, [delta.create('paragraph', {}, 'ok')]))
+    ytype.applyDelta(delta.create().retain(1).insert([ok]).done())
     view.state.doc.check()
     t.assert(view.state.doc.textContent === 'headokonetwotail', 'a valid remote insert still lands')
   } finally {
@@ -360,7 +361,7 @@ export const testSuggestionModeDropBecomesPendingDelete = _tc => {
  * @param {Record<string, any>} imageAttrs
  */
 const imageParagraphDelta = imageAttrs => delta.create().insert([
-  delta.create('paragraph', {}).insert('a').insert([delta.create('image', imageAttrs)]).insert('b')
+  /** @type {any} */ (delta.create('paragraph', {}).insert('a').insert([delta.create('image', imageAttrs)]).insert('b'))
 ]).done()
 
 /**
@@ -395,12 +396,12 @@ export const testMissingRequiredAttrDropped = _tc => {
     installLoopBreaker([view])
     const before = stableStringify(view.state.doc.toJSON())
     // an image without its required `src`, after "he" of paragraph('head')
-    ytype.applyDelta(delta.create().modify(delta.create().retain(2).insert([delta.create('image', {})])).done())
+    ytype.applyDelta(delta.create().modify(/** @type {any} */ (delta.create().retain(2).insert([delta.create('image', {})]))).done())
     view.state.doc.check()
     t.compare(stableStringify(view.state.doc.toJSON()), before, 'the attr-less image never reached the view')
     t.assert(observed > 0, 'an observer registered after the binding still received the transaction')
     t.assert(!JSON.stringify(ytype.toDeltaDeep().toJSON()).includes('"image"'), 'the fix deleted the attr-less image from Y')
-    ytype.applyDelta(delta.create().modify(delta.create().retain(2).insert([delta.create('image', { src: 'ok.png' })])).done())
+    ytype.applyDelta(delta.create().modify(/** @type {any} */ (delta.create().retain(2).insert([delta.create('image', { src: 'ok.png' })]))).done())
     view.state.doc.check()
     const image = view.state.doc.child(0).child(1)
     t.assert(image.type.name === 'image' && image.attrs.src === 'ok.png', 'a valid image still lands')
@@ -434,7 +435,7 @@ export const testPendingDeletedNodeLosesRequiredAttr = _tc => {
     view.dispatch(view.state.tr.delete(2, 3)) // pending delete of the image
     t.assert(imageOf(view).marks.some(m => m.type.name === 'y-attributed-delete'), 'the image is a pending delete')
     counter.n = 0
-    base.applyDelta(delta.create().modify(delta.create().retain(1).modify(delta.create().deleteAttr('src').deleteAttr('title'))).done())
+    base.applyDelta(delta.create().modify(/** @type {any} */ (delta.create().retain(1).modify(/** @type {any} */ (delta.create().deleteAttr('src').deleteAttr('title'))))).done())
     t.assert(counter.n < 50, `the fix loop settled (${counter.n} emissions)`)
     view.state.doc.check()
     t.assert(imageOf(view).marks.some(m => m.type.name === 'y-attributed-delete'), 'still rendered as a pending delete')
@@ -463,7 +464,7 @@ export const testPendingDeletedNodeWithoutRequiredAttrAtBind = _tc => {
   const renderer = Y.createDiffRenderer(base, sugg, { attributions: Y.createContentMap() })
   renderer.suggestionMode = true
   base.get(PM_KEY).applyDelta(imageParagraphDelta({}))
-  sugg.get(PM_KEY).applyDelta(delta.create().modify(delta.create().retain(1).delete(1)).done()) // pending delete of the image
+  sugg.get(PM_KEY).applyDelta(delta.create().modify(/** @type {any} */ (delta.create().retain(1).delete(1))).done()) // pending delete of the image
   const view = createPMView(sugg.get(PM_KEY), renderer)
   try {
     const counter = installLoopBreaker([view])

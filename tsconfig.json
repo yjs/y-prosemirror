@@ -9,7 +9,6 @@
     "declarationMap": true,
     "noEmit": true,
     "outDir": "./dist",
-    "baseUrl": "./",
     "emitDeclarationOnly": true,
     "strict": true,
     "noImplicitAny": true,

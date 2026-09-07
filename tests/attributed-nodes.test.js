@@ -120,9 +120,9 @@ const setup = (attributedNodes, baseContent, seedDelta = delta.create().insert([
  **/
 const containerWithParagraph = (text) =>
   delta.create().insert([
-    delta.create('container', {}, [
+    /** @type {any} */ (delta.create('container', {}, [
       delta.create('paragraph', {}, text)
-    ])
+    ]))
   ]).done()
 
 /**

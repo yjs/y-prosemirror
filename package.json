@@ -12,6 +12,7 @@
     "clean": "rm -rf dist",
     "dist": "npm run clean && PRODUCTION=1 tsc --skipLibCheck --noEmit false && test -e dist/src/index.d.ts",
     "test": "node ./tests/index.node.js",
+    "bench": "node benchmarks/edit-roundtrip.mjs && node benchmarks/keystroke.mjs",
     "test:debug": "node --inspect-brk ./tests/index.node.js",
     "lint": "standard && tsc --skipLibCheck",
     "watch": "rollup -wc",
@@ -54,7 +55,7 @@
   "homepage": "https://github.com/yjs/y-prosemirror#readme",
   "dependencies": {
     "@y/y": "^14.0.0-rc.26",
-    "lib0": "^1.0.0-rc.31"
+    "lib0": "^1.0.0-rc.32"
   },
   "peerDependencies": {
     "@y/protocols": "^1.0.6-rc.1",
@@ -79,7 +80,7 @@
     "prosemirror-view": "^1.26.2",
     "rollup": "^4.52.5",
     "standard": "^17.0.0",
-    "typescript": "^5.9.3"
+    "typescript": "^6.0.3"
   },
   "engines": {
     "npm": ">=8.0.0",

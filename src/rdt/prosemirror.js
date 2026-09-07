@@ -463,11 +463,11 @@ export class ProsemirrorRdt extends ObservableV2 {
    * uses ProseMirror's fitting algorithm — the ytype fully overwrites the
    * ProseMirror content.
    *
-   * **Fail-safe**: a malformed foreign change — one positioned against a
-   * space this view never held (e.g. the upstream accept-cascade bug pinned
-   * as known issue 5 in tests/prosemirror-rdt.test.js) — leaves non-insert
-   * residue in `expected`, and the fix diff below is the first place that
-   * can notice. By then the dispatch has already committed, so the document
+   * **Fail-safe**: a malformed foreign change - one positioned against a
+   * space this view never held (e.g. the upstream accept-cascade bug of
+   * `@y/y` before 14.0.0-rc.26, known issue 5 in tests/prosemirror-rdt.test.js,
+   * resolved there) - leaves non-insert residue in `expected`, and the fix
+   * diff below is the first place that can notice. By then the dispatch has already committed, so the document
    * is the truth of the view: the error is reported through
    * `onInternalError` (errCode 2), the actual document is adopted as the new
    * state, and no fix is returned. Throwing instead would leave `_state`
