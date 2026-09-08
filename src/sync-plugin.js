@@ -10,6 +10,7 @@ import { ProsemirrorRdt } from './rdt/prosemirror.js'
 import { renderedAttributions } from './transformers/rendered-attributions.js'
 import { inlineAnonymousNodes } from './transformers/inline-anonymous-nodes.js'
 import { swallowFormats, defaultSwallowedFormats } from './transformers/swallow-formats.js'
+import { biasCaretLeft, isBackwardDeletion } from './suggestion-caret.js'
 import { bind, Binding } from 'lib0/delta/rdt'
 import * as dt from 'lib0/delta/transformer'
 import { ySyncPluginKey } from './keys.js'
@@ -189,6 +190,20 @@ const warnUnsupportedAttributionMarks = (schema) => {
  * @returns {Plugin}
  */
 export const syncPlugin = (opts = {}) => {
+  /**
+   * `-1` only while this plugin's `update` hook drives a pull, and read by
+   * `appendTransaction` for the fix dispatch that pull triggers - see
+   * {@link isBackwardDeletion} / {@link biasCaretLeft}. The window is
+   * synchronous (`pull` emits, lib0's binding runs the whole fix convergence,
+   * and the RDT dispatches back into this view, all before `pull` returns), so
+   * a plugin-instance-level variable cannot interleave between editors. The
+   * user's own transaction is applied *before* `update` runs, so its
+   * `appendTransaction` pass sees `0` and is untouched; remote changes arrive
+   * outside the window and keep ProseMirror's default right bias.
+   *
+   * @type {-1 | 0}
+   */
+  let caretBias = 0
   return new Plugin({
     key: ySyncPluginKey,
     state: {
@@ -210,6 +225,8 @@ export const syncPlugin = (opts = {}) => {
         return object.assign({}, prevPluginState, stateUpdate, stateUpdate.renderer == null ? { renderer: null } : {})
       }
     },
+    appendTransaction: (trs, oldState, newState) =>
+      caretBias === -1 ? biasCaretLeft(trs, oldState, newState) : null,
     view () {
       /**
        * @type {{ yRdt: YSyncRdt, pmRdt: ProsemirrorRdt, binding: import('lib0/delta/rdt').Binding<any, any> } | null}
@@ -342,7 +359,12 @@ export const syncPlugin = (opts = {}) => {
           // our own dispatch re-entering the hook — `applyDelta` handles state
           if (rdts.pmRdt.isApplying) return
           if (view.state.doc === prevState.doc) return
-          rdts.pmRdt.pull(prevState.doc)
+          caretBias = isBackwardDeletion(prevState.selection, view.state.selection) ? -1 : 0
+          try {
+            rdts.pmRdt.pull(prevState.doc)
+          } finally {
+            caretBias = 0
+          }
         },
         destroy () {
           teardown()

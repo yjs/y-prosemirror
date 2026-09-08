@@ -455,6 +455,20 @@ the released bindings.
 
 ### 🐛 Fixes
 
+- Repeated Backspace in suggestion mode now strikes one character per
+  keystroke ([#242](https://github.com/yjs/y-prosemirror/issues/242)).
+  A delete in suggestion mode keeps its content: the Y side turns it into a
+  pending delete and hands the content back as a fix, which the binding
+  re-inserts at the caret. ProseMirror maps a caret across an insertion at its
+  own position to the right, so the caret ended up behind the struck-through
+  character and every further Backspace hit content that was already
+  pending-deleted - a write Yjs reverts - and the user could delete only a
+  single character. The sync plugin now appends a caret correction to the fix
+  dispatch of a backward deletion, re-mapping the caret with a left bias so it
+  stays where the local delete left it (`src/suggestion-caret.js`). Forward
+  delete (`Delete`) keeps the right bias, so it keeps advancing past the
+  struck-through content as before, and remote changes are unaffected. The sync
+  engine itself is unchanged.
 - Schema-invalid nodes produced by concurrent edits (e.g. both paragraphs of
   a `block+` blockquote deleted by two peers) are dropped at construction and
   deleted from Y on every peer, the way the v1 binding handled them, instead

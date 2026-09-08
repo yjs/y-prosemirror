@@ -3,7 +3,7 @@ import * as Y from '@y/y'
 import * as delta from 'lib0/delta'
 import * as t from 'lib0/testing'
 import { Schema } from 'prosemirror-model'
-import { EditorState } from 'prosemirror-state'
+import { EditorState, TextSelection } from 'prosemirror-state'
 import { schema } from './complexSchema.js'
 import { Cohort, applyTracedOp, assertCohortConsistency, createPMView, setupTwoWaySync } from './cohort.js'
 
@@ -667,6 +667,169 @@ export const testBackspaceJoinInSuggestionMode = () => {
     viewSuggestion.state.doc,
     expectedSuggestionDoc,
     'View Suggestions: merged paragraph after join'
+  )
+}
+
+/**
+ * Repeated Backspace in suggestion mode (yjs/y-prosemirror#242).
+ *
+ * A delete in suggestion mode keeps its content: the Y side turns it into a
+ * *pending* delete and hands the character back as a fix, which the binding
+ * re-inserts at the caret. ProseMirror maps a caret across an insertion at its
+ * own position to the right, so without a bias the caret ends up behind the
+ * struck-through character again and every further Backspace hits content that
+ * is already pending-deleted - a write Yjs reverts. The user could delete only
+ * one character, no matter how often they pressed Backspace.
+ */
+export const testBackspaceRepeatedlyInSuggestionMode = () => {
+  const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({ baseContent: 'Hello world' })
+  const baseDoc = {
+    type: 'doc',
+    content: [
+      { type: 'paragraph', content: [{ type: 'text', text: 'Hello world' }] }
+    ]
+  }
+  // caret at the end of "Hello world"
+  safeDispatch(
+    viewSuggestionMode,
+    viewSuggestionMode.state.tr.setSelection(
+      TextSelection.create(viewSuggestionMode.state.doc, 12))
+  )
+  for (let i = 0; i < 5; i++) {
+    const head = viewSuggestionMode.state.selection.head
+    safeDispatch(viewSuggestionMode, viewSuggestionMode.state.tr.delete(head - 1, head))
+  }
+  assertDocJSON(viewA.state.doc, baseDoc, 'Client A unchanged')
+  const expectedDoc = {
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'Hello ' },
+          { type: 'text', text: 'world', marks: [deletionMark] }
+        ]
+      }
+    ]
+  }
+  assertDocJSON(
+    viewSuggestionMode.state.doc,
+    expectedDoc,
+    'Suggestion Mode: all five backspaces struck a character'
+  )
+  assertDocJSON(
+    viewSuggestion.state.doc,
+    expectedDoc,
+    'View Suggestions: all five backspaces struck a character'
+  )
+  t.assert(
+    viewSuggestionMode.state.selection.head === 7,
+    'caret sits before the struck-through text'
+  )
+}
+
+/**
+ * The counterpart of {@link testBackspaceRepeatedlyInSuggestionMode}: forward
+ * delete leaves the caret where it is, so the re-inserted pending delete must
+ * keep pushing it to the right. A blanket left bias would strand the caret in
+ * front of the struck character and stall the Delete key the same way #242
+ * stalled Backspace.
+ */
+export const testForwardDeleteRepeatedlyInSuggestionMode = () => {
+  const { viewSuggestion, viewSuggestionMode } = createSuggestionSetup({ baseContent: 'Hello world' })
+  // caret right after "Hello"
+  safeDispatch(
+    viewSuggestionMode,
+    viewSuggestionMode.state.tr.setSelection(
+      TextSelection.create(viewSuggestionMode.state.doc, 6))
+  )
+  for (let i = 0; i < 4; i++) {
+    const head = viewSuggestionMode.state.selection.head
+    safeDispatch(viewSuggestionMode, viewSuggestionMode.state.tr.delete(head, head + 1))
+  }
+  const expectedDoc = {
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'Hello' },
+          { type: 'text', text: ' wor', marks: [deletionMark] },
+          { type: 'text', text: 'ld' }
+        ]
+      }
+    ]
+  }
+  assertDocJSON(
+    viewSuggestionMode.state.doc,
+    expectedDoc,
+    'Suggestion Mode: all four forward deletes struck a character'
+  )
+  assertDocJSON(
+    viewSuggestion.state.doc,
+    expectedDoc,
+    'View Suggestions: all four forward deletes struck a character'
+  )
+  t.assert(
+    viewSuggestionMode.state.selection.head === 10,
+    'caret sits after the struck-through text'
+  )
+}
+
+/**
+ * Deleting a selection in suggestion mode leaves the caret in front of the
+ * struck-through range (not behind it), so the next Backspace continues into
+ * live content instead of hitting the pending delete.
+ */
+export const testDeleteSelectionThenBackspaceInSuggestionMode = () => {
+  const { viewSuggestionMode } = createSuggestionSetup({ baseContent: 'Hello world' })
+  safeDispatch(
+    viewSuggestionMode,
+    viewSuggestionMode.state.tr.setSelection(
+      TextSelection.create(viewSuggestionMode.state.doc, 7, 12))
+  )
+  safeDispatch(viewSuggestionMode, viewSuggestionMode.state.tr.deleteSelection())
+  assertDocJSON(
+    viewSuggestionMode.state.doc,
+    {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'Hello ' },
+            { type: 'text', text: 'world', marks: [deletionMark] }
+          ]
+        }
+      ]
+    },
+    'Suggestion Mode: the selected range is struck through'
+  )
+  t.assert(
+    viewSuggestionMode.state.selection.head === 7,
+    'caret sits before the struck-through range'
+  )
+  const head = viewSuggestionMode.state.selection.head
+  safeDispatch(viewSuggestionMode, viewSuggestionMode.state.tr.delete(head - 1, head))
+  assertDocJSON(
+    viewSuggestionMode.state.doc,
+    {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'Hello' },
+            { type: 'text', text: ' world', marks: [deletionMark] }
+          ]
+        }
+      ]
+    },
+    'Suggestion Mode: the backspace after the range delete struck the space'
+  )
+  t.assert(
+    viewSuggestionMode.state.selection.head === 6,
+    'caret moved on past the struck-through space'
   )
 }
 
