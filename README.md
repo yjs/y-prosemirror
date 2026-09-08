@@ -7,6 +7,12 @@
 > `@y/prosemirror` release, which adds support for Yjs v14 (`@y/y`). Most users
 > should continue to use the stable `y-prosemirror` package with Yjs v13 for now.
 > The documentation below applies to the stable `y-prosemirror` release.
+>
+> For the `@y/prosemirror` binding itself, see [`ARCHITECTURE.md`](./ARCHITECTURE.md)
+> (how the two sides are synced), [`ATTRIBUTION.md`](./ATTRIBUTION.md) (suggestion
+> mode, version diffs, and how to harden an existing editor schema for them), and
+> [`CAVEATS.md`](./CAVEATS.md) (known limits and design tradeoffs). Working demos
+> are listed under [Demos](#demos) below.
 
 This binding maps a Y.XmlFragment to the ProseMirror state.
 
@@ -16,6 +22,7 @@ This binding maps a Y.XmlFragment to the ProseMirror state.
 * Shared Cursors
 * Shared Undo / Redo (each client has its own undo-/redo-history)
 * Successfully recovers when concurrents edit result in an invalid document schema
+* Suggestion mode and version diffs, rendered as attribution marks (`@y/prosemirror`)
 
 ### Example
 
@@ -315,6 +322,28 @@ document changes that aren't initiated by the user.
 ```js
 tr.setMeta("addToHistory", false);
 ```
+
+## Demos
+
+All demos live in this repository and run against a [yhub](https://github.com/yjs/yhub)
+backend.
+
+> [!IMPORTANT]
+> The public yhub instance the demos point at enforces an origin allowlist: the
+> dev server **must** be reachable at `http://localhost:8000`. On any other port
+> the REST API answers 403 and the websocket handshake fails, which looks like a
+> broken demo but is not one.
+
+| demo | what it shows |
+| --- | --- |
+| [`yhub-tiptap-demo/`](./yhub-tiptap-demo/) | **The flagship.** Tiptap 3 with a hardened schema: suggestion mode (off / view / edit), accept & reject, version diffs over an activity timeline, rollback, shared cursors, Yjs-backed undo, tables, images - plus a schema-health panel that shows the attribution audit passing. `npm install && npm run dev`. |
+| [`yhub-demo/`](./yhub-demo/) | The same feature set on plain ProseMirror, without an editor framework. |
+| [`demo/`](./demo/) | A minimal ProseMirror setup, no backend. |
+
+If you are integrating suggestion mode into an existing editor, read
+[`ATTRIBUTION.md`](./ATTRIBUTION.md) ("Hardening an existing editor schema")
+alongside `yhub-tiptap-demo/src/schema.js` - a stock editor schema will not
+survive attributed rendering unchanged.
 
 ### License
 

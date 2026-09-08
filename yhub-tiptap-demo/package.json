@@ -12,15 +12,22 @@
   },
   "dependencies": {
     "@tiptap/core": "^3.13.0",
+    "@tiptap/extension-blockquote": "^3.24.0",
+    "@tiptap/extension-code": "^3.24.0",
+    "@tiptap/extension-code-block": "^3.24.0",
+    "@tiptap/extension-document": "^3.24.0",
     "@tiptap/extension-image": "^3.24.0",
+    "@tiptap/extension-link": "^3.24.0",
+    "@tiptap/extension-list": "^3.24.0",
     "@tiptap/extension-table": "^3.24.0",
+    "@tiptap/extensions": "^3.24.0",
     "@tiptap/pm": "^3.13.0",
     "@tiptap/starter-kit": "^3.13.0",
     "@y/prosemirror": "file:..",
     "@y/protocols": "^1.0.6-rc.1",
     "@y/websocket": "^4.0.0-rc.1",
-    "@y/y": "^14.0.0-rc.25",
-    "lib0": "^1.0.0-rc.29"
+    "@y/y": "^14.0.0-rc.26",
+    "lib0": "^1.0.0-rc.32"
   },
   "devDependencies": {
     "vite": "^6.0.0"

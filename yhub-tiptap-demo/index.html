@@ -295,13 +295,19 @@
          wholly-inserted <p> ends up wrapped in a sibling-level <y-ins>. That
          wrapper must not paint, otherwise the inline mark inside paints a second
          time on top. display:contents dissolves the wrapper from layout. */
-      y-ins:has(> p, > h1, > h2, > h3, > h4, > h5, > h6, > blockquote, > pre, > ul, > ol, > div, > table),
-      y-del:has(> p, > h1, > h2, > h3, > h4, > h5, > h6, > blockquote, > pre, > ul, > ol, > div, > table) {
+      y-ins:has(> p, > h1, > h2, > h3, > h4, > h5, > h6, > blockquote, > pre, > ul, > ol, > li, > div, > table, > tr, > td, > th),
+      y-del:has(> p, > h1, > h2, > h3, > h4, > h5, > h6, > blockquote, > pre, > ul, > ol, > li, > div, > table, > tr, > td, > th) {
         background: transparent;
         color: inherit;
         text-decoration: none;
         display: contents;
       }
+      /* `> tr, > td, > th, > li` matter as much as the rest: ProseMirror's
+         DOMSerializer wraps a node's DOM in each of its MARKS, so a
+         y-attributed-delete node mark on a tableRow renders
+         <y-del><tr>…</tr></y-del> INSIDE the <table>. Without display:contents
+         that wrapper sits between <table> and <tr> and destroys the table box
+         model. Same for a whole suggested list item. */
 
       /* A wholly inserted/deleted *block* carries the y-ins / y-del mark on the
          block NODE, so PM renders <y-ins><p>…</p></y-ins> / <y-del><p>…</p></y-del>.
@@ -321,6 +327,73 @@
         text-decoration-color: var(--user-color, #dc2626);
         text-decoration-thickness: 1.5px;
         background: color-mix(in srgb, var(--user-color, #dc2626) 14%, transparent);
+      }
+
+      /* ── Attributed cells / rows ────────────────────────────────────────
+         A row or column suggestion lands on the tr/td rather than on a block,
+         and the wrappers above are display:contents, so style the cell. */
+      y-ins > tr > td, y-ins > tr > th, y-ins > td, y-ins > th {
+        background: color-mix(in srgb, var(--user-color, #16a34a) 14%, transparent);
+      }
+      y-del > tr > td, y-del > tr > th, y-del > td, y-del > th {
+        background: color-mix(in srgb, var(--user-color, #dc2626) 14%, transparent);
+        text-decoration: line-through;
+        text-decoration-color: var(--user-color, #dc2626);
+      }
+
+      /* ── Relaxed `--attributed` variant node types ───────────────────────
+         These render the SAME tag as their canonical sibling plus
+         `data-y-attributed`, so every structural rule above still applies and
+         only the "this is the relaxed variant" affordance is new.
+
+         Their defining feature is that they may be EMPTY: a pending-deleted
+         container whose children were deleted for real in the base document
+         has no content at all, and without a min-height and a placeholder it
+         collapses to nothing - making the headline scenario look like a no-op
+         instead of the thing this schema exists to make possible. */
+      #editor .ProseMirror [data-y-attributed] {
+        position: relative;
+        min-height: 1.4em;
+        outline: 1px dashed color-mix(in srgb, var(--user-color, #dc2626) 55%, transparent);
+        outline-offset: 2px;
+        border-radius: 3px;
+      }
+      #editor .ProseMirror [data-y-attributed]::after {
+        content: 'relaxed';
+        position: absolute;
+        top: -8px;
+        right: 2px;
+        font-size: 8px;
+        letter-spacing: .4px;
+        text-transform: uppercase;
+        padding: 1px 4px;
+        border-radius: 6px;
+        color: #fff;
+        background: color-mix(in srgb, var(--user-color, #dc2626) 80%, #000);
+        pointer-events: none;
+        user-select: none;
+      }
+      /* Empty containers are now legal (the relaxed cardinality in schema.js is
+         what lets a concurrent emptying survive instead of cascading into the
+         deletion of the whole container). Make them visible and clickable. */
+      #editor .ProseMirror [data-y-attributed]:empty::before,
+      #editor .ProseMirror blockquote:empty::before,
+      #editor .ProseMirror li:empty::before,
+      #editor .ProseMirror ul:empty::before,
+      #editor .ProseMirror ol:empty::before {
+        content: '(empty)';
+        color: #9ca3af;
+        font-style: italic;
+        font-size: 12px;
+        user-select: none;
+      }
+      #editor .ProseMirror table:empty { min-height: 2em; display: block; }
+      #editor .ProseMirror td:empty, #editor .ProseMirror th:empty { min-width: 40px; min-height: 1.4em; }
+
+      /* Gutter bar for a container that carries attribution on the node itself
+         (extensions.js emits y-block-container / y-block-variant for these). */
+      #editor .ProseMirror .y-block-container {
+        box-shadow: inset 3px 0 0 color-mix(in srgb, var(--block-user-color, #7e57c2) 70%, transparent);
       }
 
       /* Deleted leaf/atom nodes (images): line-through is invisible on them, so
@@ -401,6 +474,88 @@
       }
 
       /* Right column */
+      /* ── Diagnostics: chips, schema panel, banner stack ─────────────────── */
+      .chip {
+        font-size: 11px;
+        font-weight: 600;
+        padding: 3px 8px;
+        border-radius: 10px;
+        border: 1px solid #d1d5db;
+        background: #f9fafb;
+        color: #374151;
+        cursor: help;
+        white-space: nowrap;
+      }
+      .chip-ok   { background: #ecfdf5; border-color: #6ee7b7; color: #047857; }
+      .chip-warn { background: #fffbeb; border-color: #fcd34d; color: #92400e; }
+      .chip-bad  { background: #fef2f2; border-color: #fca5a5; color: #b91c1c; }
+
+      #diagnostics-panel {
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        margin-bottom: 12px;
+        padding: 8px 10px;
+        font-size: 11px;
+        max-height: 280px;
+        overflow: auto;
+      }
+      #diagnostics-panel > summary { cursor: pointer; font-weight: 600; font-size: 12px; }
+      .diag-binding {
+        margin: 6px 0;
+        padding: 4px 6px;
+        background: #f3f4f6;
+        border-radius: 4px;
+        font-family: 'SF Mono', Monaco, monospace;
+        font-size: 10px;
+        color: #374151;
+        word-break: break-word;
+      }
+      .diag-h { margin: 8px 0 3px; font-weight: 600; color: #6b7280; text-transform: uppercase; font-size: 9px; letter-spacing: .5px; }
+      .diag-row { display: flex; gap: 6px; padding: 1px 0; align-items: baseline; }
+      .diag-name { flex: 0 0 auto; font-family: 'SF Mono', Monaco, monospace; font-size: 10px; }
+      .diag-note { flex: 1 1 auto; color: #9ca3af; font-size: 10px; word-break: break-word; }
+      .diag-pass .diag-name { color: #047857; }
+      .diag-fail .diag-name { color: #b91c1c; font-weight: 700; }
+      .diag-fail .diag-note { color: #b91c1c; }
+
+      #toast-stack {
+        position: fixed;
+        right: 12px;
+        bottom: 12px;
+        width: 380px;
+        max-width: 90vw;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        z-index: 9999;
+      }
+      .toast {
+        background: white;
+        border: 1px solid #d1d5db;
+        border-left-width: 4px;
+        border-radius: 5px;
+        padding: 6px 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,.12);
+        font-size: 11px;
+      }
+      .toast-error { border-left-color: #dc2626; }
+      .toast-warn  { border-left-color: #f59e0b; }
+      .toast-info  { border-left-color: #2563eb; }
+      .toast-head { display: flex; align-items: baseline; gap: 6px; }
+      .toast-title { flex: 1 1 auto; font-weight: 600; word-break: break-word; }
+      .toast-count { font-weight: 700; color: #b91c1c; }
+      .toast-close { border: none; background: none; cursor: pointer; color: #9ca3af; font-size: 12px; padding: 0 2px; }
+      .toast-detail {
+        margin: 4px 0 0;
+        font-family: 'SF Mono', Monaco, monospace;
+        font-size: 10px;
+        color: #6b7280;
+        white-space: pre-wrap;
+        max-height: 150px;
+        overflow: auto;
+      }
+
       .right-column {
         width: 340px;
         flex-shrink: 0;
@@ -609,6 +764,8 @@
           <button id="btn-accept-all" class="accept" style="display:none">Accept All</button>
           <button id="btn-reject-all" class="reject" style="display:none">Reject All</button>
         </div>
+        <span id="schema-chip" class="chip">Schema …</span>
+        <span id="valid-chip" class="chip">doc …</span>
         <span id="status" class="status">connecting</span>
       </div>
     </div>
@@ -618,6 +775,13 @@
         <div id="editor"></div>
       </div>
       <div class="right-column">
+        <!-- Schema health: the audit the binding runs at bind time (console-only)
+             plus the checks it cannot make. Collapsed by default. -->
+        <details id="diagnostics-panel">
+          <summary class="panel-title">Schema health</summary>
+          <div id="diag-binding" class="diag-binding"></div>
+          <div id="diag-schema"></div>
+        </details>
         <div id="activity-panel">
           <div class="panel-header">
             <span class="panel-title">Activity</span>
@@ -633,6 +797,7 @@
         </div>
       </div>
     </div>
+    <div id="toast-stack"></div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

@@ -1,7 +1,10 @@
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
-import { syncPlugin, yCursorPlugin, ySyncPluginKey, defaultMapAttributionToMark } from '@y/prosemirror'
+import {
+  syncPlugin, yCursorPlugin, yUndoPlugin, ySyncPluginKey,
+  defaultMapAttributionToMark, undoCommand, redoCommand
+} from '@y/prosemirror'
 import { userColorForId, initialsForName } from './user-colors.js'
 
 // ── y-prosemirror plugins, wrapped as Tiptap extensions ──────────────────────
@@ -13,13 +16,52 @@ import { userColorForId, initialsForName } from './user-colors.js'
 // `createExtension`.
 
 /**
+ * `mapAttributionToMark`, `attributedNodes` and `customCompare` live in the
+ * sync plugin's STATE, so they could in principle be swapped through a meta.
+ * `transformers` and `onInternalError` are CONSTRUCTION options - they are
+ * baked into the RDTs when the binding is built - which is why the demo drives
+ * them from URL flags and a reload rather than from the UI.
+ *
  * @param {object} [opts]
- * @param {Function} [opts.mapAttributionToMark]
+ * @param {AttributionMapper} [opts.mapAttributionToMark]
+ * @param {AttributedNodesPredicate} [opts.attributedNodes]
+ * @param {NodeCompare | null} [opts.customCompare]
+ * @param {Array<(($d: any) => any)>} [opts.transformers]
+ * @param {null | ((err: Error, errCode: number) => any)} [opts.onInternalError]
  */
 export const createYSyncExtension = (opts = {}) => Extension.create({
   name: 'ySync',
   addProseMirrorPlugins () {
-    return [syncPlugin({ mapAttributionToMark: opts.mapAttributionToMark ?? defaultMapAttributionToMark })]
+    return [syncPlugin({
+      mapAttributionToMark: opts.mapAttributionToMark ?? defaultMapAttributionToMark,
+      attributedNodes: opts.attributedNodes,
+      customCompare: opts.customCompare ?? null,
+      transformers: opts.transformers ?? [],
+      onInternalError: opts.onInternalError ?? null
+    })]
+  }
+})
+
+/**
+ * Yjs owns history, so StarterKit's `undoRedo` is disabled and this replaces
+ * it. Without it the demo has no undo at all.
+ *
+ * The UndoManager is per-`Y.Doc` (it hooks `doc.on('afterTransaction')` and its
+ * scope cannot span documents), and this demo binds three different docs - the
+ * live doc, the suggestion doc and a historical version doc - so main.js swaps
+ * the manager whenever it rebinds. See `setUndoManager` there.
+ *
+ * @param {import('@y/y').UndoManager} undoManager the manager for the initially bound doc
+ */
+export const createYUndoExtension = (undoManager) => Extension.create({
+  name: 'yUndo',
+  addProseMirrorPlugins () { return [yUndoPlugin(undoManager)] },
+  addKeyboardShortcuts () {
+    return {
+      'Mod-z': () => undoCommand(this.editor.state, this.editor.view.dispatch),
+      'Mod-y': () => redoCommand(this.editor.state, this.editor.view.dispatch),
+      'Mod-Shift-z': () => redoCommand(this.editor.state, this.editor.view.dispatch)
+    }
   }
 })
 
@@ -157,19 +199,43 @@ const summariseBlockAttribution = (blockNode) => {
 
 const blockAttributionPluginKey = new PluginKey('block-attribution-decorations')
 
+const ATTRIBUTION_MARK_SET = new Set([INSERT_MARK, DELETE_MARK, FORMAT_MARK, ATTRS_MARK])
+
+/**
+ * Whether the node itself carries an attribution NODE mark. A container that
+ * does is the case this walker exists for: a `blockquote--attributed` whose
+ * children were deleted for real in the base document has no textblock at all,
+ * so without this it would render as an invisible zero-height element with no
+ * gutter avatar and no strike bar - i.e. the headline suggestion-mode scenario
+ * would look like nothing happened.
+ *
+ * @param {import('@tiptap/pm/model').Node} node
+ */
+const hasAttributionNodeMark = (node) =>
+  node.marks.some(m => ATTRIBUTION_MARK_SET.has(m.type.name))
+
 /** @param {import('@tiptap/pm/state').EditorState} state */
 const buildBlockDecorations = (state) => {
   /** @type {Decoration[]} */
   const decos = []
   state.doc.descendants((node, pos) => {
-    if (!node.isBlock || !node.isTextblock) return true
+    if (!node.isBlock) return true
+    const isContainer = !node.isTextblock
+    // Containers only earn their own decoration when the attribution sits on
+    // the container node itself; otherwise we just descend and let the inner
+    // textblocks speak for themselves.
+    if (isContainer && !hasAttributionNodeMark(node)) return true
     const { users, edited, whollyInserted, whollyDeleted } = summariseBlockAttribution(node)
-    if (!edited) return false
+    // Always keep descending through a container so nested textblocks still get
+    // their own avatars.
+    if (!edited) return isContainer
     const primary = users[0] || null
     const secondary = users[1] || null
     let cls = 'y-block-edited'
     if (whollyInserted) cls += ' y-block-inserted'
     if (whollyDeleted) cls += ' y-block-deleted'
+    if (isContainer) cls += ' y-block-container'
+    if (node.type.name.endsWith('--attributed')) cls += ' y-block-variant'
     const attrs = /** @type {Record<string, string>} */ ({
       class: cls,
       'data-initials': primary ? initialsForName(primary) : '··',
@@ -180,7 +246,7 @@ const buildBlockDecorations = (state) => {
       attrs.style += `; --block-user-color-2: ${userColorForId(secondary)}`
     }
     decos.push(Decoration.node(pos, pos + node.nodeSize, attrs))
-    return false
+    return isContainer
   })
   return DecorationSet.create(state.doc, decos)
 }

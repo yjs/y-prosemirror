@@ -1,4 +1,5 @@
 /* eslint-env browser */
+import { undoCommand, redoCommand } from '@y/prosemirror'
 
 // ── Toolbar ──────────────────────────────────────────────────────────────────
 // Tiptap ships no built-in toolbar for the vanilla (non-React) build: you wire
@@ -13,12 +14,33 @@
  * @property {string} [title]
  * @property {string} [style]              extra inline CSS for the label
  * @property {(e: import('@tiptap/core').Editor) => boolean} [isActive]
- * @property {(c: any, e: import('@tiptap/core').Editor) => any} run  receives a focused chain
+ * @property {(c: any, e: import('@tiptap/core').Editor) => any} [run]  receives a focused chain
+ * @property {(e: import('@tiptap/core').Editor) => void} [command]  bypasses the chain entirely
+ * @property {(e: import('@tiptap/core').Editor) => boolean} [canRun]  extra enabled-state predicate
  * @property {boolean} [tableOnly]         only enabled/visible inside a table
  */
 
 /** @returns {ToolbarButton[][]} groups of buttons, separated visually */
 const buttonGroups = () => [
+  [
+    // Undo/redo go through y-prosemirror's commands, not a Tiptap chain: Yjs
+    // owns history (StarterKit's `undoRedo` is disabled). Calling them with
+    // `dispatch === undefined` is the documented dry-run form, which maps to
+    // `undoManager.canUndo()` - that is what greys the buttons out, including
+    // right after a mode switch, when the freshly bound manager's stack is empty.
+    {
+      label: '↶',
+      title: 'Undo (Mod-Z)',
+      command: e => { undoCommand(e.state, e.view.dispatch) },
+      canRun: e => undoCommand(e.state, undefined)
+    },
+    {
+      label: '↷',
+      title: 'Redo (Mod-Y / Mod-Shift-Z)',
+      command: e => { redoCommand(e.state, e.view.dispatch) },
+      canRun: e => redoCommand(e.state, undefined)
+    }
+  ],
   [
     { label: 'B', title: 'Bold', style: 'font-weight:700', isActive: e => e.isActive('bold'), run: c => c.toggleBold() },
     { label: 'I', title: 'Italic', style: 'font-style:italic', isActive: e => e.isActive('italic'), run: c => c.toggleItalic() },
@@ -89,7 +111,8 @@ export const setupToolbar = (editor) => {
       btn.addEventListener('mousedown', (e) => e.preventDefault())
       btn.addEventListener('click', () => {
         if (!editor.isEditable) return
-        cfg.run(editor.chain().focus(), editor).run()
+        if (cfg.command != null) cfg.command(editor)
+        else if (cfg.run != null) cfg.run(editor.chain().focus(), editor).run()
       })
       groupEl.appendChild(btn)
       registry.push({ btn, cfg })
@@ -104,6 +127,7 @@ export const setupToolbar = (editor) => {
     for (const { btn, cfg } of registry) {
       if (cfg.isActive) btn.classList.toggle('active', cfg.isActive(editor))
       if (cfg.tableOnly) btn.disabled = !inTable || !editable
+      else if (cfg.canRun != null) btn.disabled = !editable || !cfg.canRun(editor)
       else btn.disabled = !editable
     }
   }

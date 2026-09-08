@@ -1,20 +1,29 @@
 /* eslint-env browser */
 import * as Y from '@y/y'
-import { configureYProsemirror, acceptChanges, rejectChanges, acceptAllChanges, rejectAllChanges } from '@y/prosemirror'
+import {
+  configureYProsemirror, acceptChanges, rejectChanges, acceptAllChanges, rejectAllChanges,
+  yUndoPluginKey, ySyncPluginKey
+} from '@y/prosemirror'
 import { WebsocketProvider } from '@y/websocket'
 import { Editor } from '@tiptap/core'
-import StarterKit from '@tiptap/starter-kit'
-import { Image } from '@tiptap/extension-image'
-import { TableKit } from '@tiptap/extension-table'
-import { AttributedInsert, AttributedDelete, AttributedFormat, AttributedAttrs } from './attribution-marks.js'
-import { createYSyncExtension, createYCursorExtension, BlockAttributionExtension } from './extensions.js'
+import { createEditorExtensions, attributedNodes, strictListItemCompare } from './schema.js'
+import { createYSyncExtension, createYCursorExtension, createYUndoExtension, BlockAttributionExtension } from './extensions.js'
+import {
+  captureLibraryWarnings, reportInternalError, mountSchemaHealth, mountLiveDiagnostics, showToast
+} from './diagnostics.js'
 import { setupToolbar } from './toolbar.js'
 import { userColorForId } from './user-colors.js'
 import * as random from 'lib0/random'
 import * as buffer from 'lib0/buffer'
 
+// Surface the library's console-only diagnostics in the UI. Must run BEFORE the
+// editor is built: the bind-time schema audit fires the first time a renderer
+// is configured, which happens in initLiveEditor() below.
+captureLibraryWarnings()
+
+const params = new URLSearchParams(location.search)
 const userColor = { color: userColorForId('user-' + random.uint32()), light: '' }
-const org = 'yhub-pro-demo'
+const org = params.get('org') ?? 'yhub-pro-demo'
 
 // Derive room name from URL hash, or generate a random 6-char hex
 let roomName = location.hash.slice(1)
@@ -24,7 +33,10 @@ if (!roomName) {
 }
 const docid = roomName
 
-const yhubApiUrl = 'https://yhub-standalone-x9kss.ondigitalocean.app' // 'http://localhost:4400'
+// Override with `?api=http://localhost:4400` to point at a local yhub.
+// NOTE: the public instance enforces an origin allowlist - the dev server must
+// be on http://localhost:8000 (see vite.config.js).
+const yhubApiUrl = params.get('api') ?? 'https://yhub-standalone-x9kss.ondigitalocean.app'
 
 const ydoc = new Y.Doc()
 const wsUrl = yhubApiUrl + '/api/ws/v1/' + org
@@ -39,33 +51,58 @@ provider.awareness.setLocalStateField('user', {
 
 const editorParent = /** @type {HTMLElement} */ (document.querySelector('#editor'))
 
+// ── Suggestion documents ─────────────────────────────────────────────────────
+// Declared before the editor because the UndoManagers below need them, and the
+// editor needs an UndoManager.
+
+const suggestionDoc = new Y.Doc({ gc: false, isSuggestionDoc: true })
+const suggestionProvider = new WebsocketProvider(wsUrl, docid + '--suggestions', suggestionDoc, { params: { gc: false } })
+let suggestionOtherClientID = random.uint53()
+
+const suggestionRenderer = Y.createDiffRenderer(ydoc, suggestionDoc, { attributions: Y.createContentMap() })
+
+// ── Undo ─────────────────────────────────────────────────────────────────────
+//
+// One UndoManager PER BOUND DOC. `Y.UndoManager` hooks
+// `doc.on('afterTransaction')` and its scope cannot span documents, and this
+// demo binds three: the live doc, the suggestion doc, and (in version view) a
+// historical doc. `rebind()` swaps the manager along with the ytype.
+//
+// `trackedOrigins: new Set()` is deliberate - NOT the default `new Set([null])`.
+// The only origin worth tracking is the sync plugin instance, which
+// `yUndoPlugin`'s bind adds for us; that is exactly "the edits this user made
+// through the editor", and it keeps renderer-driven writes (accept/reject) and
+// provider writes out of the history.
+/** @param {any} ytype */
+const mkUndoManager = (ytype) => new Y.UndoManager(ytype, { trackedOrigins: new Set() })
+
+const liveUndoManager = mkUndoManager(yxmlFragment)
+const suggestionUndoManager = mkUndoManager(suggestionDoc.get('prosemirror'))
+
 // ── Tiptap editor ────────────────────────────────────────────────────────────
 //
-// We wire y-prosemirror's syncPlugin / yCursorPlugin and the block-attribution
-// gutter directly as Tiptap extensions (NOT via @tiptap/extension-collaboration,
-// which targets the old binding). StarterKit's undo/redo is disabled because yjs
-// owns history — leaving it on corrupts the CRDT-synced doc and fights the
-// full-doc replaceWith that configureYProsemirror performs.
+// We wire y-prosemirror's syncPlugin / yCursorPlugin / yUndoPlugin and the
+// block-attribution gutter directly as Tiptap extensions (NOT via
+// @tiptap/extension-collaboration, which targets the old binding).
+//
+// The schema comes from ./schema.js, which relaxes the content expressions that
+// are not concurrency-safe, declares the four reserved attribution marks on
+// every node that can hold attributable content, and adds the relaxed
+// `--attributed` variants. See that file for the full rationale.
 const editor = new Editor({
   element: editorParent,
   extensions: [
-    StarterKit.configure({ undoRedo: false }),
-    // Block image (a leaf/atom node). When wholly inserted/deleted in suggestion
-    // mode, attribution lands on it as a `y-attributed-*` node mark — the default
-    // Image node does not restrict marks, so this is accepted (ATTRIBUTION §2).
-    Image.configure({ inline: false, allowBase64: true }),
-    // Tables. Note (CAVEATS "Schema mismatches under concurrency"): table content
-    // expressions use `+` cardinality (`tableRow+`, cell `block+`), which is not
-    // concurrency-safe — concurrent structural edits can produce a schema-invalid
-    // table that the binding must reshape. Fine for a demo; structural ops
-    // (split/merge cells) are best-effort under suggestion mode.
-    TableKit.configure({ table: { resizable: true } }),
-    AttributedInsert,
-    AttributedDelete,
-    AttributedFormat,
-    AttributedAttrs,
-    createYSyncExtension(),
+    ...createEditorExtensions(),
+    createYSyncExtension({
+      attributedNodes,
+      // Off by default: after the relaxation in schema.js, rendering the old
+      // block next to the new one is better suggestion UX than replacing the
+      // container wholesale. `?compare=strict` demonstrates the alternative.
+      customCompare: params.get('compare') === 'strict' ? strictListItemCompare : null,
+      onInternalError: reportInternalError
+    }),
     createYCursorExtension(provider.awareness),
+    createYUndoExtension(liveUndoManager),
     BlockAttributionExtension
   ],
   content: '',
@@ -74,26 +111,12 @@ const editor = new Editor({
 
 const view = editor.view
 
-// ── Allow y-attributed-* marks on every node (esp. block containers) ──────────
-// When a *whole block* is inserted/deleted in suggestion mode, the binding puts
-// the y-attributed-* mark on the block NODE itself (e.g. a paragraph), and
-// ProseMirror validates that mark against the PARENT node's allowed marks.
-// Non-textblock containers (doc, blockquote, listItem, tableCell/Header, …)
-// default to allowing NO marks, so the binding throws
-// `RangeError: Invalid content for node …` and block-level attribution silently
-// never renders — which is why a wholly inserted/deleted block shows nothing.
-// ATTRIBUTION.md §2 calls this the most common integration pitfall and
-// recommends extending the affected node types' markSet after construction.
-// Textblocks already allow all marks (markSet === null); for every other node
-// type we add the three attribution marks.
-const attributionMarkTypes = ['y-attributed-insert', 'y-attributed-delete', 'y-attributed-format', 'y-attributed-attrs']
-  .map(name => editor.schema.marks[name])
-for (const nodeName in editor.schema.nodes) {
-  const nodeType = editor.schema.nodes[nodeName]
-  if (nodeType.markSet == null) continue // null = all marks already allowed
-  const missing = attributionMarkTypes.filter(markType => !nodeType.markSet.includes(markType))
-  if (missing.length > 0) nodeType.markSet = [...nodeType.markSet, ...missing]
-}
+// The attribution marks are now whitelisted IN THE SCHEMA (see schema.js), so
+// the runtime `nodeType.markSet` patch this demo used to carry here is gone.
+// That patch worked, but it also masked the very thing the schema panel is
+// meant to prove - it made a non-compliant schema look compliant at runtime
+// while the bind-time audit still reported the truth.
+mountSchemaHealth(editor.schema)
 
 // Tiptap owns `dispatchTransaction`, so the plain-PM demo's try/catch around
 // updateState can't be set via the constructor. Override it on the view after
@@ -112,6 +135,7 @@ view.setProps({
     } catch (e) {
       if (e instanceof RangeError) {
         console.debug('ignored RangeError during dispatch:', e.message)
+        showToast({ kind: 'warn', title: 'Ignored RangeError during dispatch', detail: e.message })
       } else {
         throw e
       }
@@ -123,14 +147,8 @@ view.setProps({
 setupToolbar(editor)
 
 // ── Suggestion Mode ──
-
-const suggestionDoc = new Y.Doc({ gc: false, isSuggestionDoc: true })
-const suggestionProvider = new WebsocketProvider(wsUrl, docid + '--suggestions', suggestionDoc, { params: { gc: false } })
-let suggestionOtherClientID = random.uint53()
-
-console.log({ suggestionDoc, suggestionProvider })
-
-const suggestionRenderer = Y.createDiffRenderer(ydoc, suggestionDoc, { attributions: Y.createContentMap() })
+// (suggestionDoc / suggestionProvider / suggestionRenderer are declared above,
+// because the UndoManagers and the editor depend on them.)
 
 const elemSelectSuggestionMode = /** @type {HTMLSelectElement} */ (document.querySelector('#select-suggestion-mode'))
 const btnAcceptChanges = /** @type {HTMLButtonElement} */ (document.querySelector('#btn-accept-changes'))
@@ -139,6 +157,46 @@ const btnAcceptAll = /** @type {HTMLButtonElement} */ (document.querySelector('#
 const btnRejectAll = /** @type {HTMLButtonElement} */ (document.querySelector('#btn-reject-all'))
 
 let previousMode = 'off'
+
+/**
+ * Point the yUndoPlugin at a different UndoManager.
+ *
+ * An UndoManager is bound to one Y.Doc, so switching the bound ytype must
+ * switch the manager too. `yUndoPlugin`'s `view().update` hook implements the
+ * rebind (unhook the old manager's stack handlers and drop the sync plugin from
+ * its trackedOrigins, then bind the new one); the `yUndoPluginKey` meta is what
+ * reaches it.
+ *
+ * @param {import('@y/y').UndoManager} next
+ */
+const setUndoManager = (next) => {
+  if (yUndoPluginKey.getState(view.state)?.undoManager === next) return
+  view.dispatch(view.state.tr.setMeta(yUndoPluginKey, { undoManager: next }))
+  // Don't let post-switch edits merge into a stack item captured before it.
+  next.stopCapturing()
+}
+
+/**
+ * Bind the editor to a (ytype, renderer, undoManager) triple.
+ *
+ * Re-binding re-renders the whole document, and any schema normalization the
+ * view performs on the way is written back to Y with the sync plugin as origin.
+ * Without suspending capture that would land on the OUTGOING manager's stack as
+ * one giant stack item, so the origin is dropped for the duration of the swap.
+ *
+ * @param {{ ytype: any, renderer: any, undoManager: import('@y/y').UndoManager, editable: boolean }} target
+ */
+const rebind = (target) => {
+  const syncPluginInstance = ySyncPluginKey.get(view.state)
+  const current = yUndoPluginKey.getState(view.state)?.undoManager
+  if (current != null && syncPluginInstance != null) {
+    current.trackedOrigins.delete(syncPluginInstance)
+  }
+  editor.setEditable(target.editable)
+  configureYProsemirror({ ytype: target.ytype, renderer: target.renderer })(view.state, view.dispatch)
+  setUndoManager(target.undoManager)
+  target.undoManager.stopCapturing()
+}
 
 const updateSuggestionButtons = () => {
   const mode = elemSelectSuggestionMode.value
@@ -163,20 +221,8 @@ elemSelectSuggestionMode.addEventListener('change', () => {
     })
   }
 
-  if (mode === 'off') {
-    configureYProsemirror({
-      ytype: yxmlFragment,
-      renderer: null
-    })(view.state, view.dispatch)
-  } else {
-    suggestionRenderer.suggestionMode = mode === 'edit'
-    configureYProsemirror({
-      ytype: suggestionDoc.get('prosemirror'),
-      renderer: suggestionRenderer
-    })(view.state, view.dispatch)
-  }
+  applyMode()
   previousMode = mode
-  updateSuggestionButtons()
 })
 
 btnAcceptChanges.addEventListener('click', () => {
@@ -199,26 +245,41 @@ btnRejectAll.addEventListener('click', () => {
 
 // ── Editor Init ──
 
-const initLiveEditor = () => {
-  editor.setEditable(true)
+/**
+ * Bind whichever live document the suggestion selector currently names.
+ *
+ * Note that `view` -> `edit` keeps BOTH the same ytype and the same renderer
+ * object (only `renderer.suggestionMode` changes), so `configureYProsemirror`
+ * correctly decides there is nothing to re-bind and dispatches nothing.
+ *
+ * Suggestion `view` mode stays EDITABLE on purpose: with
+ * `suggestionMode === false` the DiffRenderer bridges local edits into the base
+ * document, which is the "edit the real document while seeing other people's
+ * suggestions" mode.
+ */
+const applyMode = () => {
   const mode = elemSelectSuggestionMode.value
   if (mode === 'off') {
-    configureYProsemirror({
-      ytype: yxmlFragment,
-      renderer: null
-    })(view.state, view.dispatch)
+    rebind({ ytype: yxmlFragment, renderer: null, undoManager: liveUndoManager, editable: true })
   } else {
     suggestionRenderer.suggestionMode = mode === 'edit'
-    configureYProsemirror({
+    rebind({
       ytype: suggestionDoc.get('prosemirror'),
-      renderer: suggestionRenderer
-    })(view.state, view.dispatch)
+      renderer: suggestionRenderer,
+      undoManager: suggestionUndoManager,
+      editable: true
+    })
   }
+  updateSuggestionButtons()
+}
+
+const initLiveEditor = () => {
+  applyMode()
   if (versionDoc !== null) {
     versionDoc.destroy()
     versionDoc = null
   }
-  updateSuggestionButtons()
+  versionUndoManager = null
 }
 
 /**
@@ -228,6 +289,9 @@ const initLiveEditor = () => {
  */
 let versionDoc = null
 
+/** @type {import('@y/y').UndoManager | null} */
+let versionUndoManager = null
+
 /**
  * Renders a historical diff from a /changeset response: `doc` is the document
  * as it was at the range's `to` (partially gc'd, deletes in range restorable),
@@ -236,17 +300,51 @@ let versionDoc = null
  * @param {Y.ContentMap} attributions
  */
 const initVersionDiffEditor = (doc, attributions) => {
-  editor.setEditable(false)
   const renderer = Y.createAttributionsRenderer(attributions)
-  configureYProsemirror({
+  // A fresh manager for the historical doc. Its stack starts empty, so Mod-Z in
+  // version view is a no-op rather than a mutation of a document the user is
+  // only reading. No explicit destroy is needed - `Y.UndoManager` registers
+  // `doc.on('destroy', ...)` and the previous versionDoc is destroyed below.
+  versionUndoManager = mkUndoManager(doc.get('prosemirror'))
+  rebind({
     ytype: doc.get('prosemirror'),
-    renderer
-  })(view.state, view.dispatch)
+    renderer,
+    undoManager: versionUndoManager,
+    editable: false
+  })
   if (versionDoc !== null) versionDoc.destroy()
   versionDoc = doc
 }
 
 initLiveEditor()
+
+// Live indicators: doc.check() validity + what the binding is actually bound to.
+mountLiveDiagnostics(editor, (ytype) => {
+  if (ytype == null) return 'none (paused)'
+  if (ytype === yxmlFragment) return 'live'
+  if (versionDoc != null && ytype === versionDoc.get('prosemirror')) return 'historical'
+  if (ytype === suggestionDoc.get('prosemirror')) return 'suggestion'
+  return 'unknown'
+})
+
+// A debugging handle. The manual verification script in the README asks you to
+// inspect these from the console (e.g. `__demo.view.state.doc.check()`, or
+// `JSON.stringify(__demo.view.state.doc.toJSON()).includes('--attributed')`
+// after accepting a suggestion).
+// @ts-ignore
+window.__demo = {
+  editor,
+  view,
+  ydoc,
+  yxmlFragment,
+  suggestionDoc,
+  suggestionRenderer,
+  provider,
+  suggestionProvider,
+  undoManagers: { live: liveUndoManager, suggestion: suggestionUndoManager },
+  keys: { ySyncPluginKey, yUndoPluginKey },
+  Y
+}
 
 // ── Connection Status ──
 
@@ -264,6 +362,31 @@ openTabBtn.style.cssText = 'padding:4px 10px;font-size:12px;font-weight:500;bord
 openTabBtn.addEventListener('click', () => { window.open(location.href, '_blank') })
 const headerRight = /** @type {HTMLElement} */ (document.querySelector('.header-right'))
 headerRight.insertBefore(openTabBtn, headerRight.firstChild)
+
+// ── Offline toggle ───────────────────────────────────────────────────────────
+//
+// The concurrency scenarios this schema exists to survive (two peers each
+// deleting a different row / list item, so the container ends up empty) are not
+// reproducible while both tabs are online: their edits serialize. Disconnect
+// BOTH providers - dropping only the main one would still let a "concurrent"
+// suggestion sync through the suggestion channel.
+
+let online = true
+const connBtn = document.createElement('button')
+connBtn.style.cssText = openTabBtn.style.cssText
+const renderConn = () => { connBtn.textContent = online ? '🔌 Go offline' : '⚡ Go online' }
+connBtn.addEventListener('click', () => {
+  online = !online
+  for (const p of [provider, suggestionProvider]) {
+    if (online) p.connect()
+    else p.disconnect()
+  }
+  renderConn()
+  statusEl.textContent = online ? 'connecting' : 'offline (manual)'
+  statusEl.className = 'status ' + (online ? 'connecting' : 'disconnected')
+})
+renderConn()
+headerRight.insertBefore(connBtn, headerRight.firstChild)
 
 // ── Activity Panel ──
 //

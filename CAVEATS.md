@@ -97,7 +97,7 @@ This is inherent to ProseMirror schemas, not specific to Yjs. `prosemirror-colla
 ### Recommendations for schema authors
 
 - **Prefer `*` over `+` and over bounded repetitions `{n,m}`.** `paragraph*` and `image*` are concurrency-safe; `paragraph+` and `image{2,4}` are not. Use the stricter form only when implicit deletion of the parent on invalidation is an acceptable outcome (for blockquote, it arguably is - an empty blockquote is meaningless anyway).
-- **Consider explicit "invalid-schema" node variants.** Define relaxed variant node types that only the binding can produce - never the user. When concurrent edits would produce an invalid parent, the binding can reshape into the relaxed variant rather than drop content. User-generated content still has to conform to the strict schema.
+- **Consider explicit "invalid-schema" node variants.** Define relaxed variant node types that only the binding can produce - never the user. When concurrent edits would produce an invalid parent, the binding can reshape into the relaxed variant rather than drop content. User-generated content still has to conform to the strict schema. This is implemented: it is the `attributedNodes` option plus a `{nodeName}--attributed` type, described in [`ATTRIBUTION.md`](./ATTRIBUTION.md) ("Rendering attributed nodes under a variant node type"). Note the scope, though - `attributedNodes` is consulted only for *attributed* nodes, so a variant helps in suggestion mode and version diffs but does nothing for the plain concurrent-emptying case above; only relaxing the canonical expression fixes that one.
 
 **Status:** implemented. We resolve it the way the previous binding did, at node-construction time: `deltaToPNode` drops a node whose content no longer satisfies its content expression, and the fix loop deletes that node from Yjs on every peer that renders the merged state, so all peers converge without writing per-peer schema fillers. The document node is never dropped; it is filled through `createAndFill` as before. We no longer fill any other node either, so content written to Yjs by non-ProseMirror clients has to be schema-complete or it is dropped. Mark constraints are not part of this check (see "Attribution mark names are fixed" below). Integrators still need to be aware of the failure mode, because a concurrent edit can cascade into the deletion of a larger structure.
 
@@ -117,6 +117,8 @@ Without this, the binding has no choice but to drop invalid content, silently di
 One case cannot be dropped: a node that is already a *pending delete* and then loses its required content (its paragraphs are deleted for real in the base document while the suggestion is still open). The Y side keeps rendering a pending delete until it is resolved, so deleting it from the view would be re-inserted and filling it would be reverted by `@y/y`; either would loop forever. We render such a node as-is instead: an empty struck-through blockquote that is not a valid ProseMirror node (`doc.check()` fails while it is on screen). It disappears as soon as the deletion is accepted or a peer editing the base document drops it for real. A relaxed `<name>--attributed` variant (the invalid-node variant from the previous section) makes that state schema-valid. This handling keys on the reserved `y-attributed-delete` format, so a `mapAttributionToMark` that omits the delete kind loses it.
 
 The same rules cover a *required attribute* (one without a schema default) that Y does not hold. Y does not validate schemas, so a peer with a different schema can write an image without its `src`. On a live node that is schema-invalid content and the node is dropped, exactly like content the schema rejects. On a pending delete the attribute is held as `null` instead (ProseMirror accepts `null`, only `undefined` is "missing"), and the view never writes it back: a fix that would land inside a pending-deleted node is not sent, because `@y/y` would revert it and the fix loop would never settle. Inside a pending delete the projection is best-effort and read-only.
+
+See [`ATTRIBUTION.md`](./ATTRIBUTION.md) ("Hardening an existing editor schema") for the concrete recipe - including the fact that a `--attributed` variant can only be reached through a `group`, never by name - and [`yhub-tiptap-demo/src/schema.js`](./yhub-tiptap-demo/src/schema.js) for a schema that implements it against a stock Tiptap StarterKit + tables setup.
 
 **Status:** addressable; integrators need to be aware.
 
@@ -195,6 +197,25 @@ Two integration constraints follow from how the sync binding consumes the ytype'
 - **Wrapping binding-driven ProseMirror dispatches in your own `ydoc.transact(...)` is supported but degrades the fast path.** The write the binding issues then merges into your transaction: its events and cache patch defer, so the binding falls back to the legacy full-render diffing (the "uncertain window") until your transaction's cleanup queue drains. Correctness is preserved - the merged emission, which carries *your* origin and contains the binding's own write, is netted out by diffing rather than double-applied - but the O(doc) render cost returns for the duration of the window.
 
 - **Do not write to `ytype.doc` synchronously from inside a binding-initiated dispatch** (e.g. a ProseMirror plugin reacting to a `y-sync-transaction` by mutating the Y document in the same call stack). The resulting `'delta'` emission fires while the binding's echo mutex is held and is dropped; the content only reaches the other side after the next unrelated change re-syncs the affected region. This was already lossy before the native-payload refactor. Dispatch such writes asynchronously (microtask) instead.
+
+## Editor plugins that repair the document
+
+A ProseMirror plugin whose `appendTransaction` *fixes up* the document is a hazard next to this binding. `prosemirror-tables`' `fixTables` (installed by `tableEditing`), Tiptap's `TrailingNode`, and `Link`'s autolink all fire on the binding's own dispatches, and the sync plugin's `update` pull then writes the repair into Y. A rendering artifact of the attributed projection becomes real content on every peer - and in a version-diff view it mutates a historical document the user is only reading.
+
+`fixTables` is the sharpest case. An attributed table legitimately holds a pending-deleted row next to an inserted one, which `TableMap` reports as ragged; `fixTable` pads short rows and **deletes zero-sized tables outright**.
+
+Gate such plugins on two conditions:
+
+- `ySyncPluginKey.getState(state).renderer != null` - a renderer is configured, so the document on screen is a projection of the Y side's attribution dimension, not content anybody authored. Nothing may repair it.
+- `trs.some(tr => tr.getMeta('y-sync-transaction') != null)` - the batch came from the binding. This matters *even in plain live mode*: without it every peer repairs the same incoming remote change independently and writes conflicting repairs back into Y.
+
+The plugin's own spec cannot simply be re-implemented (`tableEditing` depends on `drawCellSelection`, `handleMouseDown`, `handleTripleClick`, `handleKeyDown` and `normalizeSelection`, none of which `prosemirror-tables` exports). Build the stock plugin and rebuild it around a guarded copy of its spec instead: `EditorState` reads `plugin.spec.appendTransaction` at call time and `spec.key` rides along with the spread, so the plugin's key, state field and handlers keep working.
+
+Watch for DOM-event handlers as well as `appendTransaction`. `columnResizing` writes `colwidth` via `setNodeMarkup` on mouse drag and never consults `view.editable`, and `Table.addProseMirrorPlugins` evaluates `resizable && editor.isEditable` once at construction while `Editor.setEditable` does not rebuild plugins - so a read-only version-diff view still lets the user drag column borders, and the write lands in the historical document. Gate its `handleDOMEvents` on the renderer too (but *only* its - gating `tableEditing`'s would also kill cell selection in suggestion mode).
+
+One consequence to accept: with the guard in place, a table that arrives ragged from Y in live mode is never repaired by anyone. That is fine as long as the row content expression permits it (`(tableCell | tableHeader)*`), since a ragged table is then schema-valid and `TableMap` renders it with `problems` set.
+
+See `yhub-tiptap-demo/src/guards.js` for a worked implementation, and [`ATTRIBUTION.md`](./ATTRIBUTION.md) ("Hardening an existing editor schema") for the schema side.
 
 ## Visualizing attributed content
 

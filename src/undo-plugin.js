@@ -175,6 +175,34 @@ export const yUndoPlugin = (undoManager) => {
         })
       },
       apply: (tr, val, oldState, newState) => {
+        // Supported UndoManager swap: dispatch
+        // `tr.setMeta(yUndoPluginKey, { undoManager })`. The `view().update`
+        // hook below already implements the rebind correctly (unhook the old
+        // manager's stack handlers and drop the sync plugin from its
+        // trackedOrigins, then bind the new one) - it was simply unreachable,
+        // because `undoManager` is captured in `state.init` and nothing else
+        // replaces it.
+        //
+        // This is needed whenever one editor is re-bound to a different Y.Doc:
+        // an UndoManager hooks `afterTransaction` on a single doc and its scope
+        // cannot span documents, so suggestion mode and version diffs (which
+        // bind a suggestion doc and a historical doc respectively) each need
+        // their own manager. Re-registering the plugin is NOT an alternative:
+        // any change to the plugin array makes ProseMirror destroy and recreate
+        // every plugin view, which tears down the sync binding, and the sync
+        // plugin only rebuilds it when the ytype/renderer identity changes.
+        const swap = tr.getMeta(yUndoPluginKey)
+        if (swap != null && swap.undoManager != null && swap.undoManager !== val.undoManager) {
+          val = {
+            ...val,
+            undoManager: swap.undoManager,
+            // the outgoing manager's bookmark refers to the outgoing document
+            prevSel: null,
+            hasUndoOps: swap.undoManager.undoStack.length > 0,
+            hasRedoOps: swap.undoManager.redoStack.length > 0,
+            addToHistory: true
+          }
+        }
         const addToHistory = updateTrackedOrigins(
           tr, val.undoManager, newState, val.addToHistory
         )
