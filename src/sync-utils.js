@@ -575,10 +575,11 @@ export function fragmentToTr (fragment, tr, {
  * Transforms a {@link Y.XmlFragment} into a {@link Node}
  * @param {Y.Node} fragment
  * @param {import('prosemirror-state').Transaction} tr
+ * @param {Parameters<typeof fragmentToTr>[2]} [ctx]
  * @return {Node}
  */
-export function fragmentToPm (fragment, tr) {
-  return fragmentToTr(fragment, tr).doc
+export function fragmentToPm (fragment, tr, ctx) {
+  return fragmentToTr(fragment, tr, ctx).doc
 }
 
 /**
