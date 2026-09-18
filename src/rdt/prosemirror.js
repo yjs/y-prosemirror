@@ -157,7 +157,10 @@ const touchesAttributionSpace = format => {
  *
  * - a local edit diverges the doc from the default fingerprint → `pull` emits
  *   `diff(empty, doc)`, one full-content insert that validly seeds the empty
- *   ytype through the normal pipeline;
+ *   ytype through the normal pipeline. When `initialContentCompare` is set,
+ *   `pull` asks it again on every change while the gate holds: a doc that is
+ *   still initial content just moves the gate to the new fingerprint instead
+ *   of being written to Y;
  * - a foreign delta arrives → `applyDelta` force-renders the whole document
  *   from `expected` (never incremental steps, which could keep the stale
  *   skeleton next to the foreign content and leak it into Y via the fix).
@@ -200,6 +203,15 @@ export class ProsemirrorRdt extends ObservableV2 {
     this.compare = compare ?? undefined
     this.getMeta = getMeta
     this._onInternalError = onInternalError
+    /**
+     * The integrator's "is this still the starter doc?" check, kept so
+     * `pull` can ask again while the gate holds. Without this, a re-created
+     * starter doc (new fingerprint, still initial content) would be mistaken
+     * for real content and written to Y.
+     *
+     * @type {InitialContentCompare?}
+     */
+    this._initialContentCompare = initialContentCompare
     this.$delta = $prosemirrorDelta
     const snapshot = nodeToDeltaCached(view.state.doc)
     const dflt = gateInitialContent && initialContentCompare == null ? view.state.doc.type.createAndFill() : null
@@ -407,6 +419,13 @@ export class ProsemirrorRdt extends ObservableV2 {
       // the skeleton must not leak into Y — not even via a transaction that
       // changed the doc and changed it back (see class doc)
       if (next.fingerprint === this._defaultFingerprint) return
+      // Still the starter doc, only with a new fingerprint (e.g. re-created
+      // with different attrs)? Memorize the new fingerprint and keep holding
+      // the gate instead of writing the starter doc to Y.
+      if (this._initialContentCompare != null && this._initialContentCompare(doc)) {
+        this._defaultFingerprint = next.fingerprint
+        return
+      }
       this._defaultFingerprint = null
     }
     // The cursor as a diff placement hint: within a run of identical

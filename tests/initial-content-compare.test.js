@@ -22,11 +22,30 @@ const singleEmptyParagraphIsInitial = (doc) =>
 
 /**
  * `doc(paragraph(""))` - non-default for this schema, but "initial" per the
- * predicate above.
+ * paragraph predicate above.
  *
  * @return {import('prosemirror-model').Node}
  */
 const emptyParagraphDoc = () => schema.nodes.doc.create(null, schema.nodes.paragraph.create())
+
+/**
+ * Treat a document holding exactly one `custom` block as the starter doc,
+ * whatever its `checked` value is.
+ *
+ * @type {InitialContentCompare}
+ */
+const singleCustomIsInitial = (doc) =>
+  doc.childCount === 1 &&
+  doc.firstChild?.type.name === 'custom'
+
+/**
+ * `doc(custom(checked))` - not the schema default, but a starter doc for
+ * any `checked` value.
+ *
+ * @param {boolean} checked
+ * @return {import('prosemirror-model').Node}
+ */
+const customDoc = (checked) => schema.nodes.doc.create(null, schema.nodes.custom.create({ checked }))
 
 /**
  * `doc(paragraph("hi"))` - neither the schema default nor "initial" per the
@@ -66,7 +85,7 @@ const getPmRdt = view => /** @type {any} */ (YPM.ySyncPluginKey.getState(view.st
 /**
  * The custom predicate arms the initial-content gate for a document the
  * default check would let through: nothing is written to the empty ytype,
- * and the first real edit clears the gate and seeds the ytype.
+ * and the first real edit clears the gate and writes to the ytype.
  *
  * @param {t.TestCase} _tc
  */
@@ -84,7 +103,7 @@ export const testInitialContentCompareGatesCustomInitial = (_tc) => {
     )
     view.dispatch(view.state.tr.insertText('hi', 1))
     t.assert(rdt._defaultFingerprint == null, 'gate cleared by the first real edit')
-    t.assert(ytype.length === 1, 'the edit seeded the ytype')
+    t.assert(ytype.length === 1, 'the edit was written to the ytype')
     t.compare(
       /** @type {any} */ (YPM.docToDelta(view.state.doc).done(false)),
       /** @type {any} */ (ytype.toDeltaDeep()),
@@ -110,6 +129,42 @@ export const testInitialContentCompareYtypeWinsWhenNotInitial = (_tc) => {
     t.assert(getPmRdt(view)._defaultFingerprint == null, 'gate is not armed for a non-initial doc')
     t.assert(view.state.doc.childCount === 0, 'the empty ytype wins immediately: editor content is replaced')
     t.assert(ytype.length === 0, 'nothing is written to the ytype')
+  } finally {
+    view.destroy()
+  }
+}
+
+/**
+ * If the starter doc is re-created with a different attribute (new
+ * fingerprint, still initial content), nothing may be written to Y - and the
+ * next real edit must still write exactly itself.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testInitialContentCompareRecreatedStarterStaysOutOfY = (_tc) => {
+  const ydoc = new Y.Doc({ gc: false })
+  const ytype = ydoc.get('prosemirror')
+  const view = mkView(ytype, customDoc(false), singleCustomIsInitial)
+  try {
+    const rdt = getPmRdt(view)
+    t.assert(rdt._defaultFingerprint != null, 'gate is armed for the initial doc')
+    t.assert(ytype.length === 0, 'nothing is written to the empty ytype')
+    const armedFingerprint = rdt._defaultFingerprint
+    // Same starter doc, only the `checked` attr flipped - the fingerprint
+    // changes but the doc is still initial content.
+    view.dispatch(view.state.tr.setNodeAttribute(0, 'checked', true))
+    t.assert(singleCustomIsInitial(view.state.doc), 'doc is still the starter doc')
+    t.assert(rdt._defaultFingerprint != null, 'gate still holds for the starter doc')
+    t.assert(rdt._defaultFingerprint !== armedFingerprint, 'gate memorized the new fingerprint')
+    t.assert(ytype.length === 0, 'starter doc is not written to the ytype')
+    // The first real edit still clears the gate and writes exactly itself.
+    view.dispatch(view.state.tr.insert(0, schema.nodes.paragraph.create(null, schema.text('hi'))))
+    t.assert(rdt._defaultFingerprint == null, 'first real edit clears the gate')
+    t.compare(
+      /** @type {any} */ (YPM.docToDelta(view.state.doc).done(false)),
+      /** @type {any} */ (ytype.toDeltaDeep()),
+      'view and ytype hold just the real content'
+    )
   } finally {
     view.destroy()
   }
