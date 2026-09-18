@@ -36,6 +36,15 @@ declare type AttributedNodesPredicate = (nodeName: string, kinds: { insert?: boo
  * keep lib0's name-only default.
  */
 declare type NodeCompare = (a: import('lib0/delta').DeltaAny, b: import('lib0/delta').DeltaAny) => boolean
+/**
+ * Decides whether a ProseMirror document is the integrator's *initial* (empty)
+ * state that must not be written into an empty ytype at bind time (see the
+ * "Initial-content gate" in {@link ProsemirrorRdt}'s doc). Return `true` to arm
+ * the gate for this document, `false` to sync it immediately. Omit the option
+ * to keep the default check (document fingerprint equals the schema's
+ * `createAndFill()` default). Only consulted when the ytype has no children.
+ */
+declare type InitialContentCompare = (doc: import('prosemirror-model').Node) => boolean
 declare type SyncPluginState = import('lib0/schema').Unwrap<typeof import('@y/prosemirror').$syncPluginState>
 declare type SyncPluginStateUpdate = import('lib0/schema').Unwrap<typeof import('@y/prosemirror').$syncPluginStateUpdate>
 declare type ProsemirrorDelta = import('lib0/schema').Unwrap<typeof import('@y/prosemirror').$prosemirrorDelta>

@@ -147,8 +147,9 @@ const touchesAttributionSpace = format => {
  * always materialized. Binding that default to an *empty* ytype must not write
  * it into Y — every fresh client would seed its own copy and merging two such
  * docs duplicates the content (the init race). When the sync plugin signals
- * that the ytype has no children and the document fingerprints equal to the
- * schema default, `_state` starts as the **empty** delta instead of a document
+ * that the ytype has no children and the document is the integrator's
+ * initial state (by default: the document fingerprint equals the schema
+ * default; overridable via `initialContentCompare`), `_state` starts as the **empty** delta instead of a document
  * snapshot, with {@link ProsemirrorRdt#_defaultFingerprint} set. The
  * binding's initial sync then diffs empty against empty — nothing is rendered
  * or written — while the schema-default skeleton stays visible in the editor,
@@ -182,12 +183,17 @@ export class ProsemirrorRdt extends ObservableV2 {
    * @param {boolean} [opts.gateInitialContent] the counterpart ytype has no
    *   children — gate the schema-default document instead of treating it as
    *   content (see "Initial-content gate" in the class doc)
+   * @param {InitialContentCompare?} [opts.initialContentCompare] Optional
+   *   predicate `(doc) => boolean` deciding whether the current document is
+   *   the integrator's initial (empty) state that must not be written into
+   *   the empty ytype. `null` keeps the default check (the document's
+   *   fingerprint equals the schema's `createAndFill()` default).
    * @param {null|((err:Error,errCode:number)=>any)} [opts.onInternalError]
    *   Listen to internal errors for debugging purposes. This API is unstable
    *   and can be changed/removed at any time! (errCode 2: the `applyDelta`
    *   reconcile diff failed — see the fail-safe there)
    */
-  constructor ({ view, attributedNodes = defaultAttributedNodes, compare = null, getMeta, gateInitialContent = false, onInternalError = null }) {
+  constructor ({ view, attributedNodes = defaultAttributedNodes, compare = null, getMeta, gateInitialContent = false, initialContentCompare = null, onInternalError = null }) {
     super()
     this.view = view
     this.attributedNodes = attributedNodes
@@ -196,16 +202,18 @@ export class ProsemirrorRdt extends ObservableV2 {
     this._onInternalError = onInternalError
     this.$delta = $prosemirrorDelta
     const snapshot = nodeToDeltaCached(view.state.doc)
-    const dflt = gateInitialContent ? view.state.doc.type.createAndFill() : null
+    const dflt = gateInitialContent && initialContentCompare == null ? view.state.doc.type.createAndFill() : null
     const dfltFingerprint = dflt != null ? nodeToDeltaCached(dflt).fingerprint : null
+    const isDefaultDoc = dfltFingerprint != null && snapshot.fingerprint === dfltFingerprint
+    const isInitial = gateInitialContent && (initialContentCompare != null ? initialContentCompare(view.state.doc) : isDefaultDoc)
     /**
      * Non-null while the initial content is gated (see class doc): the
-     * fingerprint of the schema-default document, which `pull` must not emit.
+     * fingerprint of the gated initial document, which `pull` must not emit.
      * The first render in either direction resets this to `null`.
      *
      * @type {string?}
      */
-    this._defaultFingerprint = dfltFingerprint != null && snapshot.fingerprint === dfltFingerprint ? dfltFingerprint : null
+    this._defaultFingerprint = isInitial ? snapshot.fingerprint : null
     /**
      * @type {ProsemirrorDelta}
      */

@@ -4,8 +4,8 @@
 
 This release rebuilds the sync engine on lib0's RDT/binding architecture, tracks
 the breaking `AttributionManager → Renderer` rename in Yjs v14, adds several
-extension points (custom transformers, `customCompare`, overlapping marks,
-attributed attributes), replaces the positions API with view-based converters,
+extension points (custom transformers, `customCompare`, `initialContentCompare`,
+overlapping marks, attributed attributes), replaces the positions API with view-based converters,
 and loads documents written by `y-prosemirror` 1.x.
 
 ### 💥 Breaking changes
@@ -165,9 +165,9 @@ propagates fixes back and forth until both sides settle.
   the Y side re-attributes through its renderer (see CAVEATS.md).
 - `configureYProsemirror` no longer builds replacement content into its own
   transaction; the dispatched meta makes the plugin (re)create the binding,
-  whose initial sync hydrates the view synchronously. The plugin also rebinds
-  when `attributionMapper`, `attributedNodes`, or `customCompare` change (not
-  just `ytype`/`renderer`).
+   whose initial sync hydrates the view synchronously. The plugin also rebinds
+   when `attributionMapper`, `attributedNodes`, `customCompare`, or
+   `initialContentCompare` change (not just `ytype`/`renderer`).
 
 #### Outlook: towards a very performant binding
 
@@ -244,7 +244,7 @@ The API changed with the rewrite. The old exports and their replacements:
 | `yUndoPlugin({ protectedNodes, trackedOrigins, undoManager })` | `yUndoPlugin(undoManager)` with your own `new Y.UndoManager(ytype, opts)`; the sync plugin's origin is tracked automatically. |
 | `yCursorPlugin(awareness, opts, cursorStateField)` | `yCursorPlugin(awareness, { ...opts, cursorStateField })`; the `getSelection` option was removed and `resolveLocalCursorState` added. |
 | `yCursorPluginKey` (`'yjs-cursor'`) | Same export; the key string is now `'y-cursor'`. |
-| `ySyncPluginKey.getState(state)` (`type`, `doc`, `binding`, `snapshot`, …) | `{ ytype, renderer, attributionMapper, attributedNodes, customCompare, binding }` |
+| `ySyncPluginKey.getState(state)` (`type`, `doc`, `binding`, `snapshot`, …) | `{ ytype, renderer, attributionMapper, attributedNodes, customCompare, initialContentCompare, binding }` |
 | `ProsemirrorBinding`, `updateYFragment`, `isVisible`, `setMeta`, `defaultProtectedNodes`, `defaultDeleteFilter`, `defaultAwarenessStateFilter` | Removed. `YSyncRdt` and `ProsemirrorRdt` are the building blocks now. |
 | `undo`, `redo`, `undoCommand`, `redoCommand`, `ySyncPluginKey`, `yUndoPluginKey`, `defaultCursorBuilder`, `defaultSelectionBuilder` | Unchanged. |
 
@@ -302,6 +302,18 @@ also matches, so changing the first child replaces the whole container.
 Note: with the RDT binding, steady-state Y→view changes are native deltas that
 are never re-paired, so `customCompare` applies to fixes, uncertain-window
 emissions, view-side pulls, and the initial sync.
+
+### ✨ initialContentCompare - configure the empty-state check
+
+`syncPlugin({ initialContentCompare })` takes a predicate `(doc) => boolean`
+over the ProseMirror document that decides whether it is the integrator's
+*initial* (empty) state — the state that must not be written into an empty
+ytype at bind time. Return `true` to arm the initial-content gate for the
+current document, `false` to let the normal bind-time behavior apply. Omit the
+option to keep the default check (the document's fingerprint equals the
+schema's `createAndFill()` default). The predicate is only consulted when the
+ytype has no children; it is also accepted directly by `ProsemirrorRdt` and
+stored on the plugin state (rebinding when it changes).
 
 ### ✨ Attributed attributes
 

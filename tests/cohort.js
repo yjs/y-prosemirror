@@ -84,6 +84,7 @@ const PM_KEY = 'prosemirror'
  * @param {import('prosemirror-model').Schema} [opts.schema]
  * @param {typeof YPM.defaultMapAttributionToMark} [opts.mapAttributionToMark]
  * @param {NodeCompare} [opts.customCompare] forwarded to the sync plugin (shifts the diffing boundary)
+ * @param {InitialContentCompare} [opts.initialContentCompare] forwarded to the sync plugin (custom initial-state check)
  * @param {AttributedNodesPredicate} [opts.attributedNodes] forwarded to the sync plugin (attributed node variants)
  * @param {(err: Error, errCode: number) => any} [opts.onInternalError] forwarded to the sync plugin (internal error probe)
  * @returns {EditorView}
@@ -94,6 +95,7 @@ export const createPMView = (ytype, renderer = null, opts = {}) => {
   const pluginOpts = {}
   if (opts.mapAttributionToMark) pluginOpts.mapAttributionToMark = opts.mapAttributionToMark
   if (opts.customCompare) pluginOpts.customCompare = opts.customCompare
+  if (opts.initialContentCompare) pluginOpts.initialContentCompare = opts.initialContentCompare
   if (opts.attributedNodes) pluginOpts.attributedNodes = opts.attributedNodes
   if (opts.onInternalError) pluginOpts.onInternalError = opts.onInternalError
   const plugin = YPM.syncPlugin(pluginOpts)
