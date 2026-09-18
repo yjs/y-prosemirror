@@ -27,9 +27,7 @@ import * as dt from 'lib0/delta/transformer'
  * receive an anonymous child from an old client.
  *
  * Caveats: an anonymous container's OWN format/attribution (the wrapper, not
- * its content) has no home in the flattened parent and is dropped; position
- * mapping (`src/positions.js`) and the `fragmentToPm`/`pmToFragment`
- * utilities do not flatten.
+ * its content) has no home in the flattened parent and is dropped.
  *
  * @param {import('lib0/schema').Schema<import('lib0/delta').DeltaAny>} $d
  * @return {dt.Template<any, any>}

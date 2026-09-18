@@ -145,6 +145,9 @@ export const testPositionsMultipleParagraphs = (_tc) => {
  */
 export const testPositionsHardBreak = (_tc) => {
   const { view, ytype } = createSetup(
+    // the first nested delta literal TypeScript checks exceeds its
+    // instantiation depth limit on lib0's recursive delta types (TS2589)
+    // @ts-ignore
     delta.create().insert([
       delta.create('paragraph')
         .insert('ab')

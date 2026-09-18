@@ -1,6 +1,7 @@
 import { ObservableV2 } from 'lib0/observable'
 import * as delta from 'lib0/delta'
 import * as env from 'lib0/environment'
+import * as fun from 'lib0/function'
 import {
   $prosemirrorDelta,
   attributionKinds,
@@ -83,6 +84,24 @@ const emptyDocState = doc => {
   const d = delta.create(doc.type.name, $prosemirrorDelta)
   d.setAttrs(doc.attrs)
   return /** @type {ProsemirrorDelta} */ (d.done(false))
+}
+
+/**
+ * Replace the whole document with `doc`. ProseMirror's fitting `replaceWith`
+ * only places content, so the doc node's own attributes are set separately -
+ * otherwise the reconcile fix would write the view's stale attributes back
+ * into Y.
+ *
+ * @param {import('prosemirror-state').Transaction} tr
+ * @param {import('prosemirror-model').Node} doc
+ * @return {import('prosemirror-state').Transaction}
+ */
+const replaceDocument = (tr, doc) => {
+  tr.replaceWith(0, tr.doc.content.size, doc)
+  for (const key in doc.attrs) {
+    if (!fun.equalityDeep(tr.doc.attrs[key], doc.attrs[key])) tr.setDocAttribute(key, doc.attrs[key])
+  }
+  return tr
 }
 
 /**
@@ -504,8 +523,7 @@ export class ProsemirrorRdt extends ObservableV2 {
       // schema that permits it would fit the foreign content *next to* the
       // skeleton, and the fix below would write the skeleton into Y.
       this._defaultFingerprint = null
-      tr = this.view.state.tr
-      tr.replaceWith(0, tr.doc.content.size, deltaToPNode(/** @type {any} */ (expected), tr.doc.type.schema, null, this.attributedNodes))
+      tr = replaceDocument(this.view.state.tr, deltaToPNode(/** @type {any} */ (expected), this.view.state.schema, null, this.attributedNodes))
     } else {
       try {
         tr = deltaToPSteps(this.view.state.tr, /** @type {any} */ (d), undefined, undefined, this.attributedNodes)
@@ -514,8 +532,7 @@ export class ProsemirrorRdt extends ObservableV2 {
         // delete that empties a `block+` parent): replace the whole document
         // through ProseMirror's fitting `replaceWith`; `deltaToPNode` drops
         // the now-invalid parent.
-        tr = this.view.state.tr
-        tr.replaceWith(0, tr.doc.content.size, deltaToPNode(/** @type {any} */ (expected), tr.doc.type.schema, null, this.attributedNodes))
+        tr = replaceDocument(this.view.state.tr, deltaToPNode(/** @type {any} */ (expected), this.view.state.schema, null, this.attributedNodes))
       }
     }
     if (tr.docChanged && !this._dispatch(tr)) {

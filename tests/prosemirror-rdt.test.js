@@ -1741,7 +1741,9 @@ export const testRdtEdgeFrozenShareIsCopyOnWrite = _tc => {
     const sharedClone = delta.clone(/** @type {any} */ (s0))
     t.assert(!sharedClone.isEmpty(), 'structure-sharing clone holds the content')
     // an extra done() on a nested snapshot child must not change its shape
-    for (const op of s0.children) {
+    // `DeltaAny`: iterating the recursive ProsemirrorDelta children type here
+    // exceeds TypeScript's instantiation depth limit (TS2589)
+    for (const op of /** @type {delta.DeltaAny} */ (s0).children) {
       if (delta.$insertOp.check(op)) {
         for (const el of op.insert) {
           if (delta.$deltaAny.check(el)) {
@@ -1765,18 +1767,18 @@ export const testRdtEdgeFrozenShareIsCopyOnWrite = _tc => {
 }
 
 /**
- * The Y side's `insertContent` injects format-negation keys into an applied
- * op's format container IN PLACE (bypassing lib0's freeze and fingerprint
- * invalidation), so `pmToFragment` must never hand the shared memoized
- * snapshot to `fragment.applyDelta` directly - it clones the top level per
- * call. This pin seeds a fragment twice with a document whose top-level
- * blocks carry (differing) node marks - the shape that makes the negation
- * path fire on the second call - and asserts the process-wide cache entry
- * stayed intact.
+ * `pmnodeToDelta` must never let the shared memoized snapshot be mutated:
+ * its transformer pipeline consumes its input in place (the `y-attributed-*`
+ * node marks below are stripped by `swallowFormats`/`attributionToFormat`),
+ * and the Y side's `insertContent` injects format-negation keys into an
+ * applied op's format container IN PLACE (bypassing lib0's freeze and
+ * fingerprint invalidation). This pin seeds a ytype twice with a document
+ * whose top-level blocks carry (differing) attribution node marks and asserts
+ * the process-wide cache entry stayed intact and nothing attributed reached Y.
  *
  * @param {TestCase} _tc
  */
-export const testRdtEdgeMemoSurvivesPmToFragment = _tc => {
+export const testRdtEdgeMemoSurvivesPmnodeToDelta = _tc => {
   const marked1 = nodes.paragraph.create(null, txt('one'), [complexSchema.marks['y-attributed-insert'].create()])
   const marked2 = nodes.paragraph.create(null, txt('two'), [complexSchema.marks['y-attributed-format'].create()])
   const pmDoc = mkDoc(marked1, marked2)
@@ -1786,8 +1788,51 @@ export const testRdtEdgeMemoSurvivesPmToFragment = _tc => {
   const jsonBefore = stableStringify(cached.toJSON())
   const fpBefore = cached.fingerprint
   const ydoc = new Y.Doc({ gc: false })
-  YPM.pmToFragment(pmDoc, ydoc.get(PM_KEY))
-  YPM.pmToFragment(pmDoc, ydoc.get(PM_KEY))
+  const ytype = ydoc.get(PM_KEY)
+  ytype.applyDelta(YPM.pmnodeToDelta(pmDoc))
+  ytype.applyDelta(YPM.pmnodeToDelta(pmDoc))
+  t.assert(YPM.nodeToDeltaCached(pmDoc) === cached, 'the memo still serves the same entry')
+  t.assert(stableStringify(cached.toJSON()) === jsonBefore, 'the cached snapshot is deep-intact after seeding')
+  t.assert(delta.cloneDeep(/** @type {any} */ (cached)).fingerprint === fpBefore, 'a from-scratch fingerprint still matches the pre-seeding one')
+  t.assert(!JSON.stringify(ytype.toDeltaDeep().toJSON()).includes('y-attributed'), 'no attribution mark reached Y')
+}
+
+/**
+ * complexSchema with every mark allowed as a node mark on top-level blocks, so
+ * node marks survive `pmnodeToDelta` (which strips only the attribution
+ * projection) and reach Y as formats.
+ */
+const nodeMarksSchema = new Schema({
+  nodes: { ...complexNodes, doc: { ...complexNodes.doc, marks: '_' } },
+  marks: complexMarks
+})
+
+/**
+ * The Y-side half of {@link testRdtEdgeMemoSurvivesPmnodeToDelta}: seeding a
+ * ytype twice with blocks carrying differing ordinary node marks makes the
+ * second write insert where formats are active, and the Y side's
+ * `insertContent` then injects format-negation keys into the applied op's
+ * format container in place. `pmnodeToDelta` must hand Y a private copy, so
+ * the memoized snapshot stays intact.
+ *
+ * @param {TestCase} _tc
+ */
+export const testRdtEdgeMemoSurvivesYFormatNegation = _tc => {
+  const s = nodeMarksSchema
+  const pmDoc = s.node('doc', null, [
+    s.node('paragraph', null, [s.text('one')], [s.mark('strong')]),
+    s.node('paragraph', null, [s.text('two')], [s.mark('em')])
+  ])
+  const cached = YPM.nodeToDeltaCached(pmDoc)
+  const jsonBefore = stableStringify(cached.toJSON())
+  const fpBefore = cached.fingerprint
+  const ytype = new Y.Doc({ gc: false }).get(PM_KEY)
+  ytype.applyDelta(YPM.pmnodeToDelta(pmDoc))
+  const second = YPM.pmnodeToDelta(pmDoc)
+  const secondBefore = stableStringify(second.toJSON())
+  ytype.applyDelta(second)
+  // precondition: without the in-place write this test guards nothing
+  t.assert(stableStringify(second.toJSON()) !== secondBefore, 'the Y side still mutates the applied delta in place (if this fails, the hazard is gone upstream)')
   t.assert(YPM.nodeToDeltaCached(pmDoc) === cached, 'the memo still serves the same entry')
   t.assert(stableStringify(cached.toJSON()) === jsonBefore, 'the cached snapshot is deep-intact after seeding')
   t.assert(delta.cloneDeep(/** @type {any} */ (cached)).fingerprint === fpBefore, 'a from-scratch fingerprint still matches the pre-seeding one')

@@ -13,6 +13,7 @@ import * as brokenSchema from './broken-schema.test.js'
 import * as ySyncRdt from './y-sync-rdt.test.js'
 import * as prosemirrorRdt from './prosemirror-rdt.test.js'
 import * as swallowFormats from './swallow-formats.test.js'
+import * as convert from './convert.test.js'
 
 import { runTests } from 'lib0/testing'
 import { isBrowser, isNode } from 'lib0/environment'
@@ -35,7 +36,8 @@ runTests({
   brokenSchema,
   ySyncRdt,
   prosemirrorRdt,
-  swallowFormats
+  swallowFormats,
+  convert
   // prosemirror,
   // v1Compat: node-only (npm-alias devDependency y-prosemirror-v1 + yjs@13, see tests/index.node.js)
   // tr

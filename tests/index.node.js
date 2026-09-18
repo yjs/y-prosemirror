@@ -20,6 +20,7 @@ import * as brokenSchema from './broken-schema.test.js'
 import * as ySyncRdt from './y-sync-rdt.test.js'
 import * as prosemirrorRdt from './prosemirror-rdt.test.js'
 import * as swallowFormats from './swallow-formats.test.js'
+import * as convert from './convert.test.js'
 import * as v1Compat from './v1-compat.test.js'
 
 import { runTests } from 'lib0/testing'
@@ -78,6 +79,7 @@ runTests({
   ySyncRdt,
   prosemirrorRdt,
   swallowFormats,
+  convert,
   v1Compat
   // prosemirror,
   // tr

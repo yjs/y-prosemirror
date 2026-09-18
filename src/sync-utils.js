@@ -1,8 +1,6 @@
-/** @import * as Y from '@y/y' */
 import * as array from 'lib0/array'
 import * as delta from 'lib0/delta'
 import * as dpos from 'lib0/delta/position'
-import * as error from 'lib0/error'
 import * as fun from 'lib0/function'
 import * as math from 'lib0/math'
 import * as object from 'lib0/object'
@@ -10,7 +8,6 @@ import * as s from 'lib0/schema'
 import { Slice, Fragment } from 'prosemirror-model'
 import { ReplaceStep } from 'prosemirror-transform'
 import { hashOfJSON } from './utils.js'
-import { inlineAnonymousNodes } from './transformers/inline-anonymous-nodes.js'
 
 /** @import { Node } from 'prosemirror-model' */
 
@@ -260,137 +257,13 @@ export const attributionMapperToConf = (mapper) => ({
   delete: a => mapper(null, resolveAttribution(a))?.['y-attributed-delete'] ?? null,
   format: a => mapper(null, resolveAttribution(a))?.['y-attributed-format'] ?? null,
   // A mapper may control the attr-change payload by emitting the reserved
-  // `y-attributed-attrs` key (the default mapper does not - its output doubles
-  // as content-op format in `deltaAttributionToFormat`, where a 4th key would
-  // leak onto text spans); otherwise the default payload builder applies.
+  // `y-attributed-attrs` key (the default mapper does not); otherwise the
+  // default payload builder applies.
   attrs: a => {
     const m = mapper(null, resolveAttribution(a))
     return m != null && Y_ATTRS_MARK in m ? m[Y_ATTRS_MARK] : defaultMapAttrAttribution(a)
   }
 })
-
-/**
- * Default {@link AttributionConf} — {@link defaultMapAttributionToMark}'s mark
- * values in conf form (the mark *names* are y-prosemirror's fixed public
- * contract; see that function's docs).
- *
- * @type {AttributionConf}
- */
-export const defaultAttributionConf = attributionMapperToConf(defaultMapAttributionToMark)
-
-/**
- * Mirror of the attr-attribution lift in lib0's `attributionToFormat`
- * transformer (its `attrsFmt`): the complete `y-attributed-attrs` format
- * increment for a node's attr ops, `undefined` when there is nothing to lift.
- * Same op semantics as lib0: a `modifyAttrOp` carries an attribution
- * *instruction* (`null` ⇒ per-key clear), `setAttr`/`deleteAttr` carry settled
- * data (`null` ⇒ none, skipped).
- *
- * @param {delta.DeltaAny} nodeDelta
- * @param {AttributionConfHandler} mapAttrAttribution
- * @return {{[k:string]:any}|undefined}
- */
-const liftAttrAttributions = (nodeDelta, mapAttrAttribution) => {
-  /** @type {{[k:string]:any}} */
-  const map = {}
-  for (const op of nodeDelta.attrs) {
-    const isInstr = delta.$modifyAttrOp.check(op)
-    const a = op.attribution
-    if (a === undefined) continue
-    if (a === null) {
-      if (isInstr) map[/** @type {string} */ (op.key)] = null
-      continue
-    }
-    const mapped = mapAttrAttribution(a)
-    if (mapped === null) {
-      if (isInstr) map[/** @type {string} */ (op.key)] = null
-    } else if (mapped !== undefined) {
-      map[/** @type {string} */ (op.key)] = mapped
-    }
-  }
-  return object.isEmpty(map) ? undefined : { [Y_ATTRS_MARK]: map }
-}
-
-/**
- * Mirror of lib0's `combineFmt`: merge a `y-attributed-attrs` increment onto a
- * content op's format, preserving the base's tri-state when there is nothing
- * to add.
- *
- * @param {{[k:string]:any}|null|undefined} base
- * @param {{[k:string]:any}|undefined} add
- * @return {{[k:string]:any}|null|undefined}
- */
-const combineFmt = (base, add) => {
-  if (add == null || object.isEmpty(add)) return base
-  return base == null ? add : object.assign({}, base, add)
-}
-
-/**
- * Transform delta with attributions to delta with formats (marks).
- *
- * When `mapAttrAttribution` is provided, attr-op attribution is lifted onto
- * the *parent* insert/modify op's format under `y-attributed-attrs` -
- * mirroring lib0's `attributionToFormat` transformer exactly (the live
- * pipeline path), so a full-render conversion equals the steady-state render.
- * Pass it only when the target schema declares the `y-attributed-attrs` mark.
- *
- * @param {delta.DeltaAny} d
- * @param {function} attributionsToFormat
- * @param {AttributionConfHandler?} [mapAttrAttribution]
- */
-export const deltaAttributionToFormat = (d, attributionsToFormat, mapAttrAttribution = null) => {
-  const r = delta.create(d.name, $prosemirrorDelta)
-  for (const attr of d.attrs) {
-    // Attr ops are re-emitted without attribution. ProseMirror has no model
-    // for per-attribute attribution - keeping it here makes the rendered delta
-    // differ from the PM-derived delta on every reconcile (the PM<->Y diff
-    // never reaches an empty fixpoint, eventually overflowing the stack inside
-    // `lib0/delta.diff`). The attribution's *rendering* instead rides the
-    // parent op's `y-attributed-attrs` format (see `liftAttrAttributions`),
-    // which `nodeToDelta` reproduces from the node's mark.
-    const key = /** @type {string} */ (attr.key)
-    if (delta.$setAttrOp.check(attr)) {
-      r.setAttr(key, attr.value, null)
-    } else if (delta.$deleteAttrOp.check(attr)) {
-      r.deleteAttr(key, null)
-    } else if (delta.$modifyAttrOp.check(attr)) {
-      r.modifyAttr(key, /** @type {any} */ (deltaAttributionToFormat(attr.value, attributionsToFormat, mapAttrAttribution)), null)
-    } else {
-      error.unexpectedCase()
-    }
-  }
-  for (const child of d.children) {
-    if (delta.$deleteOp.check(child)) {
-      r.delete(child.delete)
-    } else {
-      const format = child.attribution ? attributionsToFormat(child.format, child.attribution) : child.format
-      if (delta.$insertOp.check(child)) {
-        // One element at a time, like lib0's transformer: the builder
-        // re-coalesces equal formats, and node elements needing a distinct
-        // `y-attributed-attrs` land in their own insert ops automatically.
-        for (const c of child.insert) {
-          if (delta.$deltaAny.check(c)) {
-            const lift = mapAttrAttribution != null ? liftAttrAttributions(c, mapAttrAttribution) : undefined
-            r.insert([deltaAttributionToFormat(c, attributionsToFormat, mapAttrAttribution)], combineFmt(format, lift))
-          } else {
-            r.insert([c], format)
-          }
-        }
-      } else if (delta.$textOp.check(child)) {
-        r.insert(child.insert, format)
-      } else if (delta.$retainOp.check(child)) {
-        r.retain(child.retain, format)
-      } else if (delta.$modifyOp.check(child)) {
-        const lift = mapAttrAttribution != null ? liftAttrAttributions(child.value, mapAttrAttribution) : undefined
-        // @ts-ignore
-        r.modify(/** @type {any} */ (deltaAttributionToFormat(child.value, attributionsToFormat, mapAttrAttribution)), combineFmt(format, lift))
-      } else {
-        error.unexpectedCase()
-      }
-    }
-  }
-  return /** @type {ProsemirrorDelta} */ (r.done(false))
-}
 
 /**
  * Marks are stored as a flat `format` object keyed by mark name. Marks whose
@@ -491,95 +364,83 @@ const marksToFormattingAttributes = marks => {
 }
 
 /**
+ * Mark drops already reported by {@link warnDroppedMark}, per schema.
+ *
+ * @type {WeakMap<import('prosemirror-model').Schema, Set<string>>}
+ */
+const reportedMarkDrops = new WeakMap()
+
+/**
+ * Warn once per schema and `key` that content from Y lost a mark because the
+ * schema cannot hold it. The view renders the content without the mark, and
+ * the reconcile fix writes the removal into Y like any other schema
+ * normalization.
+ *
+ * @param {import('prosemirror-model').Schema} schema
+ * @param {string} key
+ * @param {string} reason
+ */
+const warnDroppedMark = (schema, key, reason) => {
+  let reported = reportedMarkDrops.get(schema)
+  if (reported == null) reportedMarkDrops.set(schema, (reported = new Set()))
+  if (reported.has(key)) return
+  reported.add(key)
+  console.warn(`[y/prosemirror] ${reason}, so content from Y is rendered without it (logged once per schema)`)
+}
+
+/**
+ * The mark type for a delta format key, or `null` (with a warning) when the
+ * schema declares no such mark.
+ *
+ * @param {import('prosemirror-model').Schema} schema
+ * @param {string} key
+ * @return {import('prosemirror-model').MarkType | null}
+ */
+const declaredMarkType = (schema, key) => {
+  const name = yattr2markname(key)
+  const markType = schema.marks[name]
+  if (markType == null) {
+    warnDroppedMark(schema, name, `the schema declares no mark "${name}"`)
+    return null
+  }
+  return markType
+}
+
+/**
+ * Whether `parentType` may hold content carrying a `markType` mark (warns
+ * when it may not). `null` stands for an unknown parent and allows every
+ * mark.
+ *
+ * @param {import('prosemirror-model').NodeType | null} parentType
+ * @param {import('prosemirror-model').MarkType} markType
+ */
+const allowedIn = (parentType, markType) => {
+  if (parentType == null || parentType.allowsMarkType(markType)) return true
+  warnDroppedMark(parentType.schema, `${parentType.name}>${markType.name}`, `"${parentType.name}" does not allow the "${markType.name}" mark`)
+  return false
+}
+
+/**
  * Convert a delta `format` object to PM marks. `null` entries (which mean
  * "this mark is absent / cleared") are filtered out - a custom attribution
  * mapper may emit `null` for absent attribution kinds, and a fresh insert
  * should not materialize a mark for them. Hashed overlapping-mark keys are
- * mapped back to their mark name via {@link yattr2markname}.
+ * mapped back to their mark name via {@link yattr2markname}. Marks the schema
+ * does not declare, or that `parentType` does not allow, are dropped with a
+ * warning (see {@link warnDroppedMark}).
  *
  * @param {{[key:string]:any}|null} formatting
  * @param {import('prosemirror-model').Schema} schema
+ * @param {import('prosemirror-model').NodeType | null} [parentType] the node
+ *   type that will hold the marked content
  */
-export const formattingAttributesToMarks = (formatting, schema) =>
+export const formattingAttributesToMarks = (formatting, schema, parentType = null) =>
   object.map(formatting ?? {}, (v, k) => {
     if (v == null) return null
-    const name = yattr2markname(k)
-    return schema.mark(name, wrapYattrMarkValue(name, v))
+    const markType = declaredMarkType(schema, k)
+    if (markType == null || !allowedIn(parentType, markType)) return null
+    return markType.create(wrapYattrMarkValue(markType.name, v))
   }).filter(m => m != null)
-
-/**
- * Transforms a {@link Node} into a {@link Y.XmlFragment}
- * @param {Node} node
- * @param {Y.Node} fragment
- * @param {Object} [opts]
- * @param {Y.AbstractRenderer?} [opts.renderer]
- * @returns {Y.Node}
- */
-export function pmToFragment (node, fragment, { renderer = null } = {}) {
-  // Canonicalize so the Y document never stores an attributed-variant name
-  // (`--attributed` is a reserved suffix - identity when no variant is present).
-  // The top-level `clone` is a required defensive copy, not an optimization
-  // hedge: the Y side's `insertContent` injects format-negation keys into the
-  // applied op's format container IN PLACE when the insert position carries
-  // active formats. That mutation bypasses lib0's builder freeze and its
-  // fingerprint invalidation, so handing over the shared memoized snapshot
-  // would silently corrupt the process-wide canonical cache. `clone` gives
-  // fresh top-level ops (each op's format container is copied) while still
-  // structure-sharing the frozen children, whose containers the Y side copies
-  // itself before mutating.
-  const initialPDelta = delta.clone(/** @type {any} */ (nodeToDeltaCached(node))).done()
-  fragment.applyDelta(initialPDelta, null, { renderer })
-
-  return fragment
-}
-
-/**
- * Applies a {@link Y.XmlFragment}'s content as a ProseMirror {@link Transaction}.
- * Documents in the old y-prosemirror representation (nested anonymous text
- * containers) are flattened the way the binding renders them.
- * @param {Y.Node} fragment
- * @param {import('prosemirror-state').Transaction} tr
- * @param {object} ctx
- * @param {Y.AbstractRenderer?} [ctx.renderer]
- * @param {typeof defaultMapAttributionToMark} [ctx.mapAttributionToMark]
- * @param {AttributedNodesPredicate} [ctx.attributedNodes]
- * @returns {import('prosemirror-state').Transaction}
- */
-export function fragmentToTr (fragment, tr, {
-  renderer = null,
-  mapAttributionToMark = defaultMapAttributionToMark,
-  attributedNodes = defaultAttributedNodes
-} = {}) {
-  const rendered = fragment.toDelta({ renderer, deep: true })
-  // Documents written by the old y-prosemirror nest inline text in anonymous
-  // containers. The binding flattens them through its pipeline (see
-  // transformers/inline-anonymous-nodes.js); this standalone path applies the
-  // same stage to the rendered state, as lib0's Binding does at initial sync.
-  // A transformer consumes its input, hence the deep clone of the render.
-  const flattened = inlineAnonymousNodes(delta.$deltaAny).init().applyA(delta.cloneDeep(rendered)).b ?? delta.create()
-  const fragmentContent = deltaAttributionToFormat(
-    /** @type {any} */ (flattened),
-    mapAttributionToMark,
-    // attr-attribution lift is schema-gated, mirroring the sync-plugin's gate
-    tr.doc.type.schema.marks[Y_ATTRS_MARK] != null ? defaultMapAttrAttribution : null
-  )
-  const initialPDelta = nodeToDeltaCached(tr.doc)
-  const deltaBetweenPmAndFragment = /** @type {delta.DeltaAny} */ (delta.diff(/** @type {any} */ (initialPDelta), /** @type {any} */ (fragmentContent)).done())
-
-  return deltaToPSteps(tr, deltaBetweenPmAndFragment, undefined, undefined, attributedNodes).setMeta('y-sync-hydration', {
-    delta: deltaBetweenPmAndFragment
-  })
-}
-
-/**
- * Transforms a {@link Y.XmlFragment} into a {@link Node}
- * @param {Y.Node} fragment
- * @param {import('prosemirror-state').Transaction} tr
- * @return {Node}
- */
-export function fragmentToPm (fragment, tr) {
-  return fragmentToTr(fragment, tr).doc
-}
 
 /**
  * Memo for the canonical snapshot shape ({@link nodeToDeltaCached}).
@@ -909,15 +770,34 @@ const applyNodeFormat = (tr, pos, format, attributedNodes) => {
   const schema = tr.doc.type.schema
   const node = tr.doc.nodeAt(pos)
   if (node == null) return
-  let resultingMarks = node.marks
+  // Resolved only when a mark is added: this runs for every retained node of
+  // a change, and resolving is linear in the number of siblings.
+  const parentType = () => tr.doc.resolve(pos).parent.type
+  /**
+   * Format keys this node can hold: a clear of a mark the schema does not
+   * declare has nothing to remove, an addition the schema cannot hold here is
+   * dropped with a warning.
+   *
+   * @type {Record<string, any>}
+   */
+  const applicable = {}
   object.forEach(format ?? {}, (v, k) => {
     const markName = yattr2markname(k)
+    const value = resolveYattrFormatValue(markName, v)
+    if (value == null) {
+      if (schema.marks[markName] != null) applicable[k] = null
+    } else {
+      const markType = declaredMarkType(schema, k)
+      if (markType != null && allowedIn(parentType(), markType)) applicable[k] = value
+    }
+  })
+  let resultingMarks = node.marks
+  object.forEach(applicable, (value, k) => {
+    const markName = yattr2markname(k)
     const markType = schema.marks[markName]
-    if (markType == null) return
     // For overlapping marks, remove the specific instance carried by this
     // (hashed) key rather than every mark of the type.
     const mark = node.marks.find(m => markToYattrName(m) === k)
-    const value = resolveYattrFormatValue(markName, v)
     resultingMarks = value == null
       ? (mark ?? markType).removeFromSet(resultingMarks)
       : schema.mark(markName, wrapYattrMarkValue(markName, value)).addToSet(resultingMarks)
@@ -928,10 +808,8 @@ const applyNodeFormat = (tr, pos, format, attributedNodes) => {
   if (targetType !== node.type) {
     tr.setNodeMarkup(pos, targetType, object.assign({ 'y-attributed': true }, node.attrs), resultingMarks)
   } else {
-    object.forEach(format ?? {}, (v, k) => {
+    object.forEach(applicable, (value, k) => {
       const markName = yattr2markname(k)
-      if (schema.marks[markName] == null) return
-      const value = resolveYattrFormatValue(markName, v)
       if (value == null) {
         const mark = node.marks.find(m => markToYattrName(m) === k)
         tr.removeNodeMark(pos, mark ?? schema.marks[markName])
@@ -974,7 +852,11 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }, attribu
   for (const attr of d.attrs) {
     if (delta.$setAttrOp.check(attr)) {
       // can be a delete attr op iff attribution node is transformed back to a normal node
-      tr.setNodeAttribute(currPos.i - 1, attr.key, attr.value)
+      // `currPos.i - 1` is the position of the node `d` describes; the root
+      // (the doc node) has no position and takes a doc-attribute step
+      const pos = currPos.i - 1
+      if (pos < 0) tr.setDocAttribute(attr.key, attr.value)
+      else tr.setNodeAttribute(pos, attr.key, attr.value)
     } else if (delta.$deleteAttrOp.check(attr)) {
       // Y no longer holds the attribute (a change render of a hard-deleted
       // attr). A ProseMirror node materializes every attribute, so the
@@ -1020,7 +902,9 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }, attribu
     runInserts = []
     runDeletes = []
   }
-  for (const op of d.children) {
+  // `DeltaAny`: iterating the recursive ProsemirrorDelta children type here
+  // exceeds TypeScript's instantiation depth limit (TS2589)
+  for (const op of /** @type {delta.DeltaAny} */ (d).children) {
     if (delta.$retainOp.check(op) || delta.$modifyOp.check(op)) {
       flushRun()
       ordered.push(op)
@@ -1046,16 +930,22 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }, attribu
             const from = currPos.i
             const to = currPos.i + math.min(pc.nodeSize - nOffset, i)
             object.forEach(op.format, (v, k) => {
-              const markName = yattr2markname(k)
               if (v == null) {
+                // A clear of a mark the schema does not declare has nothing to
+                // remove. It must not reach `removeMark` without a mark: that
+                // removes every mark in the range.
+                const markType = schema.marks[yattr2markname(k)]
+                if (markType == null) return
                 // A format-remove carries no attrs, so match the specific
                 // instance on the current text node - sibling overlaps of the
                 // same type (e.g. another comment) must not be removed with it.
                 // Their relative array order is not significant (see CAVEATS).
                 const mark = pc.marks.find(m => markToYattrName(m) === k)
-                tr.removeMark(from, to, mark ?? schema.marks[markName])
+                tr.removeMark(from, to, mark ?? markType)
               } else {
-                tr.addMark(from, to, schema.mark(markName, wrapYattrMarkValue(markName, v)))
+                const markType = declaredMarkType(schema, k)
+                if (markType == null || !allowedIn(pnode.type, markType)) return
+                tr.addMark(from, to, markType.create(wrapYattrMarkValue(markType.name, v)))
               }
             })
           }
@@ -1108,11 +998,11 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }, attribu
           for (const n of ins.insert) {
             // A node whose content cannot satisfy the schema is dropped here;
             // the RDT fix deletes it from Y (see deltaToPNodeOrDrop).
-            const pNode = deltaToPNodeOrDrop(n, schema, ins.format, attributedNodes)
+            const pNode = deltaToPNodeOrDrop(n, schema, ins.format, attributedNodes, pnode.type)
             if (pNode !== null) newPChildren.push(pNode)
           }
         } else { // text op
-          newPChildren.push(schema.text(ins.insert, formattingAttributesToMarks(ins.format, schema)))
+          newPChildren.push(schema.text(ins.insert, formattingAttributesToMarks(ins.format, schema, pnode.type)))
         }
       }
       const insertedFrag = Fragment.from(newPChildren)
@@ -1155,10 +1045,10 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }, attribu
  *
  * Children are built first (a dropped child is simply absent from the
  * parent's content), then the node's own content expression is checked with
- * `contentMatch.matchFragment` plus `validEnd`, and nothing else. Mark
- * constraints are deliberately not enforced here; the binding only warns
- * about them at bind time (see `warnUnsupportedAttributionMarks` in
- * sync-plugin.js).
+ * `contentMatch.matchFragment` plus `validEnd`. Marks the schema cannot hold
+ * where they sit (undeclared, or not allowed by the parent) are dropped with
+ * a warning instead (see {@link formattingAttributesToMarks}); the node
+ * itself is kept.
  *
  * - Valid content: created as-is (`createAndFill` adds nothing).
  * - Invalid content on the schema's top node: filled through `createAndFill`.
@@ -1191,9 +1081,12 @@ export const deltaToPSteps = (tr, d, pnode = tr.doc, currPos = { i: 0 }, attribu
  * @param {import('prosemirror-model').Schema} schema
  * @param {delta.Formats|null} dformat
  * @param {AttributedNodesPredicate} attributedNodes
+ * @param {import('prosemirror-model').NodeType | null} [parentType] the type
+ *   of the node that will hold this one (checks its node marks); `null` when
+ *   unknown
  * @return {Node|null} `null` when the node was dropped
  */
-const deltaToPNodeOrDrop = (d, schema, dformat, attributedNodes) => {
+const deltaToPNodeOrDrop = (d, schema, dformat, attributedNodes, parentType = null) => {
   /**
    * @type {Object<string,any>}
    */
@@ -1203,20 +1096,6 @@ const deltaToPNodeOrDrop = (d, schema, dformat, attributedNodes) => {
     // hard-deleted attribute) leaves the key unset, handled below
     if (delta.$setAttrOp.check(attr)) attrs[attr.key] = attr.value
   }
-  /**
-   * @type {Array<Node>}
-   */
-  const inputChildren = []
-  for (const c of d.children) {
-    if (delta.$insertOp.check(c)) {
-      for (const cn of c.insert) {
-        const child = deltaToPNodeOrDrop(cn, schema, c.format, attributedNodes)
-        if (child !== null) inputChildren.push(child)
-      }
-    } else if (delta.$textOp.check(c)) {
-      inputChildren.push(schema.text(c.insert, formattingAttributesToMarks(c.format, schema)))
-    }
-  }
   const canonical = d.name == null ? schema.topNodeType.name : canonicalNodeName(d.name)
   const nodeType = schema.nodes[attributedVariant(canonical, dformat, attributedNodes, schema)]
   if (!nodeType) {
@@ -1224,7 +1103,22 @@ const deltaToPNodeOrDrop = (d, schema, dformat, attributedNodes) => {
       '[y/prosemirror]: node type does not exist in the schema: ' + d.name
     )
   }
-  const inputMarks = formattingAttributesToMarks(dformat, schema)
+  /**
+   * @type {Array<Node>}
+   */
+  const inputChildren = []
+  // `DeltaAny`: see the children loop in deltaToPSteps (TS2589)
+  for (const c of /** @type {delta.DeltaAny} */ (d).children) {
+    if (delta.$insertOp.check(c)) {
+      for (const cn of c.insert) {
+        const child = deltaToPNodeOrDrop(cn, schema, c.format, attributedNodes, nodeType)
+        if (child !== null) inputChildren.push(child)
+      }
+    } else if (delta.$textOp.check(c)) {
+      inputChildren.push(schema.text(c.insert, formattingAttributesToMarks(c.format, schema, nodeType)))
+    }
+  }
+  const inputMarks = formattingAttributesToMarks(dformat, schema, parentType)
   const finalAttrs = canonical !== nodeType.name
     ? object.assign({
       'y-attributed': true
