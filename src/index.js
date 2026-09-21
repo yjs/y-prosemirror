@@ -12,7 +12,8 @@ export {
   relativePositionStore,
   relativePositionStoreMapping
 } from './positions.js'
-export { docToDelta, nodeToDelta, nodeToDeltaCached, deltaToPNode, deltaToPSteps, deltaAttributionToFormat, $prosemirrorDelta, defaultMapAttributionToMark, defaultMapAttrAttribution, defaultAttributionConf, attributionMapperToConf, yattr2markname, pmToFragment, fragmentToPm } from './sync-utils.js'
+export { docToDelta, nodeToDelta, nodeToDeltaCached, deltaToPNode, deltaToPSteps, $prosemirrorDelta, defaultMapAttributionToMark, defaultMapAttrAttribution, attributionMapperToConf, yattr2markname } from './sync-utils.js'
+export { defaultTransformer, ynodeToPmnode, pmnodeToDelta } from './convert.js'
 export * from './commands.js'
 export * from './undo-plugin.js'
 export * from './cursor-plugin.js'

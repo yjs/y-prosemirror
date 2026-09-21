@@ -470,15 +470,17 @@ export const testV1CursorRendersInV2CursorPlugin = (_tc) => {
 }
 
 /**
- * `fragmentToPm` renders a v1 document without a binding.
+ * `ynodeToPmnode` renders a v1 document without a binding: it maps through
+ * the binding's pipeline, whose compat stage flattens the nested text
+ * containers.
  *
  * @param {t.TestCase} _tc
  */
-export const testFragmentToPmOnV1Doc = (_tc) => {
+export const testYnodeToPmnodeOnV1Doc = (_tc) => {
   const pm = buildFixture({ clean: true })
   const ydoc14 = toY14(v1DocFromPm(pm))
-  const rendered = YPM.fragmentToPm(ydoc14.get(PM_KEY), EditorState.create({ schema }).tr)
-  t.compare(rendered.toJSON(), pm.toJSON(), 'fragmentToPm flattens the v1 representation')
+  const rendered = YPM.ynodeToPmnode(ydoc14.get(PM_KEY), schema)
+  t.compare(rendered.toJSON(), pm.toJSON(), 'ynodeToPmnode flattens the v1 representation')
 }
 
 /**

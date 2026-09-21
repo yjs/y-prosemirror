@@ -1,6 +1,135 @@
 # Changelog
 
-## v2.0.0-8
+## Unreleased
+
+Standalone conversion between Yjs and ProseMirror through the binding's own
+transformer pipeline (replacing the helpers that bypassed it), and two binding
+fixes: document attributes, and marks the schema cannot hold.
+
+### 💥 Breaking changes
+
+#### Converting without a binding: `ynodeToPmnode` / `pmnodeToDelta`
+
+`pmToFragment`, `fragmentToPm`, `deltaAttributionToFormat` and the
+module-level `fragmentToTr` are removed: they bypassed (or hand-copied parts
+of) the binding's transformer pipeline. The pipeline is now exported as
+`defaultTransformer`, and two conversions map through it without a binding:
+
+- `ynodeToPmnode(ynode, schema, { renderer, transformer, attributedNodes })`
+  renders a Y node the way a bound view renders it. Documents in the
+  `y-prosemirror` 1.x representation are flattened, and with a `renderer`,
+  attribution becomes `y-attributed-*` marks. The Y content must fit the
+  schema: as in the binding, invalid descendants are dropped, while a `ynode`
+  that does not fit the schema itself throws.
+- `pmnodeToDelta(pmnode, { transformer })` returns the delta the binding would
+  write to Y for a ProseMirror node. Write it with
+  `ynode.applyDelta(pmnodeToDelta(pmnode), origin, { renderer })`. Only for
+  documents rendered without a renderer: the transformer swallows the
+  attribution projection (`y-attributed-*` marks, `--attributed` variants),
+  so a suggestion-rendered document would be written as plain content
+  (pending deletions as live text, suggested insertions as accepted).
+
+If the sync plugin is configured with `mapAttributionToMark` or custom
+`transformers`, pass the same values to
+`defaultTransformer({ mapAttributionToMark, transformers })` and hand the
+result to both functions as `transformer`.
+
+`defaultAttributionConf` is removed as well; build the same conf with
+`attributionMapperToConf(defaultMapAttributionToMark)`.
+
+Migrating integration code (e.g. BlockNote's `@blocknote/core/y`):
+
+| Before | After |
+| --- | --- |
+| `pmToFragment(pmDoc, fragment, { renderer })` | `fragment.applyDelta(pmnodeToDelta(pmDoc), null, { renderer })` |
+| `fragmentToPm(ytype, tr)` | `ynodeToPmnode(ytype, schema)` |
+| `deltaToPNode(ytype.toDeltaDeep(), schema, null)` | `ynodeToPmnode(ytype, schema)` |
+| `deltaAttributionToFormat(ytype.toDeltaDeep({ renderer }), mapper)`, then `deltaToPSteps(tr, delta.diff(nodeToDelta(tr.doc, undefined, true), rendered))` | `const rendered = ynodeToPmnode(ytype, schema, { renderer, transformer: defaultTransformer({ mapAttributionToMark }) })`, then `deltaToPSteps(tr, delta.diff(nodeToDelta(tr.doc, undefined, true), nodeToDelta(rendered, undefined, true)))` |
+
+#### Dependencies
+
+- `prosemirror-transform` is now a peer dependency (`^1.8.0`, the release
+  that added doc-attribute steps); the binding imports it directly and only
+  declared it as a devDependency before.
+
+### 🐛 Fixes
+
+- Attributes of the document node (ProseMirror doc attributes, e.g. set with
+  `tr.setDocAttribute`) sync from Y into the view. Setting one threw in
+  `deltaToPSteps` (a node-attribute step at position -1), and the
+  whole-document fallback did not carry doc attributes either. So binding a
+  view dropped the stored value and wrote the schema default back into Y, and
+  two bound peers kept overwriting each other's value in an endless update
+  loop. The whole-document fallback (initial-content gate, unfittable steps)
+  now sets the doc attributes too.
+- Content from Y carrying a mark the schema cannot hold no longer breaks the
+  view. A format with no matching mark in the schema threw from `schema.mark`
+  (the editor never bound, and a remote change adding one threw out of
+  `ytype.applyDelta`); a remote change clearing one reached
+  `tr.removeMark(from, to, undefined)`, which removes every mark in the range,
+  and the fix then deleted those marks from Y. A mark the parent does not
+  allow (e.g. `strong` in a `code_block` with `marks: ''`) slipped into
+  pre-built nodes and left the view with a schema-invalid document. Such marks
+  are now dropped where the content is built, with one `console.warn` per
+  schema and mark; the view renders the content without them. As with any
+  schema normalization, the fix then writes the removal into Y.
+
+### 📝 Documentation and demos
+
+- The README documents `@y/prosemirror`: the `syncPlugin` +
+  `configureYProsemirror` setup, cursors, undo, and the conversion utilities
+  above. The stable 1.x API stays documented in the
+  [v1.3.7 README](https://github.com/yjs/y-prosemirror/tree/v1.3.7#readme).
+- The demos depend on `@y/y` `^14.0.0-rc.26` and `lib0` `^1.0.0-rc.32` (their
+  installs had fallen behind). Known issue: `yhub-blocknote-demo` does not
+  build until the BlockNote preview build it installs (PR 2739) moves off
+  `pmToFragment` / `deltaAttributionToFormat` (see the migration table above).
+
+## v2.0.0-11
+
+### ✨ Additions
+
+- `yUndoPlugin` can switch to another `Y.UndoManager`: dispatch
+  `tr.setMeta(yUndoPluginKey, { undoManager })`. An `UndoManager` covers a
+  single `Y.Doc`, so an editor that is re-bound to a different document (a
+  suggestion document, a historical version) needs one manager per document.
+  Re-registering the plugin is not an alternative: changing the plugin array
+  recreates every plugin view, which tears down the sync binding.
+
+### 🧪 Demos
+
+- `yhub-tiptap-demo` runs on a schema hardened for suggestion mode and version
+  diffs (relaxed content expressions, attribution marks admitted on every node
+  type, 0 audit findings where a stock `StarterKit` + tables schema has 10),
+  guards for third-party plugins that repair the document from
+  `appendTransaction` (`fixTables`, `TrailingNode`, autolink), a diagnostics
+  panel (schema audit, live `doc.check()`, `onInternalError`), and one
+  `UndoManager` per bound document. Its README lists manual checks.
+
+## v2.0.0-10
+
+### 🐛 Fixes
+
+- Repeated Backspace in suggestion mode now strikes one character per
+  keystroke ([#242](https://github.com/yjs/y-prosemirror/issues/242)).
+  A delete in suggestion mode keeps its content: the Y side turns it into a
+  pending delete and hands the content back as a fix, which the binding
+  re-inserts at the caret. ProseMirror maps a caret across an insertion at its
+  own position to the right, so the caret ended up behind the struck-through
+  character and every further Backspace hit content that was already
+  pending-deleted - a write Yjs reverts - and the user could delete only a
+  single character. The sync plugin now appends a caret correction to the fix
+  dispatch of a backward deletion, re-mapping the caret with a left bias so it
+  stays where the local delete left it (`src/suggestion-caret.js`). Forward
+  delete (`Delete`) keeps the right bias, so it keeps advancing past the
+  struck-through content as before, and remote changes are unaffected. The sync
+  engine itself is unchanged.
+
+## v2.0.0-9
+
+Published as 2.0.0-9; the release commit was titled 2.0.0-8. Covers everything
+since v2.0.0-4 (2.0.0-5 to 2.0.0-8 shipped these notes while they were still
+"Unreleased").
 
 This release rebuilds the sync engine on lib0's RDT/binding architecture, tracks
 the breaking `AttributionManager → Renderer` rename in Yjs v14, adds several
@@ -467,20 +596,6 @@ the released bindings.
 
 ### 🐛 Fixes
 
-- Repeated Backspace in suggestion mode now strikes one character per
-  keystroke ([#242](https://github.com/yjs/y-prosemirror/issues/242)).
-  A delete in suggestion mode keeps its content: the Y side turns it into a
-  pending delete and hands the content back as a fix, which the binding
-  re-inserts at the caret. ProseMirror maps a caret across an insertion at its
-  own position to the right, so the caret ended up behind the struck-through
-  character and every further Backspace hit content that was already
-  pending-deleted - a write Yjs reverts - and the user could delete only a
-  single character. The sync plugin now appends a caret correction to the fix
-  dispatch of a backward deletion, re-mapping the caret with a left bias so it
-  stays where the local delete left it (`src/suggestion-caret.js`). Forward
-  delete (`Delete`) keeps the right bias, so it keeps advancing past the
-  struck-through content as before, and remote changes are unaffected. The sync
-  engine itself is unchanged.
 - Schema-invalid nodes produced by concurrent edits (e.g. both paragraphs of
   a `block+` blockquote deleted by two peers) are dropped at construction and
   deleted from Y on every peer, the way the v1 binding handled them, instead

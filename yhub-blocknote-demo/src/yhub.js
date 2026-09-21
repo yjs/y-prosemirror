@@ -1,8 +1,7 @@
 /* eslint-env browser */
 import * as Y from '@y/y'
 import { mapAttributionToMark } from '@blocknote/core/y'
-import { configureYProsemirror, ySyncPluginKey } from '@y/prosemirror'
-import { attributionMapperToConf, deltaAttributionToFormat, deltaToPNode } from '../../src/sync-utils.js'
+import { configureYProsemirror, defaultTransformer, ySyncPluginKey, ynodeToPmnode } from '@y/prosemirror'
 import * as delta from 'lib0/delta'
 import { WebsocketProvider } from '@y/websocket'
 import * as random from 'lib0/random'
@@ -136,11 +135,11 @@ elemSelectSuggestionMode.addEventListener('change', () => {
       const rawDelta = ytype.toDeltaDeep({ renderer: suggestionRenderer })
       console.log('[debug] === walking RAW delta ===')
       debugWalk(rawDelta)
-      const ycontent = deltaAttributionToFormat(rawDelta, attributionMapperToConf(mapAttributionToMark))
-      console.log('[debug] === walking FORMATTED delta ===')
-      debugWalk(ycontent)
-      const node = deltaToPNode(ycontent, currentView.state.schema, null)
-      console.log('[debug] deltaToPNode produced:\n' + JSON.stringify(node.toJSON(), null, 2))
+      const node = ynodeToPmnode(ytype, currentView.state.schema, {
+        renderer: suggestionRenderer,
+        transformer: defaultTransformer({ mapAttributionToMark })
+      })
+      console.log('[debug] ynodeToPmnode produced:\n' + JSON.stringify(node.toJSON(), null, 2))
     } catch (e) {
       console.error('[debug] error preparing diagnostic node:', e)
     }

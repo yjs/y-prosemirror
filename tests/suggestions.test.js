@@ -1581,11 +1581,11 @@ const bnBlock = (id, text) =>
 /**
  * Issue #247: indenting a block in suggestion mode used to crash the sync
  * pipeline on the view-suggestion peer with `unexpectedCase` from
- * lib0/delta `diff`. The fix lives in `deltaAttributionToFormat`
- * (sync-utils.js): `DeleteAttrOp`s emitted by the renderer are
- * folded back to a `SetAttrOp` with the previous value, because PM has no
- * model for an attribute deleted under attribution. The parent node's own
- * delete attribution already carries the visual signal.
+ * lib0/delta `diff`. The original fix lived in `deltaAttributionToFormat`
+ * (since removed; the binding renders through its transformer pipeline):
+ * `DeleteAttrOp`s emitted by the renderer were folded back to a `SetAttrOp`
+ * with the previous value, because PM has no model for an attribute deleted
+ * under attribution. This pin keeps the crash from coming back.
  */
 export const testIssue247BlockNoteIndent = () => {
   const { viewA, viewSuggestion, viewSuggestionMode } = createSuggestionSetup({ schema: blocknoteSchema })

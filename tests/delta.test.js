@@ -236,3 +236,215 @@ export const testEphemeralStateDoesNotAffectSync = () => {
   t.assert(view1.state.doc.textContent === 'Hello', 'ephemeral apply should not leak into view1')
   t.assert(view2.state.doc.textContent === 'Hello', 'ephemeral apply should not leak into view2')
 }
+
+const docAttrsSchema = new Schema({
+  nodes: basicSchema.schema.spec.nodes.update('doc', { ...basicSchema.nodes.doc, attrs: { title: { default: '' } } }),
+  marks: basicSchema.marks
+})
+
+/**
+ * @param {Y.Node} ytype
+ */
+const createDocAttrsView = ytype => {
+  const view = new EditorView({ mount: document.createElement('div') }, {
+    state: EditorState.create({ schema: docAttrsSchema, plugins: [YPM.syncPlugin()] })
+  })
+  YPM.configureYProsemirror({ ytype })(view.state, view.dispatch)
+  return view
+}
+
+/**
+ * @param {Y.Node} ytype
+ */
+const yTitle = ytype => /** @type {any} */ (ytype.toDeltaDeep().toJSON()).attrs?.title?.value
+
+/**
+ * Stops a runaway fix loop: throws once the docs exchanged more updates than
+ * any settled change needs, which ends the loop (the Y side reports and
+ * swallows the throw).
+ *
+ * @param {Array<Y.Doc>} docs
+ */
+const countUpdates = docs => {
+  const counter = { n: 0 }
+  docs.forEach(doc => doc.on('update', () => {
+    if (++counter.n > 40) throw new Error('runaway update loop')
+  }))
+  return counter
+}
+
+/**
+ * Attributes of the root node (ProseMirror doc attributes) render into the
+ * view on bind. Setting one used to throw in `deltaToPSteps` (a node-attribute
+ * step at position -1); the whole-document fallback then left the view's
+ * default in place, and the fix wrote that default back into Y.
+ */
+export const testDocAttrsSyncedAtBind = () => {
+  const ytype = new Y.Doc().get('prosemirror')
+  ytype.applyDelta(delta.create().setAttr('title', 'my title').insert([delta.create('paragraph', {}, 'text')]).done())
+  const view = createDocAttrsView(ytype)
+  t.compare(view.state.doc.attrs.title, 'my title', 'the view renders the doc attribute')
+  t.compare(yTitle(ytype), 'my title', 'Y keeps the doc attribute')
+  view.destroy()
+}
+
+/**
+ * A doc attribute set on one peer reaches the other. This used to loop
+ * forever: each peer failed to apply the other's value and wrote its own
+ * back.
+ */
+export const testDocAttrChangeSyncsBetweenPeers = () => {
+  const ydoc1 = new Y.Doc()
+  const ydoc2 = new Y.Doc()
+  setupTwoWaySync(ydoc1, ydoc2)
+  ydoc1.get('prosemirror').applyDelta(delta.create().insert([delta.create('paragraph', {}, 'text')]).done())
+  const view1 = createDocAttrsView(ydoc1.get('prosemirror'))
+  const view2 = createDocAttrsView(ydoc2.get('prosemirror'))
+  const counter = countUpdates([ydoc1, ydoc2])
+  view1.dispatch(view1.state.tr.setDocAttribute('title', 'from peer 1'))
+  t.assert(counter.n < 10, `settled (${counter.n} updates)`)
+  t.compare(view2.state.doc.attrs.title, 'from peer 1')
+  view2.dispatch(view2.state.tr.setDocAttribute('title', 'from peer 2'))
+  t.compare(view1.state.doc.attrs.title, 'from peer 2')
+  t.compare(yTitle(ydoc1.get('prosemirror')), 'from peer 2')
+  t.compare(yTitle(ydoc2.get('prosemirror')), 'from peer 2')
+  view1.destroy()
+  view2.destroy()
+}
+
+/**
+ * A remote change that raw steps cannot express (emptying a `block+`
+ * blockquote) is applied by replacing the whole document - which must carry
+ * a doc-attribute change of the same transaction.
+ */
+export const testDocAttrSurvivesWholeDocumentFallback = () => {
+  const ytype = new Y.Doc().get('prosemirror')
+  ytype.applyDelta(delta.create().insert([
+    delta.create('blockquote', {}, [delta.create('paragraph', {}, 'quoted')]),
+    delta.create('paragraph', {}, 'text')
+  ]).done())
+  const view = createDocAttrsView(ytype)
+  ytype.applyDelta(delta.create().setAttr('title', 'remote').modify(delta.create().delete(1)).done())
+  t.compare(view.state.doc.attrs.title, 'remote', 'the view renders the doc attribute')
+  t.compare(yTitle(ytype), 'remote', 'Y keeps the doc attribute')
+  t.compare(view.state.doc.textContent, 'text', 'the emptied blockquote was dropped')
+  view.destroy()
+}
+
+/**
+ * The first render into an editor bound to an empty ytype replaces the
+ * schema-default document wholesale (the initial-content gate) - doc
+ * attributes included.
+ */
+export const testDocAttrOnEmptyYtype = () => {
+  const ytype = new Y.Doc().get('prosemirror')
+  ytype.applyDelta(delta.create().setAttr('title', 'only a title').done())
+  const view = createDocAttrsView(ytype)
+  t.compare(view.state.doc.attrs.title, 'only a title', 'the view renders the doc attribute')
+  t.compare(yTitle(ytype), 'only a title', 'Y keeps the doc attribute')
+  view.destroy()
+}
+
+/**
+ * `deltaToPSteps` maps a root attribute to a single doc-attribute step
+ * instead of throwing (which forced a whole-document replace).
+ */
+export const testDocAttrIsASingleStep = () => {
+  const state = EditorState.create({ schema: docAttrsSchema })
+  const tr = YPM.deltaToPSteps(state.tr, /** @type {any} */ (delta.create().setAttr('title', 'x').done()))
+  t.compare(tr.doc.attrs.title, 'x')
+  t.compare(tr.steps.map(step => step.toJSON().stepType), ['docAttr'])
+}
+
+/**
+ * Run `f` with `console.warn` captured.
+ *
+ * @param {() => void} f
+ * @return {Array<string>}
+ */
+const captureWarnings = f => {
+  /** @type {Array<string>} */
+  const lines = []
+  const original = console.warn
+  console.warn = (/** @type {any} */ ...args) => { lines.push(args.join(' ')) }
+  try {
+    f()
+  } finally {
+    console.warn = original
+  }
+  return lines
+}
+
+/**
+ * @param {Schema} s
+ * @param {Y.Node} ytype
+ */
+const createViewWithSchema = (s, ytype) => {
+  const view = new EditorView({ mount: document.createElement('div') }, {
+    state: EditorState.create({ schema: s, plugins: [YPM.syncPlugin()] })
+  })
+  YPM.configureYProsemirror({ ytype })(view.state, view.dispatch)
+  return view
+}
+
+/**
+ * A mark the schema declares but the parent does not allow (`strong` in a
+ * basic-schema `code_block`, `marks: ''`) is dropped with a single warning.
+ * Before, a pre-built node slipped it past ProseMirror's validation and the
+ * view held a schema-invalid document; `ynodeToPmnode` renders the same
+ * valid document.
+ */
+export const testDisallowedMarkIsDropped = () => {
+  const s = new Schema({ nodes: basicSchema.nodes, marks: basicSchema.marks })
+  const ytype = new Y.Doc().get('prosemirror')
+  ytype.applyDelta(delta.create().insert([delta.create('code_block').insert('code', { strong: true }).done()]).done())
+  /** @type {any} */
+  let view = null
+  const warnings = captureWarnings(() => {
+    view = createViewWithSchema(s, ytype)
+    createViewWithSchema(s, ytype).destroy()
+  })
+  view.state.doc.check()
+  t.compare(view.state.doc.textContent, 'code')
+  t.assert(YPM.ynodeToPmnode(ytype, s).eq(view.state.doc), 'ynodeToPmnode renders what the view shows')
+  t.compare(warnings.filter(l => l.includes('"code_block" does not allow the "strong" mark')).length, 1, 'warned once per schema')
+  view.destroy()
+}
+
+/**
+ * A format the schema declares no mark for is dropped with a warning. Before,
+ * `schema.mark` threw and the editor never bound.
+ */
+export const testUndeclaredMarkIsDropped = () => {
+  const s = new Schema({ nodes: basicSchema.nodes, marks: basicSchema.marks })
+  const ytype = new Y.Doc().get('prosemirror')
+  ytype.applyDelta(delta.create().insert([delta.create('paragraph').insert('text', { foo: true, strong: true }).done()]).done())
+  /** @type {any} */
+  let view = null
+  const warnings = captureWarnings(() => { view = createViewWithSchema(s, ytype) })
+  view.state.doc.check()
+  t.compare(view.state.doc.toJSON().content[0].content, [{ type: 'text', marks: [{ type: 'strong' }], text: 'text' }])
+  t.assert(YPM.ynodeToPmnode(ytype, s).eq(view.state.doc), 'ynodeToPmnode renders what the view shows')
+  t.compare(warnings.filter(l => l.includes('declares no mark "foo"')).length, 1)
+  view.destroy()
+}
+
+/**
+ * Adding and then clearing a format the schema does not declare leaves the
+ * other marks alone. The clear used to reach `tr.removeMark` without a mark,
+ * which removes every mark in the range - and the fix then deleted them from
+ * Y. The addition used to throw out of `ytype.applyDelta`.
+ */
+export const testRemoteUndeclaredMarkKeepsOtherMarks = () => {
+  const s = new Schema({ nodes: basicSchema.nodes, marks: basicSchema.marks })
+  const ytype = new Y.Doc().get('prosemirror')
+  ytype.applyDelta(delta.create().insert([delta.create('paragraph').insert('bold', { strong: true }).done()]).done())
+  const view = createViewWithSchema(s, ytype)
+  captureWarnings(() => {
+    ytype.applyDelta(delta.create().modify(delta.create().retain(4, { foo: true }).done()).done())
+    ytype.applyDelta(delta.create().modify(delta.create().retain(4, { foo: null }).done()).done())
+  })
+  t.compare(view.state.doc.toJSON().content[0].content, [{ type: 'text', marks: [{ type: 'strong' }], text: 'bold' }], 'the view keeps strong')
+  t.compare(JSON.parse(JSON.stringify(ytype.toDeltaDeep().toJSON())).children[0].insert[0].children[0].format, { strong: {} }, 'Y keeps strong')
+  view.destroy()
+}

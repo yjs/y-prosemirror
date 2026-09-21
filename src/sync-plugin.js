@@ -1,18 +1,15 @@
 import * as Y from '@y/y'
 import { Plugin } from 'prosemirror-state'
 import {
-  attributionMapperToConf,
   defaultAttributedNodes,
   defaultMapAttributionToMark
 } from './sync-utils.js'
 import { YSyncRdt } from './rdt/y-sync.js'
 import { ProsemirrorRdt } from './rdt/prosemirror.js'
-import { renderedAttributions } from './transformers/rendered-attributions.js'
-import { inlineAnonymousNodes } from './transformers/inline-anonymous-nodes.js'
-import { swallowFormats, defaultSwallowedFormats } from './transformers/swallow-formats.js'
+import { defaultSwallowedFormats } from './transformers/swallow-formats.js'
+import { defaultTransformer } from './convert.js'
 import { biasCaretLeft, isBackwardDeletion } from './suggestion-caret.js'
 import { bind, Binding } from 'lib0/delta/rdt'
-import * as dt from 'lib0/delta/transformer'
 import { ySyncPluginKey } from './keys.js'
 import * as s from 'lib0/schema'
 import * as object from 'lib0/object'
@@ -107,7 +104,7 @@ const auditedSchemas = new WeakSet()
  * marks. When the target node's schema does not admit them, ProseMirror drops
  * them silently (`tr.addMark` checks `parent.type.allowsMarkType`) or throws
  * from `tr.addNodeMark`, and the reverse leg swallows the loss (see
- * {@link swallowFormats}) - so the view renders stale attribution with no
+ * {@link import('./transformers/swallow-formats.js').swallowFormats}) - so the view renders stale attribution with no
  * error to go on. The check is cheap, deterministic and runs before any
  * editing, which makes it a far better diagnostic than the transformer's
  * per-change warning: at swallow time a schema refusal is indistinguishable
@@ -166,13 +163,17 @@ const warnUnsupportedAttributionMarks = (schema) => {
  * This Prosemirror {@link Plugin} is responsible for synchronizing the prosemirror {@link EditorState} with a {@link Y.XmlFragment}
  *
  * The two sides are modeled as lib0 `RDT`s ({@link YSyncRdt} around the ytype,
- * {@link ProsemirrorRdt} around the view) connected through a transformer
- * pipeline (`lib0/delta/rdt.bind`):
+ * {@link ProsemirrorRdt} around the view) connected through the
+ * {@link defaultTransformer} pipeline (`lib0/delta/rdt.bind`):
  *
- *     YSyncRdt ⇄ pipe(fullAttributions, inlineAnonymousNodes, ...opts.transformers, attributionToFormat, swallowFormats) ⇄ ProsemirrorRdt
+ *     YSyncRdt ⇄ pipe(renderedAttributions, inlineAnonymousNodes, ...opts.transformers, attributionToFormat, swallowFormats) ⇄ ProsemirrorRdt
+ *
+ * {@link import('./convert.js').ynodeToPmnode} and
+ * {@link import('./convert.js').pmnodeToDelta} map through the same
+ * pipeline without a binding.
  *
  * Data → view (`applyA`), the pipeline expands each change's attribution to
- * the full accumulated attribution (`fullAttributions`) and renders it into
+ * the full accumulated attribution (`renderedAttributions`) and renders it into
  * the reserved `y-attributed-*` format keys (`attributionToFormat`) that the
  * view applies as marks. View → data (`applyB`), `swallowFormats` gates those
  * keys: a view-side *removal* is dropped (nothing reaches Y, nothing is pushed
@@ -189,9 +190,9 @@ const warnUnsupportedAttributionMarks = (schema) => {
  * @param {Y.Doc} [opts.suggestionDoc] A {@link Y.Doc} to use for suggestion tracking
  * @param {AttributionMapper} [opts.mapAttributionToMark] A function to map the {@link Y.ContentAttribute} to a {@link import('prosemirror-model').Mark} - the mark names *must* be one of: `y-attributed-insert`, `y-attributed-delete`, `y-attributed-format`, `y-attributed-attrs`. No other mark names are permitted. `y-attributed-attrs` is the node-level mark for *attribute* changes (e.g. a suggested heading-level change): it is materialized automatically when the schema declares it (declare `attrs: { changes: { default: null } }` and — unlike the other three — keep the DEFAULT `excludes`, so a re-render *replaces* the mark instead of stacking instances). Its payload is not routed through the mapper by default; a mapper may take control by emitting the `y-attributed-attrs` key.
  * @param {AttributedNodesPredicate} [opts.attributedNodes] Optional predicate `(nodeName, kinds) => boolean`. When it returns `true` for an attributed node *and* a `{nodeName}--attributed` type exists in the schema, that node is rendered under the variant type (the `y-attributed-*` marks are still applied). `kinds` is `{ insert?, delete?, format? }`. The variant is a pure rendering concern - the canonical name is what is stored in the Y document. The predicate must be deterministic in `(nodeName, kinds)`.
-  * @param {NodeCompare} [opts.customCompare] Optional predicate `(a, b) => boolean` that shifts the *diffing boundary*. To sync, y-prosemirror diffs the ProseMirror doc against the Y document as `lib0/delta` trees; lib0's `diff` decides for each candidate node pair whether to pair them (diff *in place* via a `modify` op) or to **replace the old subtree wholesale** (delete + insert). By default a pair is matched purely on node name (`a.name === b.name`). Supply this to move the boundary - e.g. make a `blockContainer` only pair when its first child type also matches (`(a, b) => a.name === b.name && (a.name !== 'blockContainer' || firstChildName(a) === firstChildName(b))`), so changing the first child replaces the whole container instead of editing it in place. Receives the raw `lib0/delta` nodes `(fromNode, toNode)` (each exposing `.name`, `.attrs`, `.children`) and is forwarded to `lib0/delta.diff` as its `compare` option, applied recursively down the tree. Generally keep the `a.name === b.name` check; omit the option to keep lib0's name-only default.
-  * @param {InitialContentCompare} [opts.initialContentCompare] Optional predicate `(doc) => boolean` deciding whether the current ProseMirror document is the integrator's initial (empty) state that must not be written into an empty ytype at bind time (see "Initial-content gate" in {@link ProsemirrorRdt}'s doc). Return `true` to arm the gate for this document, `false` to sync it immediately. Omit the option to keep the default check (document fingerprint equals the schema's `createAndFill()` default). Only consulted when the ytype has no children.
- * @param {Array<(($d: s.Schema<any>) => dt.Template<any, any>)>} [opts.transformers] Optional custom transformer stages, slotted into the pipeline **between** the built-in compat flattening stage ({@link inlineAnonymousNodes}) and `attributionToFormat`, in data→view (`applyA`) order (i.e. before the closing `attributionToFormat` / {@link swallowFormats} pair). Each is a `$d => Template` factory (see `lib0/delta/transformer`); the input schema is threaded left to right. Custom transformers see changes in the flattened document space (old-representation anonymous text containers already spliced into their parents), with the complete accumulated attribution on every attribution-bearing op.
+ * @param {NodeCompare} [opts.customCompare] Optional predicate `(a, b) => boolean` that shifts the *diffing boundary*. To sync, y-prosemirror diffs the ProseMirror doc against the Y document as `lib0/delta` trees; lib0's `diff` decides for each candidate node pair whether to pair them (diff *in place* via a `modify` op) or to **replace the old subtree wholesale** (delete + insert). By default a pair is matched purely on node name (`a.name === b.name`). Supply this to move the boundary - e.g. make a `blockContainer` only pair when its first child type also matches (`(a, b) => a.name === b.name && (a.name !== 'blockContainer' || firstChildName(a) === firstChildName(b))`), so changing the first child replaces the whole container instead of editing it in place. Receives the raw `lib0/delta` nodes `(fromNode, toNode)` (each exposing `.name`, `.attrs`, `.children`) and is forwarded to `lib0/delta.diff` as its `compare` option, applied recursively down the tree. Generally keep the `a.name === b.name` check; omit the option to keep lib0's name-only default.
+ * @param {InitialContentCompare} [opts.initialContentCompare] Optional predicate `(doc) => boolean` deciding whether the current ProseMirror document is the integrator's initial (empty) state that must not be written into an empty ytype at bind time (see "Initial-content gate" in {@link ProsemirrorRdt}'s doc). Return `true` to arm the gate for this document, `false` to sync it immediately. Omit the option to keep the default check (document fingerprint equals the schema's `createAndFill()` default). Only consulted when the ytype has no children.
+ * @param {Array<(($d: s.Schema<any>) => import('lib0/delta/transformer').Template<any, any>)>} [opts.transformers] Optional custom transformer stages, slotted into the pipeline **between** the built-in compat flattening stage ({@link import('./transformers/inline-anonymous-nodes.js').inlineAnonymousNodes}) and `attributionToFormat`, in data→view (`applyA`) order (i.e. before the closing `attributionToFormat` / `swallowFormats` pair). Each is a `$d => Template` factory (see `lib0/delta/transformer`); the input schema is threaded left to right. Custom transformers see changes in the flattened document space (old-representation anonymous text containers already spliced into their parents), with the complete accumulated attribution on every attribution-bearing op.
  * @param {null|((err:Error,errCode:number)=>any)} [opts.onInternalError] Listen to internal
  * errors for debugging purposes. This API is unstable and can be changed/removed at any time!
  * (errCode 0: the Y-side write failed, 1: the Y-side fix diff failed, 2: the view-side reconcile diff failed)
@@ -281,15 +282,6 @@ export const syncPlugin = (opts = {}) => {
         // the binding, so this gate is also "audit once, when a renderer is set".
         if (renderer != null) warnUnsupportedAttributionMarks(view.state.schema)
         const compare = pluginState.customCompare
-        const conf = attributionMapperToConf(pluginState.attributionMapper)
-        // The attr-attribution lift (lib0's `y-attributed-attrs` format) is
-        // schema-gated: without the mark declared there is nothing to
-        // materialize it into, and an unmaterialized expected-format would
-        // break the render⇄doc fixpoint. Removing the handler restores the
-        // exact pre-existing behavior (attr-op attribution dropped).
-        if (view.state.schema.marks['y-attributed-attrs'] == null) {
-          delete conf.attrs
-        }
         const yRdt = new YSyncRdt({
           ytype,
           renderer,
@@ -317,31 +309,20 @@ export const syncPlugin = (opts = {}) => {
         // initial sync synchronously, which dispatches into the view and
         // re-enters this plugin's `update` hook.
         rdts = { yRdt, pmRdt, binding: /** @type {any} */ (null) }
-        rdts.binding = bind(yRdt, pmRdt, $d => /** @type {any} */ (dt.pipe)(
-          $d,
-          // y-prosemirror-specific replacement for lib0's `fullAttributions` —
-          // resolves full attributions from the Y render instead of a stateful
-          // overlay (see transformers/rendered-attributions.js for why)
-          (/** @type {s.Schema<any>} */ $d2) => renderedAttributions($d2, () => yRdt.delta),
-          // compat: flatten old-representation nested anonymous text
-          // containers. Must run AFTER renderedAttributions (which
-          // parallel-walks the structured yRdt.delta) and BEFORE custom
-          // transformers, which see the flattened space.
-          (/** @type {s.Schema<any>} */ $d2) => inlineAnonymousNodes($d2),
-          ...(opts.transformers ?? []),
-          (/** @type {s.Schema<any>} */ $d2) => dt.attributionToFormat($d2, conf),
-          // the one-way gate for the `y-attributed-*` projection. MUST be
-          // last: an `applyB` change flows right-to-left, so any earlier
-          // position would let `attributionToFormat`'s own strip erase the
-          // keys before this stage could decide to swallow or correct them.
-          (/** @type {s.Schema<any>} */ $d2) => swallowFormats($d2)
-          // `diffCompare` applies `customCompare` to the initial-state sync
-          // diff as well. The RDTs' own diffs (view-side pulls, fixes, the
-          // Y side's uncertain-window emissions) already use it; the Y side's
-          // steady-state emissions are the native change deltas — the change
-          // as it actually happened — which are never re-paired by `diff`,
-          // so `customCompare` does not apply there (see YSyncRdt).
-        ), { diffCompare: compare ?? undefined })
+        const transformer = defaultTransformer({
+          mapAttributionToMark: pluginState.attributionMapper,
+          transformers: opts.transformers
+        })
+        // `diffCompare` applies `customCompare` to the initial-state sync
+        // diff as well. The RDTs' own diffs (view-side pulls, fixes, the Y
+        // side's uncertain-window emissions) already use it; the Y side's
+        // steady-state emissions are the native change deltas — the change as
+        // it actually happened — which are never re-paired by `diff`, so
+        // `customCompare` does not apply there (see YSyncRdt).
+        rdts.binding = bind(yRdt, pmRdt, transformer({
+          getState: () => yRdt.delta,
+          schema: view.state.schema
+        }), { diffCompare: compare ?? undefined })
         // Expose the live binding on the plugin state so the cursor plugin can map
         // positions through its transformer. `renderer` must ride along: `apply`
         // force-nulls it when omitted, which would tear down an active renderer (and
