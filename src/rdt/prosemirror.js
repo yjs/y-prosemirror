@@ -168,7 +168,7 @@ const touchesAttributionSpace = format => {
  * docs duplicates the content (the init race). When the sync plugin signals
  * that the ytype has no children and the document is the integrator's
  * initial state (by default: the document fingerprint equals the schema
- * default; overridable via `initialContentCompare`), `_state` starts as the **empty** delta instead of a document
+ * default; overridable via `isInitialContent`), `_state` starts as the **empty** delta instead of a document
  * snapshot, with {@link ProsemirrorRdt#_defaultFingerprint} set. The
  * binding's initial sync then diffs empty against empty — nothing is rendered
  * or written — while the schema-default skeleton stays visible in the editor,
@@ -176,7 +176,7 @@ const touchesAttributionSpace = format => {
  *
  * - a local edit diverges the doc from the default fingerprint → `pull` emits
  *   `diff(empty, doc)`, one full-content insert that validly seeds the empty
- *   ytype through the normal pipeline. When `initialContentCompare` is set,
+ *   ytype through the normal pipeline. When `isInitialContent` is set,
  *   `pull` asks it again on every change while the gate holds: a doc that is
  *   still initial content just moves the gate to the new fingerprint instead
  *   of being written to Y;
@@ -205,7 +205,7 @@ export class ProsemirrorRdt extends ObservableV2 {
    * @param {boolean} [opts.gateInitialContent] the counterpart ytype has no
    *   children — gate the schema-default document instead of treating it as
    *   content (see "Initial-content gate" in the class doc)
-   * @param {InitialContentCompare?} [opts.initialContentCompare] Optional
+   * @param {IsInitialContent?} [opts.isInitialContent] Optional
    *   predicate `(doc) => boolean` deciding whether the current document is
    *   the integrator's initial (empty) state that must not be written into
    *   the empty ytype. `null` keeps the default check (the document's
@@ -215,7 +215,7 @@ export class ProsemirrorRdt extends ObservableV2 {
    *   and can be changed/removed at any time! (errCode 2: the `applyDelta`
    *   reconcile diff failed — see the fail-safe there)
    */
-  constructor ({ view, attributedNodes = defaultAttributedNodes, compare = null, getMeta, gateInitialContent = false, initialContentCompare = null, onInternalError = null }) {
+  constructor ({ view, attributedNodes = defaultAttributedNodes, compare = null, getMeta, gateInitialContent = false, isInitialContent = null, onInternalError = null }) {
     super()
     this.view = view
     this.attributedNodes = attributedNodes
@@ -228,15 +228,15 @@ export class ProsemirrorRdt extends ObservableV2 {
      * starter doc (new fingerprint, still initial content) would be mistaken
      * for real content and written to Y.
      *
-     * @type {InitialContentCompare?}
+     * @type {IsInitialContent?}
      */
-    this._initialContentCompare = initialContentCompare
+    this._isInitialContent = isInitialContent
     this.$delta = $prosemirrorDelta
     const snapshot = nodeToDeltaCached(view.state.doc)
-    const dflt = gateInitialContent && initialContentCompare == null ? view.state.doc.type.createAndFill() : null
+    const dflt = gateInitialContent && isInitialContent == null ? view.state.doc.type.createAndFill() : null
     const dfltFingerprint = dflt != null ? nodeToDeltaCached(dflt).fingerprint : null
     const isDefaultDoc = dfltFingerprint != null && snapshot.fingerprint === dfltFingerprint
-    const isInitial = gateInitialContent && (initialContentCompare != null ? initialContentCompare(view.state.doc) : isDefaultDoc)
+    const isInitial = gateInitialContent && (isInitialContent != null ? isInitialContent(view.state.doc) : isDefaultDoc)
     /**
      * Non-null while the initial content is gated (see class doc): the
      * fingerprint of the gated initial document, which `pull` must not emit.
@@ -441,7 +441,7 @@ export class ProsemirrorRdt extends ObservableV2 {
       // Still the starter doc, only with a new fingerprint (e.g. re-created
       // with different attrs)? Memorize the new fingerprint and keep holding
       // the gate instead of writing the starter doc to Y.
-      if (this._initialContentCompare != null && this._initialContentCompare(doc)) {
+      if (this._isInitialContent != null && this._isInitialContent(doc)) {
         this._defaultFingerprint = next.fingerprint
         return
       }

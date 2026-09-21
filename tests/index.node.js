@@ -14,7 +14,7 @@ import * as undo from './undo.test.js'
 import * as commands from './commands.test.js'
 import * as overlappingMarks from './overlapping-marks.test.js'
 import * as customCompare from './custom-compare.test.js'
-import * as initialContentCompare from './initial-content-compare.test.js'
+import * as isInitialContent from './is-initial-content.test.js'
 import * as inlineNodes from './inline-nodes.test.js'
 import * as attrAttribution from './attr-attribution.test.js'
 import * as brokenSchema from './broken-schema.test.js'
@@ -74,7 +74,7 @@ runTests({
   commands,
   overlappingMarks,
   customCompare,
-  initialContentCompare,
+  isInitialContent,
   inlineNodes,
   attrAttribution,
   brokenSchema,

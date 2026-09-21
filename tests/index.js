@@ -7,7 +7,7 @@ import * as suggestionSimulation from './suggestion-simulation.test.js'
 import * as attributedNodes from './attributed-nodes.test.js'
 import * as overlappingMarks from './overlapping-marks.test.js'
 import * as customCompare from './custom-compare.test.js'
-import * as initialContentCompare from './initial-content-compare.test.js'
+import * as isInitialContent from './is-initial-content.test.js'
 import * as inlineNodes from './inline-nodes.test.js'
 import * as attrAttribution from './attr-attribution.test.js'
 import * as brokenSchema from './broken-schema.test.js'
@@ -32,7 +32,7 @@ runTests({
   attributedNodes,
   overlappingMarks,
   customCompare,
-  initialContentCompare,
+  isInitialContent,
   inlineNodes,
   attrAttribution,
   brokenSchema,

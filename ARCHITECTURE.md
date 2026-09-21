@@ -164,7 +164,7 @@ lib0 transformer needed local modification;
   compute (live pulls and fixes), and the binding forwards it to the initial-state sync
   diff via `bind()`'s (experimental) `diffCompare` option.
 - **The initial-content gate's empty-state check is configurable**:
-  `initialContentCompare` replaces the default schema-default fingerprint check
+  `isInitialContent` replaces the default schema-default fingerprint check
   (see CAVEATS.md).
 - **The binding's `propagate` loop is unbounded.** Fixes must converge; both RDTs are
   written so that a fix is computed against the state that produced it (pinned `expected`

@@ -44,7 +44,7 @@ declare type NodeCompare = (a: import('lib0/delta').DeltaAny, b: import('lib0/de
  * to keep the default check (document fingerprint equals the schema's
  * `createAndFill()` default). Only consulted when the ytype has no children.
  */
-declare type InitialContentCompare = (doc: import('prosemirror-model').Node) => boolean
+declare type IsInitialContent = (doc: import('prosemirror-model').Node) => boolean
 declare type SyncPluginState = import('lib0/schema').Unwrap<typeof import('@y/prosemirror').$syncPluginState>
 declare type SyncPluginStateUpdate = import('lib0/schema').Unwrap<typeof import('@y/prosemirror').$syncPluginStateUpdate>
 declare type ProsemirrorDelta = import('lib0/schema').Unwrap<typeof import('@y/prosemirror').$prosemirrorDelta>
