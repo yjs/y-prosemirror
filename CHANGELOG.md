@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.0.0-12
+
 Standalone conversion between Yjs and ProseMirror through the binding's own
 transformer pipeline (replacing the helpers that bypassed it), a configurable
 empty-state check, and two binding fixes: document attributes, and marks the
