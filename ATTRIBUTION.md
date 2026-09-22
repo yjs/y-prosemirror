@@ -39,9 +39,9 @@ There are four canonical attribution mark names. **They are not configurable.** 
 - `y-attributed-insert`
 - `y-attributed-delete`
 - `y-attributed-format`
-- `y-attributed-attrs` — node-level, for suggested *attribute* changes (e.g. a heading's `level`). **Opt-in**: it is materialized only when the schema declares it. Declare it with a single attr `changes` (`{ changes: { default: null } }`), whose value is `{ <attrKey>: <payload> }` per changed attribute (`{ userIds, timestamp }` by default). Unlike the other three, keep the **default** `excludes`: the `changes` payload differs between renders and a re-render must *replace* the mark, not stack a second instance. Whitelist it on block containers alongside the others. Limitation: attr changes on the root type have no parent op to carry the mark and are not rendered.
+- `y-attributed-attrs` — node-level, for suggested *attribute* changes (e.g. a heading's `level`). **Opt-in**: it is materialized only when the schema declares it. Declare it with a single attr `changes` (`{ changes: { default: null } }`), whose value is `{ <attrKey>: <payload> }` per changed attribute (`{ userIds, timestamp }` by default). Whitelist it on block containers alongside the others. Limitation: attr changes on the root type have no parent op to carry the mark and are not rendered.
 
-The schema must satisfy four constraints (the notes on `excludes` and mark whitelisting below apply to the first three marks; `y-attributed-attrs` deviates as described above).
+The schema must satisfy three constraints.
 
 ### 1. Use exactly these mark names
 
@@ -53,52 +53,7 @@ Attribution marks may be applied anywhere that attributable inline content can a
 
 ProseMirror's `gatherMarks` resolves a node's `marks` spec by mark name first and only falls back to mark-group matching when no mark by that name exists. If your schema declares for example `marks: "insertion modification deletion"` and your editor *also* defines marks literally named `insertion` / `deletion` / `modification`, the group-based fallback never fires and putting the `y-attributed-*` marks into `group: "insertion"` does not help. The safest fix is to add the marks **by name** to every affected node's `marks` content expression, or to extend the node types' `markSet` programmatically after editor construction.
 
-### 3. The three marks must not exclude each other
-
-A single op can carry multiple attribution kinds simultaneously:
-
-- Inserted text whose formatting was also suggested gets both `y-attributed-insert` and `y-attributed-format`.
-- A span that one user inserted and another user then deleted gets both `y-attributed-insert` and `y-attributed-delete`.
-- A formatted span whose attribute was changed twice gets one `y-attributed-format` with multiple authors in its payload.
-
-The schema must allow these combinations. In ProseMirror, marks default to excluding marks in their own group, so two marks of the same `group` will kick each other out and marks of the same name always replace each other. To make the three attribution marks fully composable, set `excludes: ''` on each of them. The empty string overrides the default and explicitly says "excludes nothing":
-
-```js
-const marks = {
-  'y-attributed-insert': {
-    attrs: { /* see below */ },
-    excludes: '',
-    parseDOM: [{ tag: 'y-ins' }],
-    toDOM: () => ['y-ins', 0]
-  },
-  'y-attributed-delete': {
-    attrs: { /* see below */ },
-    excludes: '',
-    parseDOM: [{ tag: 'y-del' }],
-    toDOM: () => ['y-del', 0]
-  },
-  'y-attributed-format': {
-    attrs: { /* see below */ },
-    excludes: '',
-    parseDOM: [{ tag: 'y-fmt' }],
-    toDOM: () => ['y-fmt', 0]
-  }
-}
-```
-
-Do **not** write:
-
-```js
-// WRONG: each attribution mark kicks the others out
-'y-attributed-insert': {
-  excludes: 'y-attributed-insert y-attributed-delete y-attributed-format',
-  ...
-}
-```
-
-That schema cannot represent insert + format on the same span. The rendered overlay will silently lose information about one of the two attribution kinds, and the diff comparing it against the freshly rendered AM delta will keep producing reconcile churn.
-
-### 4. The declared `attrs` must cover everything the mapper emits
+### 3. The declared `attrs` must cover everything the mapper emits
 
 `schema.mark(name, value)` normalizes `value` against the declared `attrs`. **Undeclared keys in `value` are silently dropped** (see `computeAttrs` in `prosemirror-model/src/schema.ts`). If the schema declares `{ id, "user-color" }` and the mapper emits `{ userIds, timestamp }`, the resulting Mark instance has `{ id: null, "user-color": null }` and the `userIds` / `timestamp` payload is gone. This breaks stability (next section) and makes the rendered overlay generic instead of per-user.
 
@@ -164,9 +119,9 @@ const userColorAttrs = {
 }
 
 const marks = {
-  'y-attributed-insert': { attrs: userColorAttrs, excludes: '', parseDOM: [{ tag: 'y-ins' }], toDOM: () => ['y-ins', 0] },
-  'y-attributed-delete': { attrs: userColorAttrs, excludes: '', parseDOM: [{ tag: 'y-del' }], toDOM: () => ['y-del', 0] },
-  'y-attributed-format': { attrs: userColorAttrs, excludes: '', parseDOM: [{ tag: 'y-fmt' }], toDOM: () => ['y-fmt', 0] }
+  'y-attributed-insert': { attrs: userColorAttrs, parseDOM: [{ tag: 'y-ins' }], toDOM: () => ['y-ins', 0] },
+  'y-attributed-delete': { attrs: userColorAttrs, parseDOM: [{ tag: 'y-del' }], toDOM: () => ['y-del', 0] },
+  'y-attributed-format': { attrs: userColorAttrs, parseDOM: [{ tag: 'y-fmt' }], toDOM: () => ['y-fmt', 0] }
   // ...the rest of your marks
 }
 ```
@@ -278,10 +233,7 @@ Three more requirements that only show up with real editors:
 
 List the four names **by name** on every non-leaf node that can hold attributable content. Leaves (`image`, `hardBreak`, `horizontalRule`, `text`) need nothing: they hold no content, so `validContent`'s `allowsMarks` loop never runs on them and *their* marks are validated against the parent. Textblocks that omit `marks:` already resolve to `markSet === null` (all marks).
 
-Two traps:
-
-- **`marks: '_'` is not a shortcut.** It also admits `bold` / `link` as *node* marks on `doc` / `tableRow`, and those would round-trip into Y as node-level format keys.
-- **A mark declaring `excludes: '_'` silently shadows attribution.** `@tiptap/extension-code` does exactly this. `Mark.addToSet` returns the set unchanged when an existing mark excludes the incoming one, so no attribution ever renders on an inline-code span - and `swallowFormats` swallows the loss, so nothing warns. Replace `'_'` with an explicit list of the marks you actually want excluded.
+**`marks: '_'` is not a shortcut.** It also admits `bold` / `link` as *node* marks on `doc` / `tableRow`, and those would round-trip into Y as node-level format keys.
 
 Prefer the schema to a post-construction `markSet` patch. The patch works, but it makes a non-compliant schema *look* compliant at runtime while the bind-time audit still reports the truth - so it hides the thing you most want to see.
 
@@ -310,12 +262,10 @@ A worked implementation of all six steps lives in [`yhub-tiptap-demo/`](./yhub-t
 ## Pitfalls and debugging
 
 - **Schema attribute mismatch.** The most common failure mode. Symptom: suggestions render but the per-user color (or whatever attr you encoded) is always the default. The sync plugin fires an extra transaction on every keystroke. Fix: align the mapper output with the declared schema `attrs`, ensuring every declared attribute is also emitted by the mapper.
-- **Mark exclusion.** Symptom: applying a suggestion that touches an already-suggested span silently drops the previous mark, or the visual treatment for "inserted and reformatted" never appears. Fix: `excludes: ''` on all three marks.
 - **Mark not allowed on the target node.** Symptom: the binding logs `[y/prosemirror] these node types do not allow the attribution marks this binding renders:` naming the node types, as soon as the editor is bound with a renderer - act on this one first, it is emitted before any editing and tells you exactly which nodes are wrong. (A binding without a renderer produces no attribution and is not audited.) Left unfixed it surfaces later as `RangeError: Invalid content for node ...` from `tr.addMark` / `tr.addNodeMark`, or as attribution that silently never appears inside those nodes. Fix: add the marks by name to every affected node's `marks` content expression, or extend the node types' `markSet` programmatically. Note that a container which simply omits `marks:` also excludes them - ProseMirror resolves an omitted `marks:` on a node without inline content to `[]`.
 - **Container implicitly deleted after a concurrent edit.** Symptom: a blockquote / list / table disappears on every peer after two people edited it at the same time, and neither of them deleted it. Cause: a `+` content expression that two individually valid deletes emptied; the only schema-valid resolution is to delete the container. Fix: relax the expression, or accept the cascade deliberately (see "Hardening an existing editor schema").
 - **`doc.check()` fails while a suggestion is on screen.** Expected *only* for a node that is a pending delete and has lost its required content - it can be neither dropped nor filled, so the binding renders it as-is. Fix: give that node type a relaxed `--attributed` variant. Any other `doc.check()` failure is a bug.
 - **A variant is defined but nodes never flip to it.** Cause: the parent's content expression names the canonical type, and a `--attributed` name can never be matched by a content expression. Fix: give both types a shared `group` and address the group.
-- **Attribution never renders on inline code.** Cause: a mark declaring `excludes: '_'` (Tiptap's `code` does) refuses the attribution marks, and the loss is swallowed. Fix: replace `'_'` with an explicit exclusion list.
 - **Marks not declared at all.** Symptom: `[y/prosemirror] a renderer is configured (suggestions / versioning), but this schema declares none of the y-attributed-* marks`, logged when the renderer is configured. Nothing will render attribution. Fix: declare the marks as described above.
 - **Non-canonical mark names.** Symptom: attribution marks accumulate on the document and eventually leak into the CRDT, because the PM to Y strip step does not recognize them. Fix: rename your marks to the canonical names.
 - **Non-deterministic mapper.** Symptom: sync plugin fires a never-ending stream of reconcile transactions, even with no user input. Fix: remove timestamps, random ids, and any other non-deterministic value from the mapper. Derive everything from the `attribution` argument.
