@@ -23,6 +23,7 @@ import * as prosemirrorRdt from './prosemirror-rdt.test.js'
 import * as swallowFormats from './swallow-formats.test.js'
 import * as convert from './convert.test.js'
 import * as v1Compat from './v1-compat.test.js'
+import * as syncPlugin from './sync-plugin.test.js'
 
 import { runTests } from 'lib0/testing'
 import { isBrowser, isNode } from 'lib0/environment'
@@ -82,7 +83,8 @@ runTests({
   prosemirrorRdt,
   swallowFormats,
   convert,
-  v1Compat
+  v1Compat,
+  syncPlugin
   // prosemirror,
   // tr
 }).then(success => {
