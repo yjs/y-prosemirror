@@ -276,6 +276,15 @@ export class ProsemirrorRdt extends ObservableV2 {
     this._pullStats = { walk: 0, fallback: 0, walkError: 0 }
     this._applying = false
     /**
+     * Set by the sync plugin while its plugin view is gone but this RDT may
+     * still be reclaimed by a recreated one (see `handoffs` in the sync
+     * plugin). The view must not be written to then - it may be destroyed or
+     * no longer carry the sync plugin. A change arriving meanwhile is dropped
+     * and recorded in `missedDelta`, which disqualifies the RDT from reuse.
+     */
+    this.suspended = false
+    this.missedDelta = false
+    /**
      * Set when a dispatch was filtered away (e.g. a readonly mode's
      * `filterTransaction`): the document is behind `_state` (which tracks the
      * Y side's projection). While desynced, `pull` must not run — diffing the
@@ -526,6 +535,10 @@ export class ProsemirrorRdt extends ObservableV2 {
    */
   applyDelta (d, origin) {
     if (d.isEmpty()) return null
+    if (this.suspended) {
+      this.missedDelta = true
+      return null
+    }
     // Structure-sharing clone: `_state`'s children are frozen cache entries,
     // so `clone` shares them and copy-on-write isolates whatever `apply`
     // touches. `final: true` must stay explicit (`clone` does not carry

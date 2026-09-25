@@ -144,6 +144,10 @@ export class YSyncRdt extends ObservableV2 {
     this._applying = false
     this._onInternalError = onInternalError
     /**
+     * Set by {@link YSyncRdt#destroy}: the RDT no longer follows the ytype.
+     */
+    this.destroyed = false
+    /**
      * Non-null while in the uncertain window: the last known-good full render,
      * serving as the RDT state until the doc's cleanup queue drains and the
      * maintained cache has caught up. `null` in steady state.
@@ -377,6 +381,7 @@ export class YSyncRdt extends ObservableV2 {
   }
 
   destroy () {
+    this.destroyed = true
     this.ytype.off('delta', this._onDelta)
     const doc = /** @type {import('@y/y').Doc} */ (this.ytype.doc)
     doc.off('afterAllTransactions', this._onDrain)

@@ -198,6 +198,17 @@ Two integration constraints follow from how the sync binding consumes the ytype'
 
 - **Do not write to `ytype.doc` synchronously from inside a binding-initiated dispatch** (e.g. a ProseMirror plugin reacting to a `y-sync-transaction` by mutating the Y document in the same call stack). The resulting `'delta'` emission fires while the binding's echo mutex is held and is dropped; the content only reaches the other side after the next unrelated change re-syncs the affected region. This was already lossy before the native-payload refactor. Dispatch such writes asynchronously (microtask) instead.
 
+## One sync plugin instance per live editor
+
+Each `syncPlugin()` instance must serve at most one mounted `EditorView` per ytype. Every binding writes to Y with the plugin instance as its transaction origin, and it drops Y events carrying that origin as the echo of its own writes. Two live views sharing a plugin instance - the same `EditorState` mounted twice, or two states created from one `plugins` array - therefore silently miss each other's edits, while changes from other peers still reach both. The undo plugin tracks the same origin, so their undo histories would mix as well, and a shared `EditorState` also shares the `Y.UndoManager` held in its undo plugin state. We warn in the console when we detect this setup.
+
+We support these patterns:
+
+- **Remounting a retained state.** Destroy the old view, then create a new `EditorView` with the same `EditorState`. The new view rebuilds the binding and catches up with the Y changes made while it was unmounted. Note that this catch-up dispatches from inside the `EditorView` constructor; a wrapper that routes `dispatchTransaction` through a reference assigned only after the constructor returns will drop it.
+- **Changing the plugin list.** `state.reconfigure` (e.g. Tiptap's / BlockNote's `registerPlugin`) recreates every plugin view; the sync plugin hands its live binding over instead of rebuilding it.
+
+To show one document in several editors, create a separate `syncPlugin()` (and a separate undo plugin with its own `Y.UndoManager`) for each of them.
+
 ## Editor plugins that repair the document
 
 A ProseMirror plugin whose `appendTransaction` *fixes up* the document is a hazard next to this binding. `prosemirror-tables`' `fixTables` (installed by `tableEditing`), Tiptap's `TrailingNode`, and `Link`'s autolink all fire on the binding's own dispatches, and the sync plugin's `update` pull then writes the repair into Y. A rendering artifact of the attributed projection becomes real content on every peer - and in a version-diff view it mutates a historical document the user is only reading.

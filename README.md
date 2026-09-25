@@ -82,6 +82,11 @@ attribution renders), `customCompare` (the diffing boundary), `transformers`
 (custom pipeline stages) and `onInternalError`. See the JSDoc in
 [`src/sync-plugin.js`](./src/sync-plugin.js).
 
+Create one `syncPlugin()` per editor - a plugin instance (or an `EditorState`)
+must not be mounted in two live views at once. Remounting a retained state after
+destroying its view is supported; see [`CAVEATS.md`](./CAVEATS.md) ("One sync
+plugin instance per live editor").
+
 #### Remote Cursors
 
 The shared cursors depend on the Awareness instance that is exported by most providers. The [Awareness protocol](https://github.com/yjs/y-protocols#awareness-protocol) handles non-permanent data like the number of users, their user names, their cursor location, and their colors. You can change the name and color of the user like this:

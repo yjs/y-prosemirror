@@ -66,7 +66,8 @@ const $maybeSyncPluginStateUpdate = $syncPluginStateUpdate.nullable
  * belongs to the state's current ytype/renderer. During a `configureYProsemirror`
  * dispatch a plugin-state overlay can pair a NEW ytype with the not-yet-replaced OLD
  * binding (`setup()` runs later, in the sync plugin's view update) - mapping positions
- * through it would resolve them against the wrong render.
+ * through it would resolve them against the wrong render. A destroyed binding (carried
+ * by an EditorState whose view was destroyed) is never usable either.
  *
  * @param {{ytype: Y.Node | null, renderer: Y.AbstractRenderer | null, binding?: import('lib0/delta/rdt').Binding<any, any> | null} | undefined} ystate
  * @return {import('lib0/delta/transformer').Transformer<any, any> | null}
@@ -77,10 +78,40 @@ export const usableTransformer = (ystate) => {
     return null
   }
   const yRdt = /** @type {import('./rdt/y-sync.js').YSyncRdt} */ (binding.a)
-  return (yRdt.ytype === ystate?.ytype && (yRdt.renderer ?? null) === (ystate?.renderer ?? null))
+  // a retained EditorState outlives its view: the binding it carries is torn
+  // down with that view and its transformer no longer tracks the ytype
+  return (!yRdt.destroyed && yRdt.ytype === ystate?.ytype && (yRdt.renderer ?? null) === (ystate?.renderer ?? null))
     ? binding.t
     : null
 }
+
+/**
+ * @typedef {{ yRdt: YSyncRdt, pmRdt: ProsemirrorRdt, binding: import('lib0/delta/rdt').Binding<any, any> }} SyncRdts
+ */
+
+/**
+ * @param {SyncRdts} rdts
+ */
+const destroyRdts = rdts => {
+  rdts.binding.destroy()
+  rdts.yRdt.destroy()
+  rdts.pmRdt.destroy()
+}
+
+/**
+ * Whether the binding must be rebuilt to go from plugin state `a` to `b`.
+ *
+ * @param {SyncPluginState} a
+ * @param {SyncPluginState} b
+ * @return {boolean}
+ */
+const syncConfigChanged = (a, b) =>
+  a.ytype !== b.ytype ||
+  a.renderer !== b.renderer ||
+  a.attributionMapper !== b.attributionMapper ||
+  a.attributedNodes !== b.attributedNodes ||
+  a.customCompare !== b.customCompare ||
+  a.isInitialContent !== b.isInitialContent
 
 /**
  * Schemas already audited by {@link warnUnsupportedAttributionMarks}, so a
@@ -186,6 +217,13 @@ const warnUnsupportedAttributionMarks = (schema) => {
  * Running it in `appendTransaction` would cause speculative `state.apply`
  * callers to write to Y as a side effect.
  *
+ * One plugin instance serves one live editor: mounting it (or an EditorState
+ * holding it) in several live views bound to the same ytype is unsupported and
+ * warns - the views would share one Y transaction origin and miss each other's
+ * edits. Remounting a retained EditorState after its view was destroyed is
+ * supported (the new view rebuilds the binding and catches up with Y), and a
+ * plugin-list change (`state.reconfigure`) keeps the live binding.
+ *
  * @param {object} opts
  * @param {Y.Doc} [opts.suggestionDoc] A {@link Y.Doc} to use for suggestion tracking
  * @param {AttributionMapper} [opts.mapAttributionToMark] A function to map the {@link Y.ContentAttribute} to a {@link import('prosemirror-model').Mark} - the mark names *must* be one of: `y-attributed-insert`, `y-attributed-delete`, `y-attributed-format`, `y-attributed-attrs`. No other mark names are permitted. `y-attributed-attrs` is the node-level mark for *attribute* changes (e.g. a suggested heading-level change): it is materialized automatically when the schema declares it (declare `attrs: { changes: { default: null } }` and — unlike the other three — keep the DEFAULT `excludes`, so a re-render *replaces* the mark instead of stacking instances). Its payload is not routed through the mapper by default; a mapper may take control by emitting the `y-attributed-attrs` key.
@@ -205,7 +243,8 @@ export const syncPlugin = (opts = {}) => {
    * {@link isBackwardDeletion} / {@link biasCaretLeft}. The window is
    * synchronous (`pull` emits, lib0's binding runs the whole fix convergence,
    * and the RDT dispatches back into this view, all before `pull` returns), so
-   * a plugin-instance-level variable cannot interleave between editors. The
+   * a plugin-instance-level variable cannot interleave between editors - as
+   * long as one plugin instance serves one live editor (see `liveRdts`). The
    * user's own transaction is applied *before* `update` runs, so its
    * `appendTransaction` pass sees `0` and is untouched; remote changes arrive
    * outside the window and keep ProseMirror's default right bias.
@@ -213,6 +252,30 @@ export const syncPlugin = (opts = {}) => {
    * @type {-1 | 0}
    */
   let caretBias = 0
+  /**
+   * RDTs of plugin views destroyed during the current synchronous tick, keyed by
+   * their EditorView. A plugin-list change (`state.reconfigure`, e.g. Tiptap's /
+   * BlockNote's `registerPlugin`) destroys every plugin view and immediately
+   * recreates it for the *same* EditorView; the new plugin view reclaims the
+   * RDTs from here instead of rebuilding the binding (whose initial sync is
+   * O(document)). ProseMirror gives `destroy` no way to tell that apart from
+   * `EditorView.destroy()`, so unclaimed RDTs are torn down in a microtask.
+   *
+   * @type {Map<import('prosemirror-view').EditorView, { rdts: SyncRdts, pluginState: SyncPluginState, doc: import('prosemirror-model').Node }>}
+   */
+  const handoffs = new Map()
+  /**
+   * The RDTs of this plugin instance's *mounted* plugin views (parked
+   * `handoffs` are not live). Only used to detect an unsupported setup: one
+   * plugin instance live in several EditorViews bound to the same ytype. Every
+   * binding writes to Y with the plugin instance as origin and drops events
+   * carrying that origin as its own echo, so those views would silently miss
+   * each other's edits (the undo origin and `caretBias` are shared too).
+   *
+   * @type {Set<SyncRdts>}
+   */
+  const liveRdts = new Set()
+  let warnedShared = false
   return new Plugin({
     key: ySyncPluginKey,
     state: {
@@ -239,14 +302,19 @@ export const syncPlugin = (opts = {}) => {
       caretBias === -1 ? biasCaretLeft(trs, oldState, newState) : null,
     view (initialView) {
       /**
-       * @type {{ yRdt: YSyncRdt, pmRdt: ProsemirrorRdt, binding: import('lib0/delta/rdt').Binding<any, any> } | null}
+       * @type {SyncRdts | null}
        */
       let rdts = null
+      /**
+       * The plugin state and document `rdts` were last synced against - handed
+       * over on `destroy` so a reclaiming plugin view can catch up.
+       */
+      let syncedPluginState = $syncPluginState.cast(ySyncPluginKey.getState(initialView.state))
+      let syncedDoc = initialView.state.doc
       const teardown = () => {
         if (rdts == null) return
-        rdts.binding.destroy()
-        rdts.yRdt.destroy()
-        rdts.pmRdt.destroy()
+        liveRdts.delete(rdts)
+        destroyRdts(rdts)
         rdts = null
       }
       /**
@@ -307,8 +375,24 @@ export const syncPlugin = (opts = {}) => {
         })
         // Store the rdts *before* binding: the Binding constructor runs the
         // initial sync synchronously, which dispatches into the view and
-        // re-enters this plugin's `update` hook.
+        // re-enters this plugin's `update` hook (unless `setup` runs from
+        // `view()` itself - the plugin view is not registered yet then).
         rdts = { yRdt, pmRdt, binding: /** @type {any} */ (null) }
+        if (!warnedShared) {
+          for (const other of liveRdts) {
+            if (other.yRdt.ytype === ytype && other.pmRdt.view !== view) {
+              warnedShared = true
+              console.warn(
+                '[y/prosemirror] this syncPlugin instance is bound to the same ytype in more than one live EditorView. ' +
+                "The views will not see each other's edits (they share one Y transaction origin). Create a separate " +
+                'syncPlugin() (and EditorState) per editor; reusing an EditorState in a new view after destroying the ' +
+                'old one is fine.'
+              )
+              break
+            }
+          }
+        }
+        liveRdts.add(rdts)
         const transformer = defaultTransformer({
           mapAttributionToMark: pluginState.attributionMapper,
           transformers: opts.transformers
@@ -333,24 +417,34 @@ export const syncPlugin = (opts = {}) => {
           renderer: pluginState.renderer
         })).setMeta('addToHistory', false))
       }
-      // The plugin state may already be configured when a new EditorView reuses
-      // an existing EditorState. Recreate its view-owned binding immediately;
-      // setup's initial sync also catches up changes made while unmounted.
-      setup(initialView, $syncPluginState.cast(ySyncPluginKey.getState(initialView.state)))
+      const handoff = handoffs.get(initialView)
+      handoffs.delete(initialView)
+      if (handoff != null && !handoff.rdts.pmRdt.missedDelta && !syncConfigChanged(handoff.pluginState, syncedPluginState)) {
+        // Same EditorView, plugin views recreated by a plugin-list change: keep
+        // the live binding. `update` is not called for a state swapped in
+        // together with the new plugin list, so pull a doc change here.
+        rdts = handoff.rdts
+        rdts.pmRdt.suspended = false
+        liveRdts.add(rdts)
+        if (handoff.doc !== initialView.state.doc) rdts.pmRdt.pull(handoff.doc)
+      } else {
+        if (handoff != null) destroyRdts(handoff.rdts)
+        // A new EditorView reusing a configured EditorState: recreate the
+        // view-owned binding immediately - its initial sync also catches up Y
+        // changes made while unmounted. For a fresh state (no ytype yet) this
+        // returns without dispatching.
+        setup(initialView, syncedPluginState)
+      }
+      syncedDoc = initialView.state.doc
       return {
         update (view, prevState) {
           const pluginState = $syncPluginState.cast(ySyncPluginKey.getState(view.state))
           const prevPluginState = ySyncPluginKey.getState(prevState)
-          if (
-            prevPluginState?.ytype !== pluginState.ytype ||
-            prevPluginState?.renderer !== pluginState.renderer ||
-            prevPluginState?.attributionMapper !== pluginState.attributionMapper ||
-            prevPluginState?.attributedNodes !== pluginState.attributedNodes ||
-            prevPluginState?.customCompare !== pluginState.customCompare ||
-            prevPluginState?.isInitialContent !== pluginState.isInitialContent
-          ) {
+          syncedPluginState = pluginState
+          if (prevPluginState == null || syncConfigChanged(prevPluginState, pluginState)) {
             setup(view, pluginState)
           }
+          syncedDoc = view.state.doc
           if (rdts == null) return
           // our own dispatch re-entering the hook — `applyDelta` handles state
           if (rdts.pmRdt.isApplying) return
@@ -360,10 +454,21 @@ export const syncPlugin = (opts = {}) => {
             rdts.pmRdt.pull(prevState.doc)
           } finally {
             caretBias = 0
+            syncedDoc = view.state.doc
           }
         },
         destroy () {
-          teardown()
+          if (rdts == null) return
+          const h = { rdts, pluginState: syncedPluginState, doc: syncedDoc }
+          rdts = null
+          liveRdts.delete(h.rdts)
+          h.rdts.pmRdt.suspended = true
+          handoffs.set(initialView, h)
+          queueMicrotask(() => {
+            if (handoffs.get(initialView) !== h) return
+            handoffs.delete(initialView)
+            destroyRdts(h.rdts)
+          })
         }
       }
     }
