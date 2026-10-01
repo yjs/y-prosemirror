@@ -292,6 +292,10 @@ export class ProsemirrorRdt extends ObservableV2 {
      * filtered" change and revert remote content globally.
      */
     this._desynced = false
+    /**
+     * Set by {@link ProsemirrorRdt#destroy}: the RDT no longer follows the view.
+     */
+    this.destroyed = false
   }
 
   /**
@@ -606,8 +610,16 @@ export class ProsemirrorRdt extends ObservableV2 {
   }
 
   destroy () {
+    if (this.destroyed) return
+    this.destroyed = true
     this.emit('destroy', [this])
     super.destroy()
+    // A retained EditorState keeps its destroyed binding (and this RDT) alive -
+    // don't let it pin the view, the synced document or (via `getMeta`) the ytype.
+    this.view = /** @type {any} */ (null)
+    this.getMeta = () => null
+    this._state = /** @type {any} */ (null)
+    this._pmstate = null
   }
 }
 

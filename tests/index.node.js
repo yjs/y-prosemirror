@@ -2,6 +2,8 @@
 import fs from 'fs'
 import path, { dirname } from 'path'
 import jsdom from 'jsdom'
+import v8 from 'v8'
+import vm from 'vm'
 
 // import * as prosemirror from './y-prosemirror.test.js'
 import * as cursor from './cursor.test.js'
@@ -34,6 +36,10 @@ import { fileURLToPath } from 'url'
 const __dirname = dirname(fileURLToPath(import.meta.url)) // eslint-disable-line
 const documentContent = fs.readFileSync(path.join(__dirname, '../test.html'))
 const { window } = new jsdom.JSDOM(documentContent)
+
+// expose a forced GC for the leak regression tests (sync-plugin.test.js)
+v8.setFlagsFromString('--expose-gc')
+global.gc = vm.runInNewContext('gc')
 
 global.window = window
 global.document = window.document

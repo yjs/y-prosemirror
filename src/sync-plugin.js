@@ -350,6 +350,7 @@ export const syncPlugin = (opts = {}) => {
         // the binding, so this gate is also "audit once, when a renderer is set".
         if (renderer != null) warnUnsupportedAttributionMarks(view.state.schema)
         const compare = pluginState.customCompare
+        const attributionMapper = pluginState.attributionMapper
         const yRdt = new YSyncRdt({
           ytype,
           renderer,
@@ -366,10 +367,12 @@ export const syncPlugin = (opts = {}) => {
           // content — see "Initial-content gate" in ProsemirrorRdt's doc
           gateInitialContent: ytype.length === 0,
           isInitialContent: pluginState.isInitialContent,
+          // capture only what the meta needs: `pluginState` also carries the
+          // previous binding, which would chain every past binding together
           getMeta: () => $syncPluginStateUpdate.expect({
             change: null,
-            renderer: pluginState.renderer,
-            attributionMapper: pluginState.attributionMapper,
+            renderer,
+            attributionMapper,
             ytype
           })
         })

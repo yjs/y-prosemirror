@@ -381,11 +381,18 @@ export class YSyncRdt extends ObservableV2 {
   }
 
   destroy () {
+    if (this.destroyed) return
     this.destroyed = true
     this.ytype.off('delta', this._onDelta)
     const doc = /** @type {import('@y/y').Doc} */ (this.ytype.doc)
     doc.off('afterAllTransactions', this._onDrain)
     this.emit('destroy', [this])
     super.destroy()
+    // A retained EditorState keeps its destroyed binding (and this RDT) alive -
+    // don't let it pin the ytype's doc or the renderer. Readers of a destroyed
+    // binding check `destroyed` first (see `usableTransformer`).
+    this.ytype = /** @type {any} */ (null)
+    this.renderer = null
+    this._stateOverride = null
   }
 }

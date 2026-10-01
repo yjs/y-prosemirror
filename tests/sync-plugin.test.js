@@ -284,3 +284,106 @@ export const testNoWarningForSeparatePluginInstances = () => {
     ydoc.destroy()
   }
 }
+
+/**
+ * Forces full GCs and reports how many of the referenced objects survived.
+ * Skips the test where no forced GC is available (browsers).
+ *
+ * Retries a few rounds: a stale stack slot or a pending task can briefly keep
+ * an object alive, while a real leak survives every round.
+ *
+ * @param {Array<WeakRef<object>>} refs
+ */
+const countAliveAfterGc = async refs => {
+  const gc = /** @type {any} */ (globalThis).gc
+  t.skip(typeof gc !== 'function')
+  let alive = refs.length
+  for (let round = 0; round < 5 && alive > 0; round++) {
+    // let parked handoffs (torn down in a microtask) settle first
+    await promise.wait(10)
+    gc()
+    alive = refs.filter(ref => ref.deref() != null).length
+  }
+  return alive
+}
+
+/**
+ * Reconfiguring the editor (e.g. opening one version preview after another)
+ * must release the previously bound document. The new binding's meta closure
+ * used to capture the whole plugin state - including the previous binding -
+ * which chained every past binding (and its snapshot doc) together.
+ */
+export const testReconfigureReleasesPreviousYDoc = async () => {
+  const view = createView(EditorState.create({ schema, plugins: [YPM.syncPlugin()] }))
+  /** @type {Array<WeakRef<Y.Doc>>} */
+  const refs = []
+  for (let i = 0; i < 10; i++) {
+    const ydoc = new Y.Doc()
+    ydoc.get('prosemirror').applyDelta(d.create().insert([d.create('paragraph', {}, `version ${i}`)]).done())
+    refs.push(new WeakRef(ydoc))
+    YPM.configureYProsemirror({ ytype: ydoc.get('prosemirror') })(view.state, view.dispatch)
+  }
+  t.compare(view.state.doc.textContent, 'version 9')
+  t.compare(await countAliveAfterGc(refs), 1, 'only the currently bound ydoc is alive')
+  view.destroy()
+}
+
+/**
+ * Toggling the renderer (e.g. suggestion mode on/off) rebuilds the binding
+ * and must release the previous renderer (and its suggestion doc).
+ */
+export const testRendererToggleReleasesPreviousRenderer = async () => {
+  const ydoc = new Y.Doc()
+  const ytype = ydoc.get('prosemirror')
+  ytype.applyDelta(d.create().insert([d.create('paragraph', {}, 'base')]).done())
+  const view = createView(EditorState.create({ schema, plugins: [YPM.syncPlugin()] }))
+  /** @type {Array<WeakRef<object>>} */
+  const refs = []
+  /**
+   * A separate (synchronous) function, so no stack slot of this async test
+   * keeps the last renderer alive.
+   */
+  const toggleSuggestionMode = () => {
+    const suggestionDoc = new Y.Doc({ isSuggestionDoc: true, gc: false })
+    const renderer = Y.createDiffRenderer(ydoc, suggestionDoc, { attributions: Y.createContentMap() })
+    renderer.suggestionMode = true
+    refs.push(new WeakRef(renderer), new WeakRef(suggestionDoc))
+    YPM.configureYProsemirror({ ytype, renderer })(view.state, view.dispatch)
+    YPM.configureYProsemirror({ ytype, renderer: null })(view.state, view.dispatch)
+    // the renderer observes the base doc until the integrator destroys it
+    renderer.destroy()
+  }
+  const originalWarn = console.warn
+  // the basic schema lacks the attribution marks - silence that audit warning
+  console.warn = () => {}
+  try {
+    for (let i = 0; i < 10; i++) toggleSuggestionMode()
+  } finally {
+    console.warn = originalWarn
+  }
+  t.compare(await countAliveAfterGc(refs), 0, 'no previous renderer (or suggestion doc) is alive')
+  view.destroy()
+  ydoc.destroy()
+}
+
+/**
+ * A retained EditorState keeps its (destroyed) binding alive. The destroyed
+ * RDTs must not keep the bound ytype, renderer or documents alive with it.
+ */
+export const testDestroyedRdtsDropReferences = () => {
+  const ydoc = new Y.Doc()
+  const ytype = ydoc.get('prosemirror')
+  ytype.applyDelta(d.create().insert([d.create('paragraph', {}, 'retained')]).done())
+  const view = createView(EditorState.create({ schema, plugins: [YPM.syncPlugin()] }))
+  YPM.configureYProsemirror({ ytype })(view.state, view.dispatch)
+  const retainedState = view.state
+  const binding = /** @type {any} */ (YPM.ySyncPluginKey.getState(retainedState)).binding
+  YPM.configureYProsemirror({ ytype: new Y.Doc().get('prosemirror') })(view.state, view.dispatch)
+  t.assert(binding.a.destroyed)
+  t.assert(binding.a.ytype === null && binding.a.renderer === null, 'destroyed YSyncRdt drops the ytype and renderer')
+  t.assert(binding.b.destroyed)
+  t.assert(binding.b._state === null && binding.b._pmstate === null, 'destroyed ProsemirrorRdt drops its document state')
+  t.assert(YPM.usableTransformer(YPM.ySyncPluginKey.getState(retainedState)) === null, 'the retained state maps nothing through the destroyed binding')
+  view.destroy()
+  ydoc.destroy()
+}
