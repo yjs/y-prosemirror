@@ -105,6 +105,13 @@ const replaceDocument = (tr, doc) => {
 }
 
 /**
+ * Above this many steps, the initial sync replaces the document in one step
+ * (see `ProsemirrorRdt#initialSync`). Smaller changes keep their steps, so
+ * the selection and decorations still map through them.
+ */
+const MANY_INITIAL_STEPS = 100
+
+/**
  * @param {Record<string, any> | null | undefined} format
  */
 const touchesAttributionSpace = format => {
@@ -283,6 +290,14 @@ export class ProsemirrorRdt extends ObservableV2 {
      * and recorded in `missedDelta`, which disqualifies the RDT from reuse.
      */
     this.suspended = false
+    /**
+     * Set by the sync plugin while the binding's initial sync runs. The view
+     * may still show unrelated content then (e.g. another ytype), so a large
+     * initial change replaces the document in one step: steps from unrelated
+     * content carry no meaning, and plugins that map through every step
+     * (changed ranges, decorations) take quadratic time on thousands of them.
+     */
+    this.initialSync = false
     this.missedDelta = false
     /**
      * Set when a dispatch was filtered away (e.g. a readonly mode's
@@ -571,6 +586,10 @@ export class ProsemirrorRdt extends ObservableV2 {
     } else {
       try {
         tr = deltaToPSteps(this.view.state.tr, /** @type {any} */ (d), undefined, undefined, this.attributedNodes)
+        if (this.initialSync && tr.steps.length > MANY_INITIAL_STEPS) {
+          // see `initialSync`
+          tr = replaceDocument(this.view.state.tr, deltaToPNode(/** @type {any} */ (expected), this.view.state.schema, null, this.attributedNodes))
+        }
       } catch (_err) {
         // Raw steps could not express the change against the schema (e.g. a
         // delete that empties a `block+` parent): replace the whole document

@@ -406,10 +406,15 @@ export const syncPlugin = (opts = {}) => {
         // steady-state emissions are the native change deltas — the change as
         // it actually happened — which are never re-paired by `diff`, so
         // `customCompare` does not apply there (see YSyncRdt).
-        rdts.binding = bind(yRdt, pmRdt, transformer({
-          getState: () => yRdt.delta,
-          schema: view.state.schema
-        }), { diffCompare: compare ?? undefined })
+        pmRdt.initialSync = true
+        try {
+          rdts.binding = bind(yRdt, pmRdt, transformer({
+            getState: () => yRdt.delta,
+            schema: view.state.schema
+          }), { diffCompare: compare ?? undefined })
+        } finally {
+          pmRdt.initialSync = false
+        }
         // Expose the live binding on the plugin state so the cursor plugin can map
         // positions through its transformer. `renderer` must ride along: `apply`
         // force-nulls it when omitted, which would tear down an active renderer (and

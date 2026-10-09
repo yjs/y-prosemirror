@@ -3,7 +3,7 @@ import * as YPM from '@y/prosemirror'
 import * as d from 'lib0/delta'
 import * as t from 'lib0/testing'
 import * as promise from 'lib0/promise'
-import { EditorState, Plugin } from 'prosemirror-state'
+import { EditorState, Plugin, TextSelection } from 'prosemirror-state'
 import { schema } from 'prosemirror-schema-basic'
 import { EditorView } from 'prosemirror-view'
 
@@ -386,4 +386,89 @@ export const testDestroyedRdtsDropReferences = () => {
   t.assert(YPM.usableTransformer(YPM.ySyncPluginKey.getState(retainedState)) === null, 'the retained state maps nothing through the destroyed binding')
   view.destroy()
   ydoc.destroy()
+}
+
+/**
+ * @param {string} prefix
+ * @param {number} n
+ */
+const paragraphsYType = (prefix, n) => {
+  const ytype = new Y.Doc().get('prosemirror')
+  ytype.applyDelta(d.create().insert(Array.from({ length: n }, (_, i) => d.create('paragraph', {}, `${prefix} ${i}`))).done())
+  return ytype
+}
+
+/**
+ * Records the step count of every document change `view` dispatches.
+ *
+ * @param {EditorView} view
+ */
+const recordSteps = view => {
+  /** @type {Array<number>} */
+  const steps = []
+  view.updateState(view.state.reconfigure({
+    plugins: [...view.state.plugins, new Plugin({ filterTransaction: tr => { if (tr.docChanged) steps.push(tr.steps.length); return true } })]
+  }))
+  return steps
+}
+
+/**
+ * Binding a view to a ytype whose content differs in many places replaces
+ * the document in one step. The steps from the view's previous content carry
+ * no meaning, and thousands of them make step-mapping plugins quadratic.
+ */
+export const testLargeInitialSyncIsOneStep = () => {
+  const view = createView(EditorState.create({ schema, plugins: [YPM.syncPlugin()] }))
+  try {
+    YPM.configureYProsemirror({ ytype: paragraphsYType('before', 300) })(view.state, view.dispatch)
+    const ytype = paragraphsYType('after', 300)
+    const steps = recordSteps(view)
+    YPM.configureYProsemirror({ ytype })(view.state, view.dispatch)
+    t.compare(steps, [1])
+    t.compare(ytype.toDeltaDeep(), YPM.docToDelta(view.state.doc).done(false))
+  } finally {
+    view.destroy()
+  }
+}
+
+/**
+ * A small initial change keeps its steps, so the selection still maps
+ * through it.
+ */
+export const testSmallInitialSyncKeepsSteps = () => {
+  const view = createView(EditorState.create({ schema, plugins: [YPM.syncPlugin()] }))
+  try {
+    YPM.configureYProsemirror({ ytype: paragraphsYType('same', 300) })(view.state, view.dispatch)
+    const ytype = paragraphsYType('same', 300)
+    ytype.applyDelta(d.create().retain(299).modify(d.create().retain(5).insert('!')).done())
+    const selection = 10
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, selection)))
+    const steps = recordSteps(view)
+    YPM.configureYProsemirror({ ytype })(view.state, view.dispatch)
+    t.assert(steps.length === 1 && steps[0] > 0 && steps[0] <= 100, `small change keeps its steps (${steps})`)
+    t.compare(view.state.selection.from, selection, 'the selection before the change keeps its position')
+    t.compare(ytype.toDeltaDeep(), YPM.docToDelta(view.state.doc).done(false))
+  } finally {
+    view.destroy()
+  }
+}
+
+/**
+ * After the initial sync, a large remote change keeps its steps: the view
+ * shows the same document as Y, so the steps carry the selection.
+ */
+export const testLargeRemoteChangeKeepsSteps = () => {
+  const view = createView(EditorState.create({ schema, plugins: [YPM.syncPlugin()] }))
+  try {
+    const ytype = paragraphsYType('same', 300)
+    YPM.configureYProsemirror({ ytype })(view.state, view.dispatch)
+    const steps = recordSteps(view)
+    const change = d.create()
+    for (let i = 0; i < 300; i++) change.modify(d.create().retain(4).insert('!'))
+    ytype.applyDelta(change.done())
+    t.assert(steps.length === 1 && steps[0] >= 300, `remote change keeps its steps (${steps})`)
+    t.compare(ytype.toDeltaDeep(), YPM.docToDelta(view.state.doc).done(false))
+  } finally {
+    view.destroy()
+  }
 }
