@@ -472,3 +472,49 @@ export const testLargeRemoteChangeKeepsSteps = () => {
     view.destroy()
   }
 }
+
+/**
+ * Turning suggestion mode on or off rebinds the view (an initial sync). With
+ * many suggestions, the document is replaced in one step, but the cursor
+ * stays where the steps would put it.
+ */
+export const testSuggestionToggleKeepsCursor = () => {
+  const ydoc = new Y.Doc({ gc: false })
+  const ytype = ydoc.get('prosemirror')
+  const view = createView(EditorState.create({ schema, plugins: [YPM.syncPlugin()] }))
+  const originalWarn = console.warn
+  // the basic schema lacks the attribution marks - silence that audit warning
+  console.warn = () => {}
+  try {
+    const suggestionDoc = new Y.Doc({ isSuggestionDoc: true, gc: false })
+    const renderer = Y.createDiffRenderer(ydoc, suggestionDoc, { attributions: Y.createContentMap() })
+    renderer.suggestionMode = true
+    const suggestions = suggestionDoc.get('prosemirror')
+    YPM.configureYProsemirror({ ytype: suggestions, renderer })(view.state, view.dispatch)
+    ytype.applyDelta(d.create().insert(Array.from({ length: 300 }, (_, i) => d.create('paragraph', {}, `para ${i}`))).done())
+    // suggest a "!" at the start of 200 paragraphs
+    /** @type {Array<number>} */
+    const starts = []
+    view.state.doc.forEach((_node, offset, index) => { if (index % 3 !== 0) starts.push(offset + 1) })
+    for (const start of starts.reverse()) view.dispatch(view.state.tr.insertText('!', start))
+    let cursorPos = 0
+    view.state.doc.forEach((_node, offset, index) => { if (index === 151) cursorPos = offset + 4 })
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, cursorPos)))
+    const cursor = () => `${view.state.selection.$from.parent.textContent}@${view.state.selection.$from.parentOffset}`
+    t.compare(cursor(), '!para 151@3')
+
+    const offSteps = recordSteps(view)
+    YPM.configureYProsemirror({ ytype, renderer: null })(view.state, view.dispatch)
+    t.compare(offSteps, [1])
+    t.compare(cursor(), 'para 151@2', 'suggestions off')
+
+    const onSteps = recordSteps(view)
+    YPM.configureYProsemirror({ ytype: suggestions, renderer })(view.state, view.dispatch)
+    t.compare(onSteps, [1])
+    t.compare(cursor(), '!para 151@3', 'suggestions on')
+    renderer.destroy()
+  } finally {
+    console.warn = originalWarn
+    view.destroy()
+  }
+}

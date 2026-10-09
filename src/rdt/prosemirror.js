@@ -1,3 +1,4 @@
+import { Selection } from 'prosemirror-state'
 import { ObservableV2 } from 'lib0/observable'
 import * as delta from 'lib0/delta'
 import * as env from 'lib0/environment'
@@ -587,8 +588,11 @@ export class ProsemirrorRdt extends ObservableV2 {
       try {
         tr = deltaToPSteps(this.view.state.tr, /** @type {any} */ (d), undefined, undefined, this.attributedNodes)
         if (this.initialSync && tr.steps.length > MANY_INITIAL_STEPS) {
-          // see `initialSync`
-          tr = replaceDocument(this.view.state.tr, deltaToPNode(/** @type {any} */ (expected), this.view.state.schema, null, this.attributedNodes))
+          // see `initialSync`. The selection still comes from the steps, so
+          // e.g. turning suggestion mode on or off keeps the cursor in place.
+          const stepped = tr
+          tr = replaceDocument(this.view.state.tr, stepped.doc)
+          tr.setSelection(Selection.fromJSON(tr.doc, stepped.selection.toJSON()))
         }
       } catch (_err) {
         // Raw steps could not express the change against the schema (e.g. a
