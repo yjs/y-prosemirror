@@ -84,6 +84,16 @@ The signature is `(format, attribution) => format`, where:
 
 The mapper sets one or more of the three `y-attributed-*` keys on `format` and returns it. **Do not** write absent attribution kinds as explicit `null`. The diff layer naturally produces a format-clear when comparing pcontent (mark present) against desiredPM (key absent). Writing explicit `null`s changes the delta op fingerprint and prevents the diff from matching ops by content, which causes spurious text-node splits.
 
+### Implied format attribution is not rendered
+
+Before any mapper runs, the binding drops the format attribution that a span's own insert or delete attribution implies (`dropImpliedFormatAttribution`, exported from `src/sync-utils.js`). A user who inserts text and formats it leaves `{ insert: ['A'], format: { strong: ['A'] } }` on it. A format mark there says nothing the insert mark does not already say: a suggested insertion comes with its formatting, and accepting or rejecting the insertion resolves the formatting with it (`@y/y` collects the inserter's format markers together with the inserted text). The same holds for a pending delete the deleter had formatted. Concretely, for every key in `attribution.format`:
+
+- The key is dropped when every user in its list is an inserter or deleter of the span. An empty list counts as implied: without an `attributions` content map every user id is `[]`, so inserter and formatter cannot be told apart and any format on a pending insert collapses into the insert mark.
+- A key naming at least one other user is kept untouched, user list included. Somebody else reformatted the span, which is a suggestion of its own and renders as `y-attributed-format` next to the insert (or delete) mark.
+- When no key survives, `format` and `formatAt` are dropped, no `y-attributed-format` mark is emitted, and a stale one is cleared by the next render.
+
+Base content with a format suggestion carries no insert or delete attribution and is not affected. Custom mappers see the reduced `attribution.format`, so they cannot render an implied format either. For `attributedNodes` predicates this means `kinds.format` is `false` on a node its inserter also formatted; `kinds.insert` still flips it.
+
 ### Stability is mandatory
 
 For every change the binding applies to the view, `ProsemirrorRdt` compares the state it
@@ -97,8 +107,10 @@ If `mapAttributionToMark(format, attribution)` ever produces output whose serial
 
 Note on inputs: the mapper is invoked through an adapter (`attributionMapperToConf`) that
 resolves the attribution to plain data form first - `null`-cleared keys from incremental
-updates are dropped before the mapper sees them - so a mapper written against the
-documented `attribution` shape keeps working unchanged.
+updates are dropped before the mapper sees them, as is the format attribution the span's
+own insert or delete attribution implies (see "Implied format attribution is not rendered"
+above) - so a mapper written against the documented `attribution` shape keeps working
+unchanged.
 
 Concretely, "stable" means:
 
@@ -159,7 +171,7 @@ const mapAttributionToMark = (format, attribution) => {
 Note that:
 
 - All three marks share `userColorAttrs`, so the mapper can emit the same shape regardless of which kinds are present.
-- The mapper sets each present kind independently and leaves absent kinds untouched on `format`. A span that is both inserted and reformatted ends up with both marks.
+- The mapper sets each present kind independently and leaves absent kinds untouched on `format`. A span inserted by one user and reformatted by another ends up with both marks; a span its inserter (or deleter) also formatted carries the insert (delete) mark only, because the implied format attribution never reaches the mapper.
 - `colorForUser` is deterministic in the user id, so two calls of the mapper with the same `attribution` produce byte-equal output.
 
 ## Rendering attributed nodes under a variant node type

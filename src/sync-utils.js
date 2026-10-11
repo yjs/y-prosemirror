@@ -109,8 +109,10 @@ export const attributedVariant = (canonicalName, format, attributedNodes, schema
  * full rationale and the schema gotcha around mark-group resolution.
  *
  * Note: a single op may carry multiple attribution kinds simultaneously
- * (e.g. inserted text whose format was also suggested), so the mapper sets
- * each applicable mark independently rather than picking one. Absent kinds
+ * (e.g. inserted text that *another* user then reformatted), so the mapper
+ * sets each applicable mark independently rather than picking one. The
+ * format attribution a span's own insert or delete attribution implies never
+ * reaches the mapper ({@link dropImpliedFormatAttribution}). Absent kinds
  * are not added to the format object - the diff layer naturally produces a
  * format-remove when comparing PM content (where a stale mark is present)
  * against the freshly-rendered renderer delta (where the key is absent).
@@ -196,6 +198,63 @@ const dropNullLeaves = (map) => {
 }
 
 /**
+ * Drop the format attribution that the span's own insert or delete
+ * attribution already implies.
+ *
+ * A user who inserts a span and formats it leaves two attributions on it:
+ * `{ insert: ['A'], format: { strong: ['A'] } }`. Rendering both marks tells
+ * the reader nothing the insert mark does not already say: a suggested
+ * insertion comes with its formatting, and accepting or rejecting the
+ * insertion resolves the formatting with it (`@y/y` collects the inserter's
+ * format markers together with the inserted text). The same holds for a
+ * pending delete the deleter had formatted. We therefore drop every `format`
+ * key whose users are all *actors* of the span (its inserters and deleters).
+ * An empty user list counts as implied as well: it is the anonymous
+ * suggestion case, where inserter and formatter cannot be told apart. When no
+ * key survives we drop `format` and `formatAt` altogether, so no
+ * `y-attributed-format` mark is emitted and an existing one is cleared (the
+ * `attributionToFormat` stage turns the handler's `null` into a clear
+ * instruction). A key that names at least one user outside the actors is
+ * kept untouched, user list included: somebody else reformatted the span,
+ * which is a suggestion of its own.
+ *
+ * Only an insert or delete attribution implies a format. A span without one
+ * (base content carrying a format suggestion) and a span without a format
+ * come back as they are. The input is never mutated; the result shares its
+ * untouched parts.
+ *
+ * @param {import('lib0/delta').Attribution} attribution a resolved data-form
+ *   attribution (no `null` leaves, see {@link resolveAttribution})
+ * @return {import('lib0/delta').Attribution}
+ */
+export const dropImpliedFormatAttribution = (attribution) => {
+  const { insert, delete: del, format } = attribution
+  if ((insert == null && del == null) || format == null) return attribution
+  const actors = insert == null
+    ? /** @type {Array<string>} */ (del)
+    : (del == null ? insert : insert.concat(del))
+  /** @type {Record<string, Array<string>>} */
+  const kept = {}
+  let dropped = false
+  object.forEach(format, (users, key) => {
+    if (users.every(user => actors.includes(user))) {
+      dropped = true
+    } else {
+      kept[key] = users
+    }
+  })
+  if (!dropped) return attribution
+  const out = object.assign({}, attribution)
+  if (object.isEmpty(kept)) {
+    delete out.format
+    delete out.formatAt
+  } else {
+    out.format = kept
+  }
+  return out
+}
+
+/**
  * Reserved node-level mark carrying attr-change attribution. The name is fixed
  * by lib0's `attributionToFormat` transformer (its `Y_ATTRS` constant): the
  * transformer lifts attr-op attribution onto the *parent* insert/modify op's
@@ -243,27 +302,39 @@ export const defaultMapAttrAttribution = (a) => {
 /**
  * Adapt a legacy `(format, attribution) => format` attribution mapper (the
  * `mapAttributionToMark` option) to an {@link AttributionConf}. The mapper is
- * called with a resolved data-form attribution ({@link resolveAttribution}) and
- * a `null` base format; each handler extracts its own reserved key from the
- * result. A key the mapper did not set maps to `null` — which clears the mark
- * on instruction ops and renders nothing on data ops, matching the legacy
- * "absent kinds are not added" contract.
+ * called with a resolved data-form attribution ({@link resolveAttribution})
+ * minus the format attribution the span's own insert or delete attribution
+ * implies ({@link dropImpliedFormatAttribution}), and a `null` base format;
+ * each handler extracts its own reserved key from the result. A key the mapper
+ * did not set maps to `null`, which clears the mark on instruction ops and
+ * renders nothing on data ops, matching the legacy "absent kinds are not
+ * added" contract. That is also how an implied format disappears: the mapper
+ * never sees it, so it never sets `y-attributed-format`.
  *
  * @param {AttributionMapper} mapper
  * @return {AttributionConf}
  */
-export const attributionMapperToConf = (mapper) => ({
-  insert: a => mapper(null, resolveAttribution(a))?.['y-attributed-insert'] ?? null,
-  delete: a => mapper(null, resolveAttribution(a))?.['y-attributed-delete'] ?? null,
-  format: a => mapper(null, resolveAttribution(a))?.['y-attributed-format'] ?? null,
-  // A mapper may control the attr-change payload by emitting the reserved
-  // `y-attributed-attrs` key (the default mapper does not); otherwise the
-  // default payload builder applies.
-  attrs: a => {
-    const m = mapper(null, resolveAttribution(a))
-    return m != null && Y_ATTRS_MARK in m ? m[Y_ATTRS_MARK] : defaultMapAttrAttribution(a)
+export const attributionMapperToConf = (mapper) => {
+  /**
+   * What the mapper sees for an op. One shape for every handler, so a mapper
+   * that reads several dimensions is never shown two attributions for one op.
+   *
+   * @param {import('lib0/delta').Attribution} a
+   */
+  const mapperInput = a => dropImpliedFormatAttribution(resolveAttribution(a))
+  return {
+    insert: a => mapper(null, mapperInput(a))?.['y-attributed-insert'] ?? null,
+    delete: a => mapper(null, mapperInput(a))?.['y-attributed-delete'] ?? null,
+    format: a => mapper(null, mapperInput(a))?.['y-attributed-format'] ?? null,
+    // A mapper may control the attr-change payload by emitting the reserved
+    // `y-attributed-attrs` key (the default mapper does not); otherwise the
+    // default payload builder applies.
+    attrs: a => {
+      const m = mapper(null, mapperInput(a))
+      return m != null && Y_ATTRS_MARK in m ? m[Y_ATTRS_MARK] : defaultMapAttrAttribution(a)
+    }
   }
-})
+}
 
 /**
  * Marks are stored as a flat `format` object keyed by mark name. Marks whose

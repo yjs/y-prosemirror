@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### ✨ Implied format attribution is no longer rendered
+
+A span that a user inserted and also formatted used to carry both
+`y-attributed-insert` and `y-attributed-format`. The format mark said nothing
+the insert mark did not already say (a suggested insertion comes with its
+formatting, and accepting or rejecting it resolves the formatting with it),
+so the binding now drops the format attribution a span's own insert or delete
+attribution implies before any mapper runs: a `format` key whose users are
+all inserters or deleters of the span is removed, and when no key survives
+the mark is not emitted at all. A key naming another user is kept untouched,
+so a peer's reformatting of a pending insertion still renders both marks.
+The same applies to a pending delete the deleter had formatted, and to
+version rendering through `ynodeToPmnode`.
+
+Two consequences to be aware of:
+
+- Without an `attributions` content map every user id is `[]`, so inserter
+  and formatter cannot be told apart and *any* format on a pending insert
+  now collapses into the insert mark.
+- Custom `mapAttributionToMark` mappers see the reduced `attribution.format`
+  (the rule runs in `attributionMapperToConf`), and an `attributedNodes`
+  predicate keyed on `kinds.format` alone no longer flips a node its
+  inserter also formatted (`kinds.insert` still does).
+
+The rule is exported as `dropImpliedFormatAttribution`; see ATTRIBUTION.md,
+"Implied format attribution is not rendered". Known follow-up: the
+`y-attributed-attrs` mark on a freshly inserted node is implied the same way
+and still renders.
+
 ## v2.0.0-12
 
 Standalone conversion between Yjs and ProseMirror through the binding's own

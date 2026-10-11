@@ -27,7 +27,10 @@ fixes back and forth until both sides settle.
 3. Optional user transformers (see below).
 4. `attributionToFormat` (lib0) renders the attribution dimension into the reserved
    `y-attributed-insert` / `y-attributed-delete` / `y-attributed-format` format keys, using
-   handlers derived from the `mapAttributionToMark` option.
+   handlers derived from the `mapAttributionToMark` option. The handlers first drop the
+   format attribution a span's own insert or delete attribution implies (see
+   ATTRIBUTION.md, "Implied format attribution is not rendered"), so the inserter's own
+   formatting renders as the insert mark alone.
 5. `swallowFormats` passes them through untouched — it only gates the reverse direction.
 6. `ProsemirrorRdt.applyDelta` converts the delta to ProseMirror steps (`deltaToPSteps`) and
    dispatches one transaction (`y-sync-transaction` meta, `addToHistory: false`). Whatever

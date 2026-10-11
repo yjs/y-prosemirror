@@ -15,6 +15,7 @@ import * as ySyncRdt from './y-sync-rdt.test.js'
 import * as prosemirrorRdt from './prosemirror-rdt.test.js'
 import * as swallowFormats from './swallow-formats.test.js'
 import * as convert from './convert.test.js'
+import * as impliedFormatAttribution from './implied-format-attribution.test.js'
 import * as syncPlugin from './sync-plugin.test.js'
 
 import { runTests } from 'lib0/testing'
@@ -41,6 +42,7 @@ runTests({
   prosemirrorRdt,
   swallowFormats,
   convert,
+  impliedFormatAttribution,
   syncPlugin
   // prosemirror,
   // v1Compat: node-only (npm-alias devDependency y-prosemirror-v1 + yjs@13, see tests/index.node.js)
