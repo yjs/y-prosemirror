@@ -4,7 +4,7 @@
 
 import { createMutex } from 'lib0/mutex'
 import * as PModel from 'prosemirror-model'
-import { AllSelection, Plugin, TextSelection, NodeSelection } from "prosemirror-state"; // eslint-disable-line
+import { AllSelection, Plugin, Selection, TextSelection, NodeSelection } from "prosemirror-state"; // eslint-disable-line
 import * as math from 'lib0/math'
 import * as object from 'lib0/object'
 import * as set from 'lib0/set'
@@ -257,7 +257,12 @@ const restoreRelativeSelection = (tr, relSel, binding) => {
         relSel.anchor,
         binding.mapping
       )
-      tr.setSelection(NodeSelection.create(tr.doc, anchor))
+      if (anchor !== null) {
+        // A peer may have deleted the selected node: restore near it instead of throwing
+        const $anchor = tr.doc.resolve(anchor)
+        const node = $anchor.nodeAfter
+        tr.setSelection(node !== null && NodeSelection.isSelectable(node) ? new NodeSelection($anchor) : Selection.near($anchor))
+      }
     } else {
       const anchor = relativePositionToAbsolutePosition(
         binding.doc,
