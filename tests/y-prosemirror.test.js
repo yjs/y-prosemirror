@@ -17,7 +17,7 @@ import {
   yUndoPluginKey,
   yXmlFragmentToProsemirrorJSON
 } from '../src/y-prosemirror.js'
-import { EditorState, Plugin, TextSelection } from 'prosemirror-state'
+import { EditorState, NodeSelection, Plugin, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { Schema } from 'prosemirror-model'
 import * as basicSchema from 'prosemirror-schema-basic'
@@ -614,6 +614,58 @@ export const testAddToHistoryIgnore = (_tc) => {
       yxml.get(0).toString() === '<paragraph>abc</paragraph>',
     'insertion (1) was undone'
   )
+}
+
+/**
+ * Restoring a NodeSelection must not throw when a remote peer deleted the
+ * selected node. https://github.com/yjs/y-prosemirror/issues/283
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testRestoreNodeSelectionOfRemotelyDeletedNode = (_tc) => {
+  const remote = prosemirrorJSONToYDoc(/** @type {any} */ (schema), {
+    type: 'doc',
+    content: [
+      { type: 'paragraph', content: [{ type: 'text', text: 'before' }] },
+      { type: 'horizontal_rule' }
+    ]
+  })
+  const ydoc = new Y.Doc()
+  Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(remote))
+  const view = createNewProsemirrorView(ydoc)
+  const hrPos = view.state.doc.child(0).nodeSize
+  view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, hrPos)))
+  // delete the selected node, which is the last child of the doc
+  remote.getXmlFragment('prosemirror').delete(1, 1)
+  Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(remote, Y.encodeStateVector(ydoc)))
+  t.assert(view.state.doc.childCount === 1, 'the remote deletion is applied to the view')
+  t.assert(!(view.state.selection instanceof NodeSelection), 'the selection falls back to a valid position')
+}
+
+/**
+ * A NodeSelection whose node survives a remote change is still restored.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testRestoreNodeSelectionAfterRemoteChange = (_tc) => {
+  const remote = prosemirrorJSONToYDoc(/** @type {any} */ (schema), {
+    type: 'doc',
+    content: [
+      { type: 'paragraph', content: [{ type: 'text', text: 'before' }] },
+      { type: 'horizontal_rule' },
+      { type: 'paragraph', content: [{ type: 'text', text: 'after' }] }
+    ]
+  })
+  const ydoc = new Y.Doc()
+  Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(remote))
+  const view = createNewProsemirrorView(ydoc)
+  const hrPos = view.state.doc.child(0).nodeSize
+  view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, hrPos)))
+  remote.getXmlFragment('prosemirror').delete(2, 1)
+  Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(remote, Y.encodeStateVector(ydoc)))
+  t.assert(view.state.doc.childCount === 2)
+  const sel = view.state.selection
+  t.assert(sel instanceof NodeSelection && sel.node.type.name === 'horizontal_rule')
 }
 
 const createNewProsemirrorViewWithSchema = (y, schema, undoManager = false) => {
