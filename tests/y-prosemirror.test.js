@@ -616,6 +616,67 @@ export const testAddToHistoryIgnore = (_tc) => {
   )
 }
 
+/**
+ * A keystroke deep inside one large parent must not deep compare the parent's
+ * unchanged children. They are identical ProseMirror nodes, so the mapping
+ * already proves they are in sync. Before the mapping check in
+ * equalYTypePNode, typing into the last of N paragraphs inside a blockquote
+ * compared all N paragraphs (the same shape as a cell in the last row of a
+ * large table), on every transaction.
+ *
+ * Also exercises the invalidation the shortcut relies on: a remote edit to an
+ * early child, then a local edit to a later one, must still converge.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testLargeParentEditSkipsMappedSiblings = (_tc) => {
+  const ydoc1 = new Y.Doc()
+  ydoc1.clientID = 1
+  const ydoc2 = new Y.Doc()
+  ydoc2.clientID = 2
+  const view1 = createNewProsemirrorView(ydoc1)
+  const view2 = createNewProsemirrorView(ydoc2)
+  const count = 300
+  const paragraphs = []
+  for (let i = 0; i < count; i++) {
+    paragraphs.push(schema.node('paragraph', undefined, schema.text('p' + i)))
+  }
+  view1.dispatch(
+    view1.state.tr.replaceWith(0, view1.state.doc.content.size, schema.node('blockquote', undefined, paragraphs))
+  )
+  const sync = () => {
+    Y.applyUpdate(ydoc2, Y.encodeStateAsUpdate(ydoc1))
+    Y.applyUpdate(ydoc1, Y.encodeStateAsUpdate(ydoc2))
+  }
+  sync()
+  // The end of the last paragraph's text: before its closing token and the
+  // blockquote's.
+  const endOfLast = () => view1.state.doc.content.size - 2
+  const proto = /** @type {any} */ (Y.XmlElement.prototype)
+  const original = proto.getAttributes
+  let reads = 0
+  proto.getAttributes = function (...args) {
+    reads++
+    return original.apply(this, args)
+  }
+  try {
+    view1.dispatch(view1.state.tr.insertText('x', endOfLast()))
+  } finally {
+    proto.getAttributes = original
+  }
+  t.assert(reads < 20, `one keystroke read ${reads} element attribute maps for ${count} unchanged siblings`)
+  // A remote edit to an early paragraph invalidates its mapping on peer 1, then
+  // a local edit to the last one: both must survive.
+  view2.dispatch(view2.state.tr.insertText('R', 3))
+  sync()
+  view1.dispatch(view1.state.tr.insertText('L', endOfLast()))
+  sync()
+  checkResult({ testObjects: [view1, view2] })
+  const text = view1.state.doc.textContent
+  t.assert(text.startsWith('pR0p1'), 'remote edit survived')
+  t.assert(text.endsWith('p' + (count - 1) + 'xL'), 'local edits survived')
+}
+
 const createNewProsemirrorViewWithSchema = (y, schema, undoManager = false) => {
   const view = new EditorView(null, {
     // @ts-ignore
