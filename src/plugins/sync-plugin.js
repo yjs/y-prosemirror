@@ -14,7 +14,7 @@ import * as random from 'lib0/random'
 import * as set from 'lib0/set'
 import * as PModel from 'prosemirror-model'
 import { NodeSelection, Plugin, Selection, TextSelection, Transaction } from 'prosemirror-state'; // eslint-disable-line
-import { DocAttrStep } from 'prosemirror-transform'
+import { DocAttrStep, ReplaceStep } from 'prosemirror-transform'
 import * as Y from 'yjs'
 import {
   absolutePositionToRelativePosition,
@@ -23,107 +23,222 @@ import {
 import { ySyncPluginKey, yUndoPluginKey } from './keys.js'
 
 /**
- * @param {PModel.ResolvedPos} $from
- * @param {PModel.ResolvedPos} $to
- * @param {PModel.Fragment} fragment
+ * Replace the range `from`..`to` of `parent`'s content with `insert`.
+ *
+ * `Transform.replace` is deliberately avoided: when it decides a slice does not
+ * fit the resolved position it searches surrounding depths and rewrites content
+ * that was never part of the range. `ReplaceStep` applies exactly the range it
+ * is given, at the cost of having the schema checked here instead.
+ *
+ * The parent node and the child indices the range spans are passed in rather
+ * than derived from `tr.doc.resolve()`, because on a block boundary a resolved
+ * position reports the node *around* the boundary as its parent, not the node
+ * the range lives in.
+ *
  * @param {Transaction} tr
- * @return {boolean}
+ * @param {number} from
+ * @param {number} to
+ * @param {PModel.Node} parent Node the range lives in
+ * @param {number} fromIndex Child index `from` sits at
+ * @param {number} toIndex Child index `to` sits at
+ * @param {PModel.Fragment} insert
+ * @return {boolean} false when the schema rejects the replacement
  */
-const safeReplace = ($from, $to, fragment, tr) => {
-  // If we encounter a non-trivial replacement, fail up
-  // and have the parent handle it. Otherwise ProseMirror
-  // will adjust the document in unpredictable ways
-  // to enforce the schema
-  if (!$from.parent.canReplace($from.index(), $to.index(), fragment)) {
+const safeReplace = (tr, from, to, parent, fromIndex, toIndex, insert) => {
+  if (!parent.canReplace(fromIndex, toIndex, insert)) {
     return false
   }
 
-  tr.replace(
-    $from.pos,
-    $to.pos,
-    new PModel.Slice(fragment, 0, 0)
-  )
-  return true
+  return !tr.maybeStep(new ReplaceStep(from, to, new PModel.Slice(insert, 0, 0))).failed
 }
 
 /**
- * @param {PModel.Node | undefined} source
- * @param {PModel.Node | undefined} target
- * @param {number} sourcePos
+ * Make the children of the node at `parentPos` equal to the children of
+ * `target`, using a single step over the region where they diverge.
+ *
+ * Children are matched by index from the outside in: identical leading and
+ * trailing children are kept, everything between them is replaced by the
+ * target's children. Identical text runs at the edges of that region are trimmed
+ * away too, so a one character edit stays a one character step.
+ *
+ * The region is computed before the step is applied, so positions are never
+ * mapped through steps that this diff added itself.
+ *
  * @param {Transaction} tr
- * @return {boolean}
+ * @param {number} parentPos Position of the parent node, or -1 for the document
+ * @param {PModel.Node} target
+ * @return {boolean} false when the target cannot be reached
  */
-const diffDocs = (source, target, sourcePos, tr) => {
-  const mappedPos = sourcePos === -1 ? { pos: 0, deleted: false } : tr.mapping.mapResult(sourcePos, 1)
-  if (mappedPos.deleted) return false
-  const inter = sourcePos === -1 ? tr.doc : tr.doc.resolve(mappedPos.pos).nodeAfter
-  const interSize = sourcePos === -1 ? inter.content.size : inter?.nodeSize ?? 0
+const diffChildren = (tr, parentPos, target) => {
+  const current = parentPos === -1 ? tr.doc : tr.doc.resolve(parentPos).nodeAfter
+  const curContent = current.content
+  const tgtContent = target.content
+  const contentStart = parentPos === -1 ? 0 : parentPos + 1
 
-  if (!source) {
-    tr.insert(mappedPos.pos, target)
-    return true
+  let head = 0
+  while (
+    head < curContent.childCount &&
+    head < tgtContent.childCount &&
+    curContent.child(head).eq(tgtContent.child(head))
+  ) {
+    head++
   }
 
-  if (!target) {
-    tr.delete(mappedPos.pos, mappedPos.pos + inter.nodeSize)
-    return true
+  let curTail = curContent.childCount
+  let tgtTail = tgtContent.childCount
+  while (
+    curTail > head &&
+    tgtTail > head &&
+    curContent.child(curTail - 1).eq(tgtContent.child(tgtTail - 1))
+  ) {
+    curTail--
+    tgtTail--
   }
 
-  if (source.type !== target.type) {
-    const $from = tr.doc.resolve(mappedPos.pos)
-    const $to = tr.doc.resolve(mappedPos.pos + interSize)
-    const fragment = PModel.Fragment.from(target)
+  let from = contentStart
+  for (let i = 0; i < head; i++) from += curContent.child(i).nodeSize
+  let to = from
+  for (let i = head; i < curTail; i++) to += curContent.child(i).nodeSize
 
-    return safeReplace($from, $to, fragment, tr)
-  }
+  if (curTail === head && tgtTail === head) return true
 
-  if (!source.isText && !source.hasMarkup(target.type, target.attrs, target.marks)) {
-    if (sourcePos === -1) {
-      for (const [attr, value] of Object.entries(target.attrs)) {
-        tr.step(new DocAttrStep(attr, value))
-      }
-    } else {
-      tr.setNodeMarkup(
-        mappedPos.pos,
-        target.type,
-        target.attrs,
-        target.marks
+  // Exactly one child changed on each side: descend into it so the step stays
+  // as small as the change that produced it.
+  if (curTail - head === 1 && tgtTail - head === 1) {
+    const curRun = curContent.child(head)
+    const tgtRun = tgtContent.child(head)
+    if (curRun.type === tgtRun.type && !curRun.isText) {
+      return diffNode(tr, from, tgtRun, current, head)
+    }
+    // A single text run was edited: keep the text it already shares with the
+    // target instead of rewriting the whole run.
+    if (
+      curRun.isText &&
+      tgtRun.isText &&
+      PModel.Mark.sameSet(curRun.marks, tgtRun.marks)
+    ) {
+      const keep = commonTextEdge(curRun.text, tgtRun.text)
+      const rest = tgtRun.text.length - keep.prefix - keep.suffix
+      return safeReplace(
+        tr,
+        from + keep.prefix,
+        to - keep.suffix,
+        current,
+        head,
+        head,
+        rest > 0
+          ? PModel.Fragment.from(tgtRun.cut(keep.prefix, tgtRun.text.length - keep.suffix))
+          : PModel.Fragment.empty
       )
     }
   }
 
-  if ((source.isLeaf || target.isLeaf) && !source.eq(target)) {
-    tr.replace(
-      mappedPos.pos,
-      mappedPos.pos + interSize,
-      new PModel.Slice(PModel.Fragment.from(target), 0, 0)
-    )
-    return true
+  return safeReplace(
+    tr,
+    from,
+    to,
+    current,
+    head,
+    curTail,
+    childrenSlice(tgtContent, head, tgtTail)
+  )
+}
+
+/**
+ * Children of `fragment` from index `from` (inclusive) to `to` (exclusive).
+ *
+ * @param {PModel.Fragment} fragment
+ * @param {number} from
+ * @param {number} to
+ * @return {PModel.Fragment}
+ */
+const childrenSlice = (fragment, from, to) => {
+  const nodes = []
+  for (let i = from; i < to; i++) nodes.push(fragment.child(i))
+  return PModel.Fragment.fromArray(nodes)
+}
+
+/**
+ * Lengths of the longest non-overlapping common prefix and suffix of two
+ * strings. The prefix wins when they would otherwise overlap.
+ *
+ * @param {string} a
+ * @param {string} b
+ * @return {{ prefix: number, suffix: number }}
+ */
+const commonTextEdge = (a, b) => {
+  let prefix = 0
+  while (prefix < a.length && prefix < b.length && a.charCodeAt(prefix) === b.charCodeAt(prefix)) {
+    prefix++
+  }
+  let suffix = 0
+  while (
+    suffix < a.length - prefix &&
+    suffix < b.length - prefix &&
+    a.charCodeAt(a.length - 1 - suffix) === b.charCodeAt(b.length - 1 - suffix)
+  ) {
+    suffix++
+  }
+  return { prefix, suffix }
+}
+
+/**
+ * Make the node at `pos` equal to `target`.
+ *
+ * @param {Transaction} tr
+ * @param {number} pos Position of an existing node in `tr.doc`
+ * @param {PModel.Node} target
+ * @param {PModel.Node} parent Parent node of the node at `pos`
+ * @param {number} index Index of the node at `pos` within `parent`
+ * @return {boolean} false when the target cannot be reached
+ */
+const diffNode = (tr, pos, target, parent, index) => {
+  const current = tr.doc.resolve(pos).nodeAfter
+  if (current.eq(target)) return true
+
+  const replaceWholeNode = () => safeReplace(
+    tr,
+    pos,
+    pos + current.nodeSize,
+    parent,
+    index,
+    index + 1,
+    PModel.Fragment.from(target)
+  )
+
+  if (current.type !== target.type) return replaceWholeNode()
+
+  if (current.isText) return replaceWholeNode()
+
+  if (!current.hasMarkup(target.type, target.attrs, target.marks)) {
+    tr.setNodeMarkup(pos, target.type, target.attrs, target.marks)
   }
 
-  const childCount = Math.max(source.childCount, target.childCount)
-  let childSourcePos = sourcePos === -1 ? 0 : sourcePos + (source.isLeaf ? 0 : 1)
-  for (let i = 0; i < childCount; i++) {
-    const diffed = diffDocs(source.maybeChild(i), target.maybeChild(i), childSourcePos, tr)
-    if (!diffed) {
-      // Recompute the mapped position, since the transaction may have since been
-      // updated by previous child replacements
-      const mappedPos = sourcePos === -1 ? { pos: 0, deleted: false } : tr.mapping.mapResult(sourcePos, 1)
-      if (mappedPos.deleted) return false
+  if (current.isLeaf) return true
 
-      const inter = sourcePos === -1 ? tr.doc : tr.doc.resolve(mappedPos.pos).nodeAfter
-      const interSize = sourcePos === -1 ? inter.content.size : inter?.nodeSize ?? 0
+  return diffChildren(tr, pos, target)
+}
 
-      const $from = tr.doc.resolve(mappedPos.pos)
-      const $to = tr.doc.resolve(mappedPos.pos + interSize)
-      const fragment = PModel.Fragment.from(target)
+/**
+ * Turn the document `tr` is based on into `target` with targeted steps instead
+ * of one whole-document replace, so that positions stay mappable through the
+ * resulting transaction.
+ *
+ * @param {PModel.Node} target The document to converge on
+ * @param {Transaction} tr A transaction on the document to change
+ * @return {boolean} false when `target` could not be reached, in which case
+ *   `tr` holds a partial result and must be discarded
+ */
+export const diffDocs = (target, tr) => {
+  if (tr.doc.type !== target.type) return false
 
-      return safeReplace($from, $to, fragment, tr)
+  if (!tr.doc.hasMarkup(target.type, target.attrs, target.marks)) {
+    for (const [attr, value] of Object.entries(target.attrs)) {
+      tr.step(new DocAttrStep(attr, value))
     }
-    childSourcePos += source.maybeChild(i)?.nodeSize ?? 0
   }
 
-  return true
+  return diffChildren(tr, -1, target)
 }
 
 /**
@@ -750,9 +865,9 @@ export class ProsemirrorBinding {
         new PModel.Slice(PModel.Fragment.from(fragmentContent), 0, 0)
       )
       let tr = this._tr
-      diffDocs(this.prosemirrorView.state.doc, _tr.doc, -1, tr)
-      // Bail out if diffDocs produced an incorrect document
-      if (tr.doc.eq(_tr.doc)) {
+      const reached = diffDocs(_tr.doc, tr)
+      // Bail out if diffDocs failed to reach, or produced, an incorrect document
+      if (reached && tr.doc.eq(_tr.doc)) {
         this.mapping.clear()
         populateMapping(this.type, tr.doc, this.mapping)
       } else {

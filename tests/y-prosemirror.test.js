@@ -19,8 +19,10 @@ import {
 import { EditorState, Plugin, TextSelection, NodeSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import * as basicSchema from 'prosemirror-schema-basic'
-import { findWrapping } from 'prosemirror-transform'
+import { Fragment, Schema, Slice } from 'prosemirror-model'
+import { findWrapping, Transform } from 'prosemirror-transform'
 import { schema as complexSchema } from './complexSchema.js'
+import { diffDocs } from '../src/plugins/sync-plugin.js'
 
 const schema = /** @type {any} */ (basicSchema.schema)
 
@@ -565,3 +567,295 @@ export const testRepeatGenerateProsemirrorChanges300 = tc => {
   checkResult(applyRandomTests(tc, pmChanges, 300, createNewProsemirrorView))
 }
 */
+
+/**
+ * ---------------------------------------------------------------------------
+ * diffDocs
+ *
+ * The sync plugin rebuilds the document from Yjs and then uses `diffDocs` to
+ * turn that into a set of small steps instead of one whole-document replace, so
+ * that plugins can keep mapping positions through a remote transaction. When
+ * `diffDocs` fails it is not only slower, the whole document is reported as
+ * deleted.
+ * ---------------------------------------------------------------------------
+ */
+
+/**
+ * Build a document from children.
+ *
+ * @param {...any} children
+ */
+const docOf = (...children) => schema.topNodeType.create(null, Fragment.from(children))
+const paraOf = (...content) => schema.node('paragraph', undefined, Fragment.from(content))
+const headingOf = (level, ...content) => schema.node('heading', { level }, Fragment.from(content))
+const blockquoteOf = (...content) => schema.node('blockquote', undefined, Fragment.from(content))
+const codeBlockOf = (...content) => schema.node('code_block', undefined, Fragment.from(content))
+const hrOf = () => schema.node('horizontal_rule')
+const brOf = () => schema.node('hard_break')
+const imageOf = (src) => schema.node('image', { src })
+const textOf = (text, ...marks) =>
+  schema.text(text, marks.length > 0 ? marks.map((m) => schema.mark(m)) : undefined)
+
+/**
+ * Run diffDocs the way the sync plugin does it.
+ *
+ * @param {any} source
+ * @param {any} target
+ */
+const diffedTo = (source, target) => {
+  const tr = new Transform(source)
+  const reached = diffDocs(target, tr)
+  return { tr, reached }
+}
+
+/**
+ * `Node.toJSON` hands back attribute objects without a prototype, which
+ * `t.compare` cannot look into.
+ *
+ * @param {any} node
+ */
+const json = (node) => JSON.parse(JSON.stringify(node))
+
+/**
+ * @param {any} source
+ * @param {any} target
+ * @param {string} what
+ */
+const assertDiffReaches = (source, target, what) => {
+  const { tr, reached } = diffedTo(source, target)
+  t.assert(reached, `${what}: diffDocs gave up and the plugin would replace the whole document`)
+  t.compare(json(tr.doc), json(target), what)
+}
+
+/**
+ * The case this regression suite exists for: the level of a heading changes at
+ * the same time as its content, which adds a run after a run that was just
+ * replaced. Positions have to be read from the live document here - mapping the
+ * position of the new run through the step that replaced the old one reports it
+ * as deleted, and the whole diff used to be thrown away.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testDiffDocsReplacesRunAddedAfterReplacedRun = (_tc) => {
+  assertDiffReaches(
+    docOf(headingOf(1, brOf())),
+    docOf(headingOf(2, textOf('b', 'code'), textOf('a'))),
+    'heading content gains a run behind a replaced run'
+  )
+  assertDiffReaches(
+    docOf(paraOf(brOf())),
+    docOf(paraOf(textOf('b'), textOf('a'))),
+    'paragraph content gains a run behind a replaced run'
+  )
+  assertDiffReaches(
+    docOf(blockquoteOf(paraOf(brOf()))),
+    docOf(blockquoteOf(paraOf(textOf('b'), textOf('a')))),
+    'same, one level down'
+  )
+}
+
+/**
+ * @param {t.TestCase} _tc
+ */
+export const testDiffDocsTextEdits = (_tc) => {
+  assertDiffReaches(docOf(paraOf(textOf('hello'))), docOf(paraOf(textOf('hello world'))), 'append text')
+  assertDiffReaches(docOf(paraOf(textOf('world'))), docOf(paraOf(textOf('hello world'))), 'prepend text')
+  assertDiffReaches(docOf(paraOf(textOf('hello world'))), docOf(paraOf(textOf('hello'))), 'trim the end')
+  assertDiffReaches(docOf(paraOf(textOf('hello world'))), docOf(paraOf(textOf('world'))), 'trim the start')
+  assertDiffReaches(docOf(paraOf(textOf('hello world'))), docOf(paraOf(textOf('hell world'))), 'replace inside')
+  assertDiffReaches(docOf(paraOf(textOf('aa'))), docOf(paraOf(textOf('a'))), 'shrink a repeated character')
+  assertDiffReaches(docOf(paraOf(textOf('a'))), docOf(paraOf()), 'empty a paragraph')
+  assertDiffReaches(docOf(paraOf()), docOf(paraOf(textOf('a'))), 'fill an empty paragraph')
+  assertDiffReaches(docOf(paraOf(textOf('ab'))), docOf(paraOf(textOf('a', 'em'), textOf('b'))), 'split a run and mark the head')
+  assertDiffReaches(docOf(paraOf(textOf('a'), textOf('b', 'em'))), docOf(paraOf(textOf('ab', 'em'))), 'merge two runs')
+  assertDiffReaches(docOf(paraOf(textOf('ab'))), docOf(paraOf(textOf('ab', 'em'))), 'mark a whole run')
+  assertDiffReaches(docOf(codeBlockOf(textOf('abc'))), docOf(codeBlockOf(textOf('abbc'))), 'code block text')
+}
+
+/**
+ * @param {t.TestCase} _tc
+ */
+export const testDiffDocsStructureEdits = (_tc) => {
+  assertDiffReaches(docOf(paraOf(textOf('a'))), docOf(headingOf(2, textOf('a'))), 'paragraph becomes a heading')
+  assertDiffReaches(docOf(paraOf(brOf()), paraOf(textOf('z'))), docOf(hrOf(), paraOf(textOf('z'))), 'paragraph becomes a rule')
+  assertDiffReaches(docOf(hrOf()), docOf(paraOf(textOf('a'))), 'rule becomes a paragraph')
+  assertDiffReaches(docOf(paraOf(textOf('a'))), docOf(paraOf(textOf('a')), paraOf(textOf('b'))), 'append a block')
+  assertDiffReaches(docOf(paraOf(textOf('a')), paraOf(textOf('b'))), docOf(paraOf(textOf('a'))), 'drop the last block')
+  assertDiffReaches(docOf(paraOf(textOf('a')), paraOf(textOf('b'))), docOf(paraOf(textOf('b'))), 'drop the first block')
+  assertDiffReaches(
+    docOf(paraOf(textOf('a')), paraOf(textOf('b')), paraOf(textOf('c'))),
+    docOf(paraOf(textOf('a')), paraOf(textOf('c'))),
+    'drop the middle block'
+  )
+  assertDiffReaches(
+    docOf(paraOf(textOf('a')), paraOf(textOf('c'))),
+    docOf(paraOf(textOf('a')), paraOf(textOf('b')), paraOf(textOf('c'))),
+    'insert a block in the middle'
+  )
+  assertDiffReaches(docOf(blockquoteOf(paraOf(textOf('a')))), docOf(blockquoteOf(paraOf(textOf('a')), paraOf(textOf('b')))), 'append a nested block')
+  assertDiffReaches(docOf(blockquoteOf(paraOf(textOf('a')), paraOf(textOf('b')))), docOf(blockquoteOf(paraOf(textOf('a')))), 'drop a nested block')
+  assertDiffReaches(docOf(paraOf(imageOf('a'))), docOf(paraOf(imageOf('b'))), 'change an inline image')
+  assertDiffReaches(docOf(paraOf(textOf('a'))), docOf(paraOf(imageOf('b'))), 'text becomes an image')
+  assertDiffReaches(docOf(headingOf(1, textOf('a'))), docOf(headingOf(3, textOf('a'))), 'heading level only')
+  assertDiffReaches(docOf(paraOf(textOf('a'))), docOf(codeBlockOf(textOf('a'))), 'paragraph becomes a code block')
+}
+
+/**
+ * The whole point of this fork: a change in one block must not be reported as
+ * deleting the positions of every other block.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testDiffDocsKeepsPositionsOutsideTheEdit = (_tc) => {
+  const blocks = []
+  for (let i = 0; i < 20; i++) {
+    blocks.push(paraOf(textOf(`paragraph number ${i} with some words in it`)))
+  }
+  const source = docOf(...blocks)
+  blocks[10] = paraOf(textOf('paragraph number 10 with some X words in it'))
+  const target = docOf(...blocks)
+
+  const { tr, reached } = diffedTo(source, target)
+  t.assert(reached, 'diffDocs reaches the target')
+  t.compare(json(tr.doc), json(target), 'document matches the target')
+  t.assert(tr.steps.length === 1, `a single step is enough, got ${tr.steps.length}`)
+
+  const cursor = source.content.size - 4
+  const mapped = tr.mapping.mapResult(cursor, 1)
+  t.assert(!mapped.deleted, 'a cursor in a later paragraph is not reported as deleted')
+  t.assert(mapped.pos === cursor + 2, 'the cursor only shifts by the inserted text')
+}
+
+/**
+ * A content model that refuses some of the replacements the diff would want to
+ * make, so that the "give up" path is covered as well.
+ */
+const restrictiveSchema = new Schema({
+  nodes: {
+    doc: { content: 'block+' },
+    paragraph: { content: 'inline*', group: 'block' },
+    heading: { content: 'inline*', group: 'block' },
+    // The first child has to stay a paragraph.
+    wrapper: { content: 'paragraph block?', group: 'block' },
+    text: { group: 'inline' }
+  },
+  marks: {}
+})
+
+/**
+ * When the schema forbids the replacement there is no way to reach the target,
+ * and diffDocs has to say so instead of applying a partial diff: the caller
+ * throws the transaction away and replaces the whole document.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testDiffDocsReportsWhenItCannotReachTheTarget = (_tc) => {
+  const s = restrictiveSchema
+  const wrapper = (...children) => s.nodes.wrapper.create(null, Fragment.from(children))
+  const paragraph = (text) => s.nodes.paragraph.create(null, [s.text(text)])
+  const heading = (text) => s.nodes.heading.create(null, [s.text(text)])
+
+  const source = s.topNodeType.create(null, Fragment.from([wrapper(paragraph('a'), paragraph('b'))]))
+  const target = s.topNodeType.create(null, Fragment.from([wrapper(heading('x'), paragraph('b'))]))
+
+  const tr = new Transform(source)
+  t.assert(diffDocs(target, tr) === false, 'diffDocs reports that it cannot reach the target')
+}
+
+/**
+ * @param {prng.PRNG} gen
+ * @param {boolean} textOnly
+ */
+const randomInline = (gen, textOnly) => {
+  const marks = []
+  // A code block accepts neither marks nor non-text children.
+  if (!textOnly && prng.bool(gen)) marks.push(prng.oneOf(gen, [schema.mark('em'), schema.mark('strong'), schema.mark('code')]))
+  const text = prng.word(gen, 1 + prng.int32(gen, 0, 5))
+  if (textOnly || prng.bool(gen)) return schema.text(text, marks)
+  return prng.int32(gen, 0, 1) === 0
+    ? schema.node('hard_break', undefined, undefined, marks)
+    : schema.node('image', { src: `s${prng.int32(gen, 0, 2)}` }, undefined, marks)
+}
+
+/**
+ * @param {prng.PRNG} gen
+ * @param {number} depth
+ */
+const randomBlock = (gen, depth) => {
+  const kind = prng.int32(gen, 0, depth < 2 ? 5 : 4)
+  const inline = (n, textOnly) => {
+    const out = []
+    for (let i = 0; i < n; i++) out.push(randomInline(gen, textOnly))
+    return out
+  }
+  if (kind === 0 || kind === 1) return paraOf(...inline(prng.int32(gen, 0, 3), false))
+  if (kind === 2) return headingOf(1 + prng.int32(gen, 0, 2), ...inline(prng.int32(gen, 0, 3), false))
+  if (kind === 3) return codeBlockOf(...inline(prng.int32(gen, 0, 2), true))
+  if (kind === 4) return hrOf()
+  const kids = []
+  const n = 1 + prng.int32(gen, 0, 1)
+  for (let i = 0; i < n; i++) kids.push(randomBlock(gen, depth + 1))
+  return blockquoteOf(...kids)
+}
+
+/**
+ * @param {prng.PRNG} gen
+ */
+const randomDoc = (gen) => {
+  const kids = []
+  const n = 1 + prng.int32(gen, 0, 4)
+  for (let i = 0; i < n; i++) kids.push(randomBlock(gen, 0))
+  return docOf(...kids)
+}
+
+/**
+ * Random pairs of documents. This is what found the original bug: positions were
+ * mapped through the steps the diff had just added, so a step taken for one
+ * child could report the position of the next child as deleted.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testDiffDocsRandomDocuments = (_tc) => {
+  const gen = prng.create(20260922)
+  for (let i = 0; i < 2000; i++) {
+    const source = randomDoc(gen)
+    const target = randomDoc(gen)
+    const { tr, reached } = diffedTo(source, target)
+    t.assert(reached, `case ${i}: diffDocs gave up\n${JSON.stringify(source.toJSON())}\n${JSON.stringify(target.toJSON())}`)
+    t.compare(json(tr.doc), json(target), `case ${i}: diffDocs did not reach the target`)
+  }
+}
+
+/**
+ * The symptom as it was reported: while syncing a remote change the plugin
+ * logged that diffDocs produced an incorrect document and fell back to replacing
+ * the whole document, which reports every position as deleted.
+ *
+ * @param {t.TestCase} _tc
+ */
+export const testSyncPluginNeverReplacesTheWholeDocument = (_tc) => {
+  const errors = []
+  const originalConsoleError = console.error
+  console.error = (...args) => {
+    if (String(args[0]).indexOf('diffDocs produced an incorrect document') >= 0) errors.push(args)
+  }
+  try {
+    const ydoc = new Y.Doc()
+    const view = createNewProsemirrorView(ydoc)
+    const other = createNewProsemirrorView(ydoc)
+
+    view.dispatch(
+      view.state.tr.insert(0, schema.node('heading', { level: 1 }, Fragment.from([schema.node('hard_break')])))
+    )
+    const tr = view.state.tr
+    tr.replace(1, 2, new Slice(Fragment.from([schema.text('b', [schema.mark('code')])]), 0, 0))
+    tr.insert(2, schema.text('a'))
+    tr.setNodeMarkup(0, undefined, { level: 2 })
+    view.dispatch(tr)
+
+    t.compare(json(view.state.doc), json(other.state.doc), 'both views hold the remote change')
+  } finally {
+    console.error = originalConsoleError
+  }
+  t.compare(errors, [], 'the sync plugin never produced an incorrect document')
+}
