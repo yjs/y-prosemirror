@@ -1,6 +1,6 @@
 {
   "name": "@gamma-app/y-prosemirror",
-  "version": "1.2.3-8",
+  "version": "1.2.3-9",
   "description": "Prosemirror bindings for Yjs",
   "main": "./dist/y-prosemirror.cjs",
   "module": "./src/y-prosemirror.js",
