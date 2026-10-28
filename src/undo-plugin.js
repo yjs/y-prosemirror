@@ -102,41 +102,46 @@ const buildNextState = (val, prevSel, addToHistory) => {
  *
  * @param {import('prosemirror-view').EditorView} view
  * @param {() => UndoPluginState['prevSel']} getLatestPrevSel
- * @returns {{ onStackItemAdded: (...args: any[]) => void, onStackItemPopped: (...args: any[]) => void, resetStackLength: (length: number) => void }}
+ * @returns {{ onStackItemAdded: (...args: any[]) => void, onStackItemUpdated: (...args: any[]) => void, onStackItemPopped: (...args: any[]) => void }}
  */
 const createStackHandlers = (view, getLatestPrevSel) => {
-  let lastUndoStackLength = 0
-  /** @type {UndoPluginState['prevSel']} */
-  let currentGroupSel = null
-
   return {
-    resetStackLength: (length) => {
-      lastUndoStackLength = length
-    },
-
     onStackItemAdded: (/** @type {{ stackItem: any, type: string }} */ { stackItem, type }) => {
       if (type !== 'undo') return
       const prevSel = getLatestPrevSel() ?? yUndoPluginKey.getState(view.state)?.prevSel
       const um = yUndoPluginKey.getState(view.state)?.undoManager
-      if (!um) return
-      const currentLength = um.undoStack.length
-      const isMerge = currentLength === lastUndoStackLength
-      if (!isMerge) {
-        // New undo group — capture the selection from before this edit
-        currentGroupSel = prevSel ?? null
-      }
-      // Always set on the (possibly new/replaced) stack item, using the group's original selection
-      if (currentGroupSel) {
-        stackItem.meta.set(yUndoPluginKey, currentGroupSel)
-      }
-      lastUndoStackLength = currentLength
+      if (!um || um.undoing || um.redoing) return
+      // New group: save both endpoints. Merged edits only update the latter.
+      stackItem.meta.set(yUndoPluginKey, {
+        before: prevSel,
+        after: getRelativeSelectionBookmark(view.state)
+      })
     },
 
-    onStackItemPopped: (/** @type {{ stackItem: any }} */ { stackItem }) => {
+    onStackItemUpdated: (/** @type {{ stackItem: any, type: string }} */ { stackItem, type }) => {
       const um = yUndoPluginKey.getState(view.state)?.undoManager
-      if (um) lastUndoStackLength = um.undoStack.length
-      currentGroupSel = null
-      const sel = stackItem.meta.get(yUndoPluginKey)
+      if (type !== 'undo' || !um || um.undoing || um.redoing) return
+      // Yjs merges into the existing item and emits updated, not added.
+      // Preserve the group's first before-selection; only refresh its endpoint.
+      const selections = stackItem.meta.get(yUndoPluginKey)
+      if (selections) selections.after = getRelativeSelectionBookmark(view.state)
+    },
+
+    onStackItemPopped: (/** @type {{ stackItem: any, type: string }} */ { stackItem, type }) => {
+      const um = yUndoPluginKey.getState(view.state)?.undoManager
+      // The inverse item is added before this event fires (yjs/yjs#353).
+      // Swap the group's endpoints so redo restores the original after-selection,
+      // and a subsequent undo still restores the original before-selection.
+      const inverseStack = type === 'undo' ? um?.redoStack : um?.undoStack
+      const inverseItem = inverseStack?.[inverseStack.length - 1]
+      const selections = stackItem.meta.get(yUndoPluginKey)
+      if (inverseItem && selections) {
+        inverseItem.meta.set(yUndoPluginKey, {
+          before: selections.after,
+          after: selections.before
+        })
+      }
+      const sel = selections?.before
       if (!sel) return
       const syncState = ySyncPluginKey.getState(view.state)
       if (!syncState?.ytype) return
@@ -231,8 +236,8 @@ export const yUndoPlugin = (undoManager) => {
 
       const bindUndoManager = () => {
         handlers = createStackHandlers(view, () => latestPrevSel)
-        handlers.resetStackLength(undoManager.undoStack.length)
         undoManager.on('stack-item-added', handlers.onStackItemAdded)
+        undoManager.on('stack-item-updated', handlers.onStackItemUpdated)
         undoManager.on('stack-item-popped', handlers.onStackItemPopped)
         undoManager.trackedOrigins.add(ySyncPluginKey.get(view.state))
       }
@@ -243,6 +248,7 @@ export const yUndoPlugin = (undoManager) => {
           return
         }
         undoManager.off('stack-item-added', handlers.onStackItemAdded)
+        undoManager.off('stack-item-updated', handlers.onStackItemUpdated)
         undoManager.off('stack-item-popped', handlers.onStackItemPopped)
         undoManager.trackedOrigins.delete(ySyncPluginKey.get(view.state))
         handlers = null

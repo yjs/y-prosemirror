@@ -137,6 +137,46 @@ export const testCursorPositionAfterUndo = () => {
   t.assert(view.state.selection.anchor === 4, 'cursor restored to position 4 after undo')
 }
 
+/**
+ * Undo/redo restore the edit group's selections, not later cursor movements.
+ * @param {t.TestCase} _tc
+ */
+export const testUndoRedoSelectionsAfterCursorMoves = _tc => {
+  const ydoc = new Y.Doc()
+  const view = createProsemirrorView(ydoc.get('prosemirror'))
+  const um = getUndoManager(view.state)
+  try {
+    insertParagraph(view, 'abcdefghijklmnop')
+    um.stopCapturing()
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 3)))
+    // These edits merge: preserve the first before-selection and last after-selection.
+    view.dispatch(view.state.tr.insertText('X'))
+    const group = um.undoStack[um.undoStack.length - 1]
+    const stackLength = um.undoStack.length
+    view.dispatch(view.state.tr.insertText('YZ'))
+    t.compare(um.undoStack.length, stackLength, 'merged edits keep the same stack length')
+    t.assert(um.undoStack[um.undoStack.length - 1] === group, 'merged edits update the existing item')
+    t.compare(view.state.selection.anchor, 6)
+    um.stopCapturing()
+
+    for (let i = 0; i < 2; i++) {
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 12)))
+      YPM.undo(view.state)
+      t.compare(view.state.doc.textContent, 'abcdefghijklmnop')
+      t.compare(view.state.selection.anchor, 3, 'undo restores the selection before the group')
+
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 10)))
+      YPM.redo(view.state)
+      t.compare(view.state.doc.textContent, 'abXYZcdefghijklmnop')
+      t.compare(view.state.selection.anchor, 6, 'redo restores the selection after the group')
+    }
+  } finally {
+    view.destroy()
+    um.destroy()
+    ydoc.destroy()
+  }
+}
+
 export const testMultipleUndoRedo = () => {
   const ydoc = new Y.Doc()
   const ytype = ydoc.get('prosemirror')
@@ -226,7 +266,7 @@ export const testCursorAfterTypeThenMoveThenUndo = () => {
 /**
  * Type multiple characters that merge into one undo group, move cursor, undo →
  * cursor should go to where the FIRST character was typed, not the last.
- * Reproduces the merge bug where UndoManager creates fresh StackItems on merge.
+ * Merged edits must not overwrite the group's original before-selection.
  */
 export const testCursorAfterMergedTypesThenMoveThenUndo = () => {
   const ydoc = new Y.Doc()
