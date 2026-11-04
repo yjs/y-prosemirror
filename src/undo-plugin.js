@@ -203,6 +203,13 @@ export const yUndoPlugin = (undoManager) => {
             addToHistory: true
           }
         }
+        // ProseMirror's closeHistory resets grouping before processing the marked
+        // transaction, including empty and addToHistory:false transactions. Its
+        // private PluginKey is exposed on transactions as the closeHistory$ meta.
+        // Use the active manager after any replacement above.
+        if (tr.getMeta('closeHistory$')) {
+          val.undoManager.stopCapturing()
+        }
         const addToHistory = updateTrackedOrigins(
           tr, val.undoManager, newState, val.addToHistory
         )

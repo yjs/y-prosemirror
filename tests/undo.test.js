@@ -5,6 +5,7 @@ import * as Y from '@y/y'
 import { EditorState, Plugin, TextSelection } from 'prosemirror-state'
 import { Schema } from 'prosemirror-model'
 import { EditorView } from 'prosemirror-view'
+import { closeHistory } from 'prosemirror-history'
 
 /**
  * @param {import('prosemirror-state').EditorState} state
@@ -66,6 +67,75 @@ const insertParagraph = (view, text, pos = 0, opts = {}) => {
 }
 
 // --- Tests ---
+
+/**
+ * Initialize outside history; an unlimited capture window keeps grouping deterministic.
+ * @param {(view: EditorView, ytype: Y.Node) => void} run
+ */
+const withHistoryBoundaryView = run => {
+  const ydoc = new Y.Doc()
+  const ytype = ydoc.get('prosemirror')
+  ytype.applyDelta(YPM.pmnodeToDelta(schema.node('doc', null, [schema.node('paragraph')])))
+  const undoManager = new Y.UndoManager(ytype, { captureTimeout: Infinity })
+  const view = createProsemirrorViewWithUm(ytype, undoManager)
+  try {
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 1)))
+    run(view, ytype)
+  } finally {
+    view.destroy()
+    undoManager.destroy()
+    ydoc.destroy()
+  }
+}
+
+/** @param {EditorView} view */
+const assertBoundaryUndoRedo = view => {
+  t.compare(view.state.doc.textContent, 'firstsecond')
+  YPM.undo(view.state)
+  t.compare(view.state.doc.textContent, 'first')
+  YPM.undo(view.state)
+  t.compare(view.state.doc.toJSON(), schema.node('doc', null, [schema.node('paragraph')]).toJSON())
+  t.assert(!YPM.undo(view.state), 'initial paragraph is outside history')
+  YPM.redo(view.state)
+  t.compare(view.state.doc.textContent, 'first')
+  YPM.redo(view.state)
+  t.compare(view.state.doc.textContent, 'firstsecond')
+}
+
+/** @param {t.TestCase} _tc */
+export const testCloseHistoryBoundary = _tc => withHistoryBoundaryView(view => {
+  view.dispatch(view.state.tr.insertText('first'))
+  view.dispatch(closeHistory(view.state.tr))
+  view.dispatch(view.state.tr.insertText('second'))
+  assertBoundaryUndoRedo(view)
+})
+
+/** @param {t.TestCase} _tc */
+export const testEditsWithoutCloseHistoryStayGrouped = _tc => withHistoryBoundaryView(view => {
+  view.dispatch(view.state.tr.insertText('first'))
+  view.dispatch(view.state.tr.insertText('second'))
+  YPM.undo(view.state)
+  t.compare(view.state.doc.textContent, '')
+  t.assert(!YPM.undo(view.state), 'consecutive edits share one group')
+  YPM.redo(view.state)
+  t.compare(view.state.doc.textContent, 'firstsecond')
+})
+
+/** @param {t.TestCase} _tc */
+export const testCloseHistoryOnUndoManagerReplacement = _tc => withHistoryBoundaryView((view, ytype) => {
+  const replacement = new Y.UndoManager(ytype, { captureTimeout: Infinity })
+  replacement.trackedOrigins.add(YPM.ySyncPluginKey.get(view.state))
+  try {
+    view.dispatch(view.state.tr.insertText('first'))
+    // The incoming manager already captured "first"; the marked edit must start a new group.
+    view.dispatch(closeHistory(view.state.tr.insertText('sec')).setMeta(YPM.yUndoPluginKey, { undoManager: replacement }))
+    view.dispatch(view.state.tr.insertText('ond'))
+    t.assert(getUndoManager(view.state) === replacement)
+    assertBoundaryUndoRedo(view)
+  } finally {
+    replacement.destroy()
+  }
+})
 
 export const testBasicUndoRedo = () => {
   const ydoc = new Y.Doc()
