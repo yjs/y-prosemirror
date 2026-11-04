@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Undo/redo selection restoration
+
+Undo and redo now put your cursor or selection back where it was when you
+made the edit, rather than leaving it at an unrelated position after you
+clicked elsewhere.
+
+For example, type a word, click somewhere else, then undo: the word is removed
+and your cursor returns to where you started typing. Redo restores the word
+and places your cursor at its end, even if you moved the cursor again before
+redoing. This also works when several keystrokes are grouped into one undo
+step and when you undo and redo repeatedly.
+
 ### ✨ Implied format attribution is no longer rendered
 
 A span that a user inserted and also formatted used to carry both
