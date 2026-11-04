@@ -262,6 +262,33 @@ export const testEmptyParagraph = (_tc) => {
 }
 
 /**
+ * Replacing a mark with a different mark that has the same number of attrs must sync.
+ *
+ * @param {t.TestCase} tc
+ */
+export const testReplaceMarkWithOtherMark = (_tc) => {
+  const ydoc = new Y.Doc()
+  const view = createNewProsemirrorView(ydoc)
+  view.dispatch(
+    view.state.tr.insert(
+      0,
+      /** @type {any} */ (schema.node(
+        'paragraph',
+        undefined,
+        schema.text('hello', [schema.mark('strong')])
+      ))
+    )
+  )
+  view.dispatch(
+    view.state.tr
+      .removeMark(1, 6, schema.marks.strong)
+      .addMark(1, 6, schema.mark('em'))
+  )
+  const [text] = yXmlFragmentToProsemirrorJSON(ydoc.getXmlFragment('prosemirror')).content[0].content
+  t.compare(text.marks.map((/** @type {any} */ m) => m.type), ['em'])
+}
+
+/**
  * Test duplication issue https://github.com/yjs/y-prosemirror/issues/161
  *
  * @param {t.TestCase} tc
