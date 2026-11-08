@@ -351,6 +351,96 @@ export const testInsertRightMatch = (_tc) => {
   t.assert(lastP.toString() === '<paragraph></paragraph>', 'last paragraph remains empty and is placed at the end')
 }
 
+/**
+ * Two users, each with their own undo manager, editing the same paragraph.
+ * Updates are forwarded synchronously with a remote origin, so each undo manager
+ * only tracks its own user's edits.
+ *
+ * @param {function(EditorView, EditorView): void} edit receives (viewA, viewB)
+ */
+const twoUsersEditThenAUndoes = (edit) => {
+  const ydocA = new Y.Doc()
+  const ydocB = new Y.Doc()
+  ydocA.on('update', (update, origin) => {
+    if (origin !== 'remote') Y.applyUpdate(ydocB, update, 'remote')
+  })
+  ydocB.on('update', (update, origin) => {
+    if (origin !== 'remote') Y.applyUpdate(ydocA, update, 'remote')
+  })
+  const viewA = createNewProsemirrorViewWithUndoManager(ydocA)
+  const viewB = createNewProsemirrorViewWithUndoManager(ydocB)
+  viewA.dispatch(viewA.state.tr.insert(0, /** @type {any} */ (schema.node('paragraph'))))
+  // Keep the paragraph out of A's typing step, so the undo below removes A's text only.
+  yUndoPluginKey.getState(viewA.state)?.undoManager.stopCapturing()
+  edit(viewA, viewB)
+  undo(viewA.state)
+  return { viewA, viewB }
+}
+
+/**
+ * @param {EditorView} view
+ * @param {number} pos
+ * @param {string} text
+ * @param {Array<any>} [marks]
+ */
+const typeAt = (view, pos, text, marks) => {
+  for (let i = 0; i < text.length; i++) {
+    const tr = view.state.tr.insertText(text[i], pos + i)
+    if (marks) tr.addMark(pos + i, pos + i + 1, marks[0])
+    view.dispatch(tr)
+  }
+}
+
+/**
+ * B types "beta " in front of A's "alpha". When B types its "a", the text goes
+ * "betalpha" -> "betaalpha", and a plain string diff (lib0 `simpleDiff`) places
+ * the new "a" AFTER A's "a" (index 4, not 3). B's caret is still before A's "a",
+ * so B's next character (" ") lands between the two: "bet" + A's "a" + " " + B's
+ * "a". A's undo then removes A's characters and leaves "bet a" instead of "beta ".
+ * With the caret passed to the diff (`simpleDiffStringWithCursor`), B's "a" is
+ * inserted where B typed it.
+ */
+export const testUndoKeepsOtherUsersTextWhenPrepending = (_tc) => {
+  const { viewA, viewB } = twoUsersEditThenAUndoes((viewA, viewB) => {
+    typeAt(viewA, 1, 'alpha')
+    typeAt(viewB, 1, 'beta ')
+  })
+  t.compareStrings(viewA.state.doc.textContent, 'beta ')
+  t.compareStrings(viewB.state.doc.textContent, 'beta ')
+}
+
+/**
+ * Repeated characters: B types "ab" in the middle of A's "aaaa". The diff puts
+ * B's "a" after all of A's, then B's "b" lands before it, so A's undo used to
+ * leave "ba" instead of "ab".
+ */
+export const testUndoKeepsOtherUsersTextWithRepeatedChars = (_tc) => {
+  const { viewA, viewB } = twoUsersEditThenAUndoes((viewA, viewB) => {
+    typeAt(viewA, 1, 'aaaa')
+    typeAt(viewB, 3, 'ab')
+  })
+  t.compareStrings(viewA.state.doc.textContent, 'ab')
+  t.compareStrings(viewB.state.doc.textContent, 'ab')
+}
+
+/**
+ * The same ambiguity inside a marked run: B types bold "al" before A's "alpha".
+ */
+export const testUndoKeepsOtherUsersMarkedText = (_tc) => {
+  const { viewA } = twoUsersEditThenAUndoes((viewA, viewB) => {
+    typeAt(viewA, 1, 'alpha')
+    typeAt(viewB, 1, 'al', [schema.mark('strong')])
+  })
+  /**
+   * @type {Array<any>}
+   */
+  const textNodes = []
+  viewA.state.doc.descendants(node => {
+    if (node.isText) textNodes.push(node.toJSON())
+  })
+  t.compare(textNodes, [{ type: 'text', text: 'al', marks: [{ type: 'strong' }] }])
+}
+
 export const testAddToHistory = (_tc) => {
   const ydoc = new Y.Doc()
   const view = createNewProsemirrorViewWithUndoManager(ydoc)

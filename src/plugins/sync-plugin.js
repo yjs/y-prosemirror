@@ -8,7 +8,7 @@ import { AllSelection, Plugin, TextSelection, NodeSelection } from "prosemirror-
 import * as math from 'lib0/math'
 import * as object from 'lib0/object'
 import * as set from 'lib0/set'
-import { simpleDiff } from 'lib0/diff'
+import { simpleDiff, simpleDiffStringWithCursor } from 'lib0/diff'
 import * as error from 'lib0/error'
 import { ySyncPluginKey, yUndoPluginKey } from './keys.js'
 import * as Y from 'yjs'
@@ -27,6 +27,8 @@ import * as utils from '../utils.js'
  * @typedef {Object} BindingMetadata
  * @property {ProsemirrorMapping} BindingMetadata.mapping
  * @property {Map<import('prosemirror-model').MarkType, boolean>} BindingMetadata.isOMark - is overlapping mark
+ * @property {import('prosemirror-model').Node|null} [BindingMetadata._cursorParent] - textblock where the local change started
+ * @property {number} [BindingMetadata._cursorOffset] - offset of the local change inside `_cursorParent`
  */
 
 /**
@@ -149,6 +151,16 @@ export const ySyncPlugin = (yXmlFragment, {
         pluginState.isChangeOrigin = change !== undefined &&
           !!change.isChangeOrigin
         pluginState.isUndoRedoOperation = change !== undefined && !!change.isChangeOrigin && !!change.isUndoRedoOperation
+        if (tr.docChanged && !pluginState.isChangeOrigin) {
+          let from = binding._changeFrom == null ? null : tr.mapping.map(binding._changeFrom, -1)
+          tr.mapping.maps.forEach((m, i) => m.forEach((_os, _oe, newStart) => {
+            const p = tr.mapping.slice(i + 1).map(newStart, -1)
+            from = from == null ? p : Math.min(from, p)
+          }))
+          binding._changeFrom = from
+        } else if (tr.docChanged) {
+          binding._changeFrom = null
+        }
         if (binding.prosemirrorView !== null) {
           if (
             change !== undefined &&
@@ -332,6 +344,17 @@ export class ProsemirrorBinding {
      * current selection as relative positions in the Yjs model
      */
     this.beforeTransactionSelection = null
+    /**
+     * Smallest start position of the local changes not yet written to Yjs
+     * (mapped to the current document), used to place the text diff.
+     * @type {number|null}
+     */
+    this._changeFrom = null
+    /**
+     * @type {import('prosemirror-model').Node|null}
+     */
+    this._cursorParent = null
+    this._cursorOffset = 0
     this.beforeAllTransactions = () => {
       if (this.beforeTransactionSelection === null && this.prosemirrorView != null) {
         this.beforeTransactionSelection = getRelativeSelection(
@@ -646,6 +669,13 @@ export class ProsemirrorBinding {
    * @param {import('prosemirror-model').Node} doc
    */
   _prosemirrorChanged (doc) {
+    this._cursorParent = null
+    if (this._changeFrom != null) {
+      const $p = doc.resolve(Math.min(this._changeFrom, doc.content.size))
+      this._cursorParent = $p.parent
+      this._cursorOffset = $p.parentOffset
+    }
+    this._changeFrom = null
     this.doc.transact(() => {
       updateYFragment(this.doc, this.type, doc, this)
       this.beforeTransactionSelection = getRelativeSelection(
@@ -1072,17 +1102,17 @@ const ytextTrans = (ytext) => {
  * @param {Array<any>} ptexts
  * @param {BindingMetadata} meta
  */
-const updateYText = (ytext, ptexts, meta) => {
+const updateYText = (ytext, ptexts, meta, cursor) => {
   meta.mapping.set(ytext, ptexts)
   const { nAttrs, str } = ytextTrans(ytext)
   const content = ptexts.map((p) => ({
     insert: /** @type {any} */ (p).text,
     attributes: Object.assign({}, nAttrs, marksToAttributes(p.marks, meta))
   }))
-  const { insert, remove, index } = simpleDiff(
-    str,
-    content.map((c) => c.insert).join('')
-  )
+  const next = content.map((c) => c.insert).join('')
+  const { insert, remove, index } = cursor == null
+    ? simpleDiff(str, next)
+    : simpleDiffStringWithCursor(str, next, cursor)
   ytext.delete(index, remove)
   ytext.insert(index, insert)
   ytext.applyDelta(
@@ -1213,7 +1243,18 @@ export const updateYFragment = (y, yDomFragment, pNode, meta) => {
       const rightP = pChildren[pChildCnt - right - 1]
       if (leftY instanceof Y.XmlText && leftP instanceof Array) {
         if (!equalYTextPText(leftY, leftP)) {
-          updateYText(leftY, leftP, meta)
+          let cursor
+          if (meta._cursorParent != null && pNode === meta._cursorParent) {
+            let runStart = 0
+            for (let i = 0; i < left; i++) {
+              const c = pChildren[i]
+              runStart += c instanceof Array ? c.reduce((n, t) => n + t.nodeSize, 0) : c.nodeSize
+            }
+            const runLen = leftP.reduce((n, t) => n + t.nodeSize, 0)
+            const off = meta._cursorOffset - runStart
+            if (off >= 0 && off <= runLen) cursor = off
+          }
+          updateYText(leftY, leftP, meta, cursor)
         }
         left += 1
       } else {
