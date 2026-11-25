@@ -57,7 +57,8 @@ export const $syncPluginStateUpdate = s.$object({
   customCompare: /** @type {s.Schema<NodeCompare>} */ (s.$function).nullable.optional,
   isInitialContent: /** @type {s.Schema<IsInitialContent>} */ (s.$function).nullable.optional,
   binding: /** @type {s.Schema<import('lib0/delta/rdt').Binding<any, any>>} */ (s.$instanceOf(Binding)).nullable.optional,
-  change: /** @type {s.Schema<Y.YEvent<any>>} */ (s.$any).nullable.optional
+  change: /** @type {s.Schema<Y.YEvent<any>>} */ (s.$any).nullable.optional,
+  isUndoRedoOperation: s.$boolean.optional
 })
 const $maybeSyncPluginStateUpdate = $syncPluginStateUpdate.nullable
 
@@ -373,7 +374,8 @@ export const syncPlugin = (opts = {}) => {
             change: null,
             renderer,
             attributionMapper,
-            ytype
+            ytype,
+            isUndoRedoOperation: yRdt.isUndoRedoOperation
           })
         })
         // Store the rdts *before* binding: the Binding constructor runs the

@@ -85,6 +85,55 @@ export const testBasicUndoRedo = () => {
   t.assert(view.state.doc.textContent === '', 'insertion was undone again')
 }
 
+export const testUndoRedoTransactionMeta = () => {
+  const ydoc = new Y.Doc()
+  const peerDoc = new Y.Doc()
+  const ytype = ydoc.get('prosemirror')
+  const view = createProsemirrorView(ytype)
+  const peerView = createProsemirrorView(peerDoc.get('prosemirror'))
+  /** @param {EditorView} editor */
+  const recordSyncFlags = editor => {
+    /** @type {boolean[]} */
+    const flags = []
+    editor.setProps({
+      dispatchTransaction (tr) {
+        const meta = tr.getMeta('y-sync-transaction')
+        if (tr.docChanged && meta != null) flags.push(meta.isUndoRedoOperation)
+        editor.updateState(editor.state.apply(tr))
+      }
+    })
+    return flags
+  }
+  const flags = recordSyncFlags(view)
+  const peerFlags = recordSyncFlags(peerView)
+  ydoc.on('update', update => Y.applyUpdate(peerDoc, update))
+
+  try {
+    insertParagraph(view, '123')
+    t.compare(flags.splice(0), [], 'local edits are not sync transactions')
+    t.compare(peerFlags.splice(0), [false], 'ordinary synced edits are not undo/redo')
+
+    getUndoManager(view.state).undo()
+    t.compare(flags.splice(0), [true], 'undo tags the content transaction even without a ProseMirror command')
+    t.compare(peerFlags.splice(0), [false], 'undo is an ordinary synced edit on the receiving peer')
+
+    // Redo during cleanup of another transaction. Its delta is delivered
+    // after redo() returns and the manager has reset its `redoing` flag.
+    ydoc.once('afterTransaction', () => YPM.redo(view.state))
+    ydoc.get('unrelated').insert(0, 'trigger')
+    t.compare(flags.splice(0), [true], 'queued redo tags the content transaction')
+    t.compare(peerFlags.splice(0), [false], 'redo is an ordinary synced edit on the receiving peer')
+
+    ytype.delete(0, 1)
+    t.compare(flags, [false], 'the flag does not carry over to later Yjs transactions')
+  } finally {
+    peerView.destroy()
+    view.destroy()
+    ydoc.destroy()
+    peerDoc.destroy()
+  }
+}
+
 export const testAddToHistory = () => {
   const ydoc = new Y.Doc()
   const ytype = ydoc.get('prosemirror')
