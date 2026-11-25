@@ -327,6 +327,10 @@ a different document (e.g. a suggestion document), use a separate manager for it
 Undo and redo are scoped to the local client, so one peer won't undo another's
 changes. See [Y.UndoManager](https://docs.yjs.dev/api/undo-manager) for more details.
 
+To detect a document update applied by a local `Y.UndoManager`, check
+`tr.getMeta('y-sync-transaction')?.isUndoRedoOperation`. It is `true` for both
+undo and redo, and `false` for ordinary sync updates, including on receiving peers.
+
 Just like prosemirror-history, you can set a transaction's `addToHistory` meta property
 to false to prevent that transaction from being rolled back by undo. This can be helpful for programmatic
 document changes that aren't initiated by the user.

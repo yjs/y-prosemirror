@@ -1,3 +1,4 @@
+import { UndoManager } from '@y/y'
 import { ObservableV2 } from 'lib0/observable'
 import * as delta from 'lib0/delta'
 import { $prosemirrorDelta } from '../sync-utils.js'
@@ -142,6 +143,9 @@ export class YSyncRdt extends ObservableV2 {
     this.compare = compare ?? undefined
     this.$delta = $prosemirrorDelta
     this._applying = false
+    // lib0's Binding propagates the delta but replaces its origin. Expose
+    // the provenance separately for the duration of the synchronous render.
+    this.isUndoRedoOperation = false
     this._onInternalError = onInternalError
     /**
      * Set by {@link YSyncRdt#destroy}: the RDT no longer follows the ytype.
@@ -208,12 +212,28 @@ export class YSyncRdt extends ObservableV2 {
       const change = delta.diff(/** @type {any} */ (this._stateOverride), /** @type {any} */ (next), { compare: this.compare, clone: true })
       this._stateOverride = next
       if (!change.isEmpty()) {
-        this.emit('delta', [change, origin])
+        this._emitDelta(change, origin)
       }
     } else {
       // steady state: the payload is positioned exactly against the cache
       // (Yjs patches the cache right before emitting) — forward it as-is
+      this._emitDelta(d, origin)
+    }
+  }
+
+  /**
+   * @param {import('lib0/delta').Delta<any>} d
+   * @param {any} origin
+   */
+  _emitDelta (d, origin) {
+    const previous = this.isUndoRedoOperation
+    // Yjs uses the manager itself as the transaction origin for both undo
+    // and redo. The origin survives queued delivery; undoing/redoing do not.
+    this.isUndoRedoOperation = origin instanceof UndoManager
+    try {
       this.emit('delta', [d, origin])
+    } finally {
+      this.isUndoRedoOperation = previous
     }
   }
 
@@ -269,7 +289,7 @@ export class YSyncRdt extends ObservableV2 {
       this._onInternalError?.(/** @type {any} */ (err), 1)
     }
     if (change !== null && !change.isEmpty()) {
-      this.emit('delta', [change, this.origin])
+      this._emitDelta(change, this.origin)
     }
   }
 
